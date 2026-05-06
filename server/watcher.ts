@@ -70,11 +70,14 @@ export class MessageWatcher {
   private drain() {
     try {
       const fresh = listRecentMessages(this.lastRowid, 200);
+      // Advance the watermark off the RAW max so tapbacks don't get re-processed
+      // every poll (listRecentMessages filters them out of the returned list).
+      const rawMax = getMaxMessageRowid();
+      if (rawMax > this.lastRowid) {
+        this.lastRowid = rawMax;
+        setState(STATE_KEY_LAST_ROWID, String(rawMax));
+      }
       if (fresh.length === 0) return;
-      const maxId = Math.max(...fresh.map((m) => m.id));
-      this.lastRowid = maxId;
-      setState(STATE_KEY_LAST_ROWID, String(maxId));
-      // Watcher returns DESC; emit in ascending order so listeners process oldest-first.
       const ascending = fresh.slice().reverse();
       for (const fn of this.listeners) {
         try {

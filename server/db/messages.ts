@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import type { Database as DB } from 'better-sqlite3';
 import { config } from '../config.js';
 import { resolveMessageText } from '../attributedbody.js';
+import { getContactNameForHandle } from './contacts.js';
 
 /**
  * Apple stores `message.date` as nanoseconds since 2001-01-01 UTC on
@@ -42,6 +43,8 @@ export interface ChatSummary {
   identifier: string;
   display_name: string | null;
   service_name: string | null;
+  /** Resolved from macOS Contacts AddressBook, when available. */
+  contact_name: string | null;
   last_text: string | null;
   last_date_ms: number | null;
   last_is_from_me: 0 | 1 | null;
@@ -75,8 +78,10 @@ const CHAT_SUMMARIES_SQL = `
     m.ROWID            AS last_message_rowid
   FROM chat c
   JOIN (
-    SELECT cmj.chat_id AS chat_id, MAX(cmj.message_id) AS max_msg_id
+    SELECT cmj.chat_id AS chat_id, MAX(m2.ROWID) AS max_msg_id
     FROM chat_message_join cmj
+    JOIN message m2 ON m2.ROWID = cmj.message_id
+    WHERE (m2.associated_message_type IS NULL OR m2.associated_message_type = 0)
     GROUP BY cmj.chat_id
   ) latest ON latest.chat_id = c.ROWID
   JOIN message m ON m.ROWID = latest.max_msg_id
@@ -93,11 +98,57 @@ export function listChats(limit = 100): ChatSummary[] {
     identifier: r.identifier,
     display_name: r.display_name,
     service_name: r.service_name,
+    contact_name: getContactNameForHandle(r.identifier),
     last_text: resolveMessageText(r.last_text, r.last_attributedBody),
     last_date_ms: appleDateToUnixMs(r.last_date),
     last_is_from_me: (r.last_is_from_me ?? null) as 0 | 1 | null,
     last_message_rowid: r.last_message_rowid,
   }));
+}
+
+/** Tapback / reaction codes from chat.db's `message.associated_message_type`. */
+const REACTION_NAME: Record<number, string> = {
+  2000: 'loved',
+  2001: 'liked',
+  2002: 'disliked',
+  2003: 'laughed',
+  2004: 'emphasized',
+  2005: 'questioned',
+};
+const REACTION_EMOJI: Record<number, string> = {
+  2000: '❤️',
+  2001: '👍',
+  2002: '👎',
+  2003: '😂',
+  2004: '‼️',
+  2005: '❓',
+};
+
+function isReaction(t: number | null | undefined): boolean {
+  return t !== null && t !== undefined && t >= 2000 && t <= 3999;
+}
+
+function isActiveReaction(t: number): boolean {
+  return t >= 2000 && t < 3000;
+}
+
+export interface Reaction {
+  type: number;
+  type_name: string;
+  emoji: string;
+  sender_handle: string | null;
+  sender_contact_name: string | null;
+  is_from_me: 0 | 1;
+  date_ms: number | null;
+}
+
+export interface AttachmentInfo {
+  rowid: number;
+  filename: string;
+  mime_type: string | null;
+  transfer_name: string | null;
+  total_bytes: number | null;
+  is_image: boolean;
 }
 
 export interface MessageRow {
@@ -106,10 +157,16 @@ export interface MessageRow {
   text: string | null;
   handle_id: number | null;
   handle: string | null;
+  /** Resolved sender name (only populated for incoming messages with a known contact). */
+  contact_name: string | null;
   date_ms: number | null;
   is_from_me: 0 | 1;
   service: string | null;
   chat_id: number | null;
+  /** Reactions / tapbacks attached to this message (active only — removed reactions filtered out). */
+  reactions: Reaction[];
+  /** Attachments referenced by this message (images, gifs, files). */
+  attachments: AttachmentInfo[];
 }
 
 interface RawMessageRow {
@@ -123,20 +180,33 @@ interface RawMessageRow {
   is_from_me: number;
   service: string | null;
   chat_id: number | null;
+  assoc_guid: string | null;
+  assoc_type: number | null;
+}
+
+interface RawAttachmentRow {
+  message_id: number;
+  rowid: number;
+  filename: string | null;
+  mime_type: string | null;
+  transfer_name: string | null;
+  total_bytes: number | null;
 }
 
 const MESSAGES_FOR_CHAT_SQL = `
   SELECT
-    m.ROWID          AS id,
-    m.guid           AS guid,
-    m.text           AS text,
-    m.attributedBody AS attributedBody,
-    m.handle_id      AS handle_id,
-    h.id             AS handle,
-    m.date           AS date,
-    m.is_from_me     AS is_from_me,
-    m.service        AS service,
-    cmj.chat_id      AS chat_id
+    m.ROWID                   AS id,
+    m.guid                    AS guid,
+    m.text                    AS text,
+    m.attributedBody          AS attributedBody,
+    m.handle_id               AS handle_id,
+    h.id                      AS handle,
+    m.date                    AS date,
+    m.is_from_me              AS is_from_me,
+    m.service                 AS service,
+    cmj.chat_id               AS chat_id,
+    m.associated_message_guid AS assoc_guid,
+    m.associated_message_type AS assoc_type
   FROM message m
   JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
   LEFT JOIN handle h ON h.ROWID = m.handle_id
@@ -146,24 +216,117 @@ const MESSAGES_FOR_CHAT_SQL = `
   LIMIT ?;
 `;
 
+const ATTACHMENTS_FOR_MESSAGES_SQL = `
+  SELECT
+    maj.message_id    AS message_id,
+    a.ROWID           AS rowid,
+    a.filename        AS filename,
+    a.mime_type       AS mime_type,
+    a.transfer_name   AS transfer_name,
+    a.total_bytes     AS total_bytes
+  FROM message_attachment_join maj
+  JOIN attachment a ON a.ROWID = maj.attachment_id
+  WHERE maj.message_id IN (__IDS__);
+`;
+
+function loadAttachmentsForMessageIds(ids: number[]): Map<number, AttachmentInfo[]> {
+  const out = new Map<number, AttachmentInfo[]>();
+  if (ids.length === 0) return out;
+  const db = getChatDb();
+  // SQLite doesn't bind list params; build an inline parameterized list.
+  const placeholders = ids.map(() => '?').join(',');
+  const sql = ATTACHMENTS_FOR_MESSAGES_SQL.replace('__IDS__', placeholders);
+  const rows = db.prepare(sql).all(...ids) as RawAttachmentRow[];
+  for (const r of rows) {
+    if (!r.filename) continue;
+    const mime = r.mime_type ?? '';
+    const info: AttachmentInfo = {
+      rowid: r.rowid,
+      filename: r.filename,
+      mime_type: r.mime_type,
+      transfer_name: r.transfer_name,
+      total_bytes: r.total_bytes,
+      is_image: mime.startsWith('image/'),
+    };
+    const list = out.get(r.message_id);
+    if (list) list.push(info);
+    else out.set(r.message_id, [info]);
+  }
+  return out;
+}
+
+/**
+ * Process a chronologically-DESC raw row list:
+ * - Split real messages from reaction (tapback) rows.
+ * - Group reactions by (sender, target_guid), keep latest per pair.
+ * - Attach active reactions to their target messages.
+ * - Pull attachments per message_id and attach.
+ * Returns ONLY real messages (tapbacks are not surfaced as bubbles).
+ */
+function processRawMessages(rowsDesc: RawMessageRow[]): MessageRow[] {
+  const real: MessageRow[] = [];
+  const realByGuid = new Map<string, MessageRow>();
+  for (const r of rowsDesc) {
+    if (isReaction(r.assoc_type)) continue;
+    const m = toMessageRow(r);
+    real.push(m);
+    realByGuid.set(m.guid, m);
+  }
+
+  // Reactions in chronological order so "latest per sender+target" wins.
+  const reactionsAsc = rowsDesc.filter((r) => isReaction(r.assoc_type)).reverse();
+  const latest = new Map<string, RawMessageRow>();
+  for (const r of reactionsAsc) {
+    if (!r.assoc_guid) continue;
+    const senderKey = r.is_from_me ? '__me__' : r.handle ?? '__null__';
+    latest.set(`${senderKey}::${r.assoc_guid}`, r);
+  }
+  for (const r of latest.values()) {
+    if (!isActiveReaction(r.assoc_type!)) continue;
+    const target = realByGuid.get(r.assoc_guid!);
+    if (!target) continue;
+    target.reactions.push({
+      type: r.assoc_type!,
+      type_name: REACTION_NAME[r.assoc_type!] || 'unknown',
+      emoji: REACTION_EMOJI[r.assoc_type!] || '·',
+      sender_handle: r.handle,
+      sender_contact_name: r.is_from_me ? null : getContactNameForHandle(r.handle),
+      is_from_me: (r.is_from_me ? 1 : 0) as 0 | 1,
+      date_ms: appleDateToUnixMs(r.date),
+    });
+  }
+
+  // Attachments for the surviving real messages.
+  const ids = real.map((m) => m.id);
+  const byMsg = loadAttachmentsForMessageIds(ids);
+  for (const m of real) {
+    const atts = byMsg.get(m.id);
+    if (atts && atts.length) m.attachments = atts;
+  }
+
+  return real;
+}
+
 export function listMessagesForChat(chatId: number, sinceRowid = 0, limit = 200): MessageRow[] {
   const db = getChatDb();
   const rows = db.prepare(MESSAGES_FOR_CHAT_SQL).all(chatId, sinceRowid, limit) as RawMessageRow[];
-  return rows.map(toMessageRow);
+  return processRawMessages(rows);
 }
 
 const RECENT_MESSAGES_SQL = `
   SELECT
-    m.ROWID          AS id,
-    m.guid           AS guid,
-    m.text           AS text,
-    m.attributedBody AS attributedBody,
-    m.handle_id      AS handle_id,
-    h.id             AS handle,
-    m.date           AS date,
-    m.is_from_me     AS is_from_me,
-    m.service        AS service,
-    cmj.chat_id      AS chat_id
+    m.ROWID                   AS id,
+    m.guid                    AS guid,
+    m.text                    AS text,
+    m.attributedBody          AS attributedBody,
+    m.handle_id               AS handle_id,
+    h.id                      AS handle,
+    m.date                    AS date,
+    m.is_from_me              AS is_from_me,
+    m.service                 AS service,
+    cmj.chat_id               AS chat_id,
+    m.associated_message_guid AS assoc_guid,
+    m.associated_message_type AS assoc_type
   FROM message m
   LEFT JOIN handle h ON h.ROWID = m.handle_id
   LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
@@ -175,20 +338,24 @@ const RECENT_MESSAGES_SQL = `
 export function listRecentMessages(sinceRowid = 0, limit = 100): MessageRow[] {
   const db = getChatDb();
   const rows = db.prepare(RECENT_MESSAGES_SQL).all(sinceRowid, limit) as RawMessageRow[];
-  return rows.map(toMessageRow);
+  return processRawMessages(rows);
 }
 
 function toMessageRow(r: RawMessageRow): MessageRow {
+  const isFromMe = (r.is_from_me ? 1 : 0) as 0 | 1;
   return {
     id: r.id,
     guid: r.guid,
     text: resolveMessageText(r.text, r.attributedBody),
     handle_id: r.handle_id,
     handle: r.handle,
+    contact_name: isFromMe ? null : getContactNameForHandle(r.handle),
     date_ms: appleDateToUnixMs(r.date),
-    is_from_me: (r.is_from_me ? 1 : 0) as 0 | 1,
+    is_from_me: isFromMe,
     service: r.service,
     chat_id: r.chat_id,
+    reactions: [],
+    attachments: [],
   };
 }
 
@@ -198,4 +365,38 @@ export function getMaxMessageRowid(): number {
     | { max_rowid: number | null }
     | undefined;
   return row?.max_rowid ?? 0;
+}
+
+const SENT_MESSAGES_SQL = `
+  SELECT
+    m.ROWID                   AS id,
+    m.guid                    AS guid,
+    m.text                    AS text,
+    m.attributedBody          AS attributedBody,
+    m.handle_id               AS handle_id,
+    h.id                      AS handle,
+    m.date                    AS date,
+    1                         AS is_from_me,
+    m.service                 AS service,
+    cmj.chat_id               AS chat_id,
+    m.associated_message_guid AS assoc_guid,
+    m.associated_message_type AS assoc_type
+  FROM message m
+  LEFT JOIN handle h ON h.ROWID = m.handle_id
+  LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+  WHERE m.is_from_me = 1
+    AND (m.associated_message_type IS NULL OR m.associated_message_type = 0)
+  ORDER BY m.date DESC
+  LIMIT ?;
+`;
+
+/**
+ * Pull the most recent N messages the user themselves sent. Used by the
+ * voice-profile generator to learn the user's style across the corpus,
+ * not just within a single thread. Reactions/tapbacks excluded.
+ */
+export function listSentMessages(limit = 200): MessageRow[] {
+  const db = getChatDb();
+  const rows = db.prepare(SENT_MESSAGES_SQL).all(limit) as RawMessageRow[];
+  return rows.map(toMessageRow).filter((r) => r.text !== null);
 }

@@ -71,6 +71,497 @@ export async function classifyIncoming(text: string): Promise<ClassificationResu
 }
 
 /* ------------------------------------------------------------------ */
+/* voice profile — incremental refinement of the user's writing style */
+/* ------------------------------------------------------------------ */
+
+const VOICE_PROFILE_SYSTEM = `You are profiling how a specific user writes iMessages so that an AI can later draft replies in their voice. Output a concise prose voice profile (300–600 words) — no JSON, no preamble, no headers required, no markdown bullets unless they help. Be specific and evidence-based. Do NOT invent traits not visible in the data.
+
+Cover (where the data supports it):
+- Capitalization habits (all-lowercase, sentence case, mixed)
+- Punctuation tendencies (periods? ellipses? em dashes? exclamations?)
+- Length / brevity preferences (one-liners vs. paragraphs; per-context)
+- Vocabulary, slang, catchphrases, acronyms, signature words
+- Profanity usage and which words appear
+- Emoji density and which emoji actually show up
+- Tone (humor, sarcasm, warmth, terseness, formality)
+- Greeting / signoff habits (or absence thereof)
+- Per-context shifts you can observe (work vs. friends vs. family)
+- Anything else distinctive
+
+When given an EXISTING profile, treat it as prior knowledge: preserve well-grounded observations, refine when new evidence sharpens or contradicts them, and add new patterns visible in the recent sample. Do not throw away good prior insights just because the recent sample is small.`;
+
+export interface VoiceProfileInput {
+  /** Current voice profile, if any. Empty string = fresh generation. */
+  existing: string;
+  /** Optional user-supplied context/guidance (e.g. background, accents, regional notes). */
+  userContext: string;
+  /** Recent sent messages from the user, oldest first. Used as the evidence corpus. */
+  samples: string[];
+}
+
+export interface VoiceProfileResult {
+  profile: string;
+  model: string;
+  sampleCount: number;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+export async function generateVoiceProfile(input: VoiceProfileInput): Promise<VoiceProfileResult> {
+  const client = getOpenAI();
+  const corpus = input.samples
+    .map((s, i) => `[${i + 1}] ${s.replace(/\n+/g, ' ').trim()}`)
+    .join('\n');
+
+  const sections: string[] = [];
+  if (input.existing && input.existing.trim()) {
+    sections.push(
+      `EXISTING PROFILE (refine, don't replace cold — preserve what holds up, sharpen what new evidence supports):\n"""\n${input.existing.trim()}\n"""`,
+    );
+  }
+  if (input.userContext && input.userContext.trim()) {
+    sections.push(`USER-SUPPLIED CONTEXT:\n"""\n${input.userContext.trim()}\n"""`);
+  }
+  sections.push(
+    `RECENT SAMPLE (${input.samples.length} of the user's most recent sent messages, oldest first):\n${corpus}`,
+  );
+  sections.push(
+    `Now output the UPDATED voice profile in concise prose. ${
+      input.existing ? 'Build on the existing profile; do not start over.' : 'Generate a fresh profile.'
+    }`,
+  );
+
+  const resp = await client.chat.completions.create({
+    model: config.openai.model,
+    messages: [
+      { role: 'system', content: VOICE_PROFILE_SYSTEM },
+      { role: 'user', content: sections.join('\n\n') },
+    ],
+    max_tokens: 900,
+    temperature: 0.3,
+  });
+
+  const profile = (resp.choices[0]?.message?.content ?? '').trim();
+  const usage = resp.usage
+    ? {
+        prompt_tokens: resp.usage.prompt_tokens,
+        completion_tokens: resp.usage.completion_tokens,
+        total_tokens: resp.usage.total_tokens,
+      }
+    : undefined;
+  return {
+    profile,
+    model: resp.model || config.openai.model,
+    sampleCount: input.samples.length,
+    usage,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* summarize — quick TL;DR of a thread                                 */
+/* ------------------------------------------------------------------ */
+
+const SUMMARIZE_SYSTEM = `You are summarizing recent iMessages for the user.
+
+Output a tight bullet-point digest of what was actually said and what (if anything) needs the user's attention. Be honest — if the thread is just banter or has no substance, say that in one line.
+
+Format:
+- 2–7 bullet points covering the main topics or asks (markdown "-" bullets are fine)
+- Group by topic when distinct things happened
+- Skip greetings, pleasantries, and trivia unless they matter
+- For anything that needs a response, end the bullet with "→ needs reply"
+- No preamble, no closing — just the bullets
+
+Plain text only — no JSON, no headers.`;
+
+export interface SummarizeInput {
+  thread: ThreadTurn[];
+}
+
+export interface SummarizeResult {
+  summary: string;
+  model: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+export async function summarizeThread(input: SummarizeInput): Promise<SummarizeResult> {
+  const client = getOpenAI();
+  const threadText = input.thread
+    .map((m) => `${m.author === 'me' ? 'me' : m.attribution ? `them (${m.attribution})` : 'them'}: ${m.text}`)
+    .join('\n');
+
+  const resp = await client.chat.completions.create({
+    model: config.openai.model,
+    messages: [
+      { role: 'system', content: SUMMARIZE_SYSTEM },
+      { role: 'user', content: `Recent thread (oldest → newest):\n${threadText}\n\nSummarize.` },
+    ],
+    max_tokens: 600,
+    temperature: 0.3,
+  });
+
+  const summary = (resp.choices[0]?.message?.content ?? '').trim();
+  const usage = resp.usage
+    ? {
+        prompt_tokens: resp.usage.prompt_tokens,
+        completion_tokens: resp.usage.completion_tokens,
+        total_tokens: resp.usage.total_tokens,
+      }
+    : undefined;
+  return { summary, model: resp.model || config.openai.model, usage };
+}
+
+/* ------------------------------------------------------------------ */
+/* radar — per-contact memory bank: extract signals + distill profile  */
+/* ------------------------------------------------------------------ */
+
+export const RADAR_CATEGORIES_SET = new Set([
+  'likes',
+  'dislikes',
+  'wants',
+  'obsessed',
+  'schedule',
+  'vacation',
+  'gifts',
+  'family',
+  'health',
+  'work',
+  'other',
+]);
+
+export type RadarCategoryAI =
+  | 'likes' | 'dislikes' | 'wants' | 'obsessed' | 'schedule'
+  | 'vacation' | 'gifts' | 'family' | 'health' | 'work' | 'other';
+
+export interface RadarSignalExtract {
+  category: RadarCategoryAI;
+  content: string;
+  confidence: number;
+}
+
+const RADAR_EXTRACT_SYSTEM = `You are extracting durable facts about a specific person from a single iMessage they sent. The output feeds a long-term memory bank the user keeps about this contact — a "radar" of who they are, what they like, what they want, what's coming up, etc.
+
+Extract ONLY facts that say something LASTING — things still relevant a week from now. Skip:
+- Transient logistics ("running 5 min late", "be there in a bit")
+- Pure banter, jokes, reactions
+- Things about the user (this is about the SENDER)
+- One-off small talk
+
+Categories (pick exactly one per signal):
+- "likes"     — things they enjoy / are into
+- "dislikes"  — things they hate / avoid
+- "wants"     — concrete things they've expressed wanting
+- "obsessed"  — things they're heavily into right now
+- "schedule"  — recurring routines, jobs, regular commitments
+- "vacation"  — travel plans (past, planned, dreaming about)
+- "gifts"     — explicit gift hints or "I would love that" mentions
+- "family"    — partner, kids, parents, siblings, pets — names, ages, relationships
+- "health"    — medical context worth remembering
+- "work"      — job, role, employer, projects
+- "other"     — durable but doesn't fit above
+
+Output ONLY JSON of this exact shape (empty array if nothing extractable):
+{
+  "signals": [
+    { "category": "likes" | "dislikes" | ..., "content": "concise third-person statement", "confidence": 0..1 }
+  ]
+}
+
+Be conservative — false positives pollute the memory bank. When uncertain, skip it.`;
+
+export async function extractRadarSignals(input: { sender: string; messageText: string }): Promise<{
+  signals: RadarSignalExtract[];
+  model: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}> {
+  const client = getOpenAI();
+  const resp = await client.chat.completions.create({
+    model: config.openai.model,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: RADAR_EXTRACT_SYSTEM },
+      { role: 'user', content: `Sender: ${input.sender}\nMessage: "${input.messageText}"` },
+    ],
+    max_tokens: 500,
+    temperature: 0.2,
+  });
+  const raw = resp.choices[0]?.message?.content ?? '{}';
+  let parsed: { signals?: unknown };
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = {};
+  }
+  const arr = Array.isArray(parsed.signals) ? parsed.signals : [];
+  const signals: RadarSignalExtract[] = [];
+  for (const s of arr as Array<Record<string, unknown>>) {
+    const cat = typeof s.category === 'string' ? s.category : '';
+    const content = typeof s.content === 'string' ? s.content.trim() : '';
+    const conf = typeof s.confidence === 'number' ? Math.max(0, Math.min(1, s.confidence)) : 0.5;
+    if (!RADAR_CATEGORIES_SET.has(cat) || !content) continue;
+    signals.push({ category: cat as RadarCategoryAI, content, confidence: conf });
+  }
+  return {
+    signals,
+    model: resp.model || config.openai.model,
+    usage: resp.usage
+      ? {
+          prompt_tokens: resp.usage.prompt_tokens,
+          completion_tokens: resp.usage.completion_tokens,
+          total_tokens: resp.usage.total_tokens,
+        }
+      : undefined,
+  };
+}
+
+const RADAR_PROFILE_SYSTEM = `You are maintaining a memory bank about a specific person, used to help the user remember what matters about them.
+
+Take the existing profile (if any), the recent extracted signals (categorized facts from their messages), and any user-supplied notes about this person. Produce an UPDATED narrative profile in concise prose.
+
+Cover these sections WHEN the data supports them — skip a section entirely if there's nothing to say:
+- Identity / context (who they are, relationship to user if known)
+- Likes / interests / passions
+- Dislikes / aversions
+- Wants / wishlist / things they've expressed wanting
+- Schedule / routines / regular commitments
+- Family / important people in their life
+- Gift ideas (synthesizing from likes + wants + recent obsessions)
+- Vacations / travel
+- Health / work / other relevant context
+
+Rules:
+- Be specific and evidence-based. Don't invent.
+- Mark uncertain inferences as "(possibly)".
+- Preserve existing observations when they still hold; refine when new evidence sharpens or contradicts.
+- ~300–600 words, plain prose, simple section headers in **bold** are fine. No JSON, no preamble.`;
+
+export interface RadarProfileInput {
+  sender: string;
+  existingProfile: string;
+  signalsByCategory: Record<string, Array<{ content: string; confidence: number; date_ms: number }>>;
+  userNotes: string[];
+}
+
+export async function distillRadarProfile(input: RadarProfileInput): Promise<{
+  profile: string;
+  model: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}> {
+  const client = getOpenAI();
+
+  const sections: string[] = [];
+  if (input.existingProfile && input.existingProfile.trim()) {
+    sections.push(
+      `EXISTING PROFILE (refine, don't replace cold — preserve what holds up):\n"""\n${input.existingProfile.trim()}\n"""`,
+    );
+  }
+  if (input.userNotes && input.userNotes.length > 0) {
+    sections.push(
+      `USER-SUPPLIED NOTES ABOUT THIS CONTACT:\n${input.userNotes.map((n) => `- ${n}`).join('\n')}`,
+    );
+  }
+  // Signals grouped by category, recent first
+  const catLines: string[] = [];
+  for (const [cat, sigs] of Object.entries(input.signalsByCategory)) {
+    if (!sigs || sigs.length === 0) continue;
+    catLines.push(`# ${cat}`);
+    for (const s of sigs) {
+      const dt = new Date(s.date_ms).toISOString().slice(0, 10);
+      catLines.push(`- [${dt} · conf ${s.confidence.toFixed(2)}] ${s.content}`);
+    }
+    catLines.push('');
+  }
+  sections.push(
+    `RECENT EXTRACTED SIGNALS (grouped by category, newest first):\n${catLines.join('\n') || '(none)'}`,
+  );
+  sections.push(
+    `Now produce the UPDATED memory-bank profile for ${input.sender}. ${
+      input.existingProfile ? 'Build on the existing profile; do not start over.' : 'Generate fresh.'
+    }`,
+  );
+
+  const resp = await client.chat.completions.create({
+    model: config.openai.model,
+    messages: [
+      { role: 'system', content: RADAR_PROFILE_SYSTEM },
+      { role: 'user', content: sections.join('\n\n') },
+    ],
+    max_tokens: 1200,
+    temperature: 0.3,
+  });
+
+  const profile = (resp.choices[0]?.message?.content ?? '').trim();
+  return {
+    profile,
+    model: resp.model || config.openai.model,
+    usage: resp.usage
+      ? {
+          prompt_tokens: resp.usage.prompt_tokens,
+          completion_tokens: resp.usage.completion_tokens,
+          total_tokens: resp.usage.total_tokens,
+        }
+      : undefined,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* auto-calendar — extract structured event from a scheduling msg      */
+/* ------------------------------------------------------------------ */
+
+const CAL_EXTRACT_SYSTEM = `You extract calendar events from iMessages. Run on every message a calendar-monitor rule sees; only flag the message as an event when it clearly commits the user (or sender) to a specific time and/or place.
+
+Output ONLY JSON of this exact shape:
+{
+  "is_event": boolean,
+  "title": "concise event title",
+  "start_iso": "YYYY-MM-DDTHH:MM" in local time, or null if not specified,
+  "end_iso":   "YYYY-MM-DDTHH:MM" in local time, or null,
+  "location":  "..." or null,
+  "participants": "comma-separated names" or null,
+  "notes": "one short sentence of context",
+  "confidence": 0..1,
+  "reasoning": "why you think this is/isn't an event"
+}
+
+Rules:
+- The CURRENT date/time is provided in the user message; use it to resolve relative phrases like "tomorrow", "Friday", "next week", "in an hour".
+- If only a date is given (no time), use a reasonable default time and set is_event=true; set end_iso to null and the user can adjust.
+- If only a time is given (no date), assume today.
+- Vague hangouts without a concrete time ("we should hang soon") → is_event=false.
+- Past events being recapped → is_event=false.
+- Be conservative on confidence. False positives are worse than missed events.`;
+
+export interface CalendarExtractResult {
+  is_event: boolean;
+  title: string;
+  start_iso: string | null;
+  end_iso: string | null;
+  location: string | null;
+  participants: string | null;
+  notes: string;
+  confidence: number;
+  reasoning: string;
+  model: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+export async function extractCalendarEvent(input: {
+  sender: string;
+  messageText: string;
+  nowIso: string;
+  timezone: string;
+}): Promise<CalendarExtractResult> {
+  const client = getOpenAI();
+  const resp = await client.chat.completions.create({
+    model: config.openai.model,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: CAL_EXTRACT_SYSTEM },
+      {
+        role: 'user',
+        content: `Current date/time: ${input.nowIso} (timezone: ${input.timezone})\nSender: ${input.sender}\nMessage: "${input.messageText}"`,
+      },
+    ],
+    max_tokens: 400,
+    temperature: 0.2,
+  });
+  const raw = resp.choices[0]?.message?.content ?? '{}';
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = {};
+  }
+  const usage = resp.usage
+    ? {
+        prompt_tokens: resp.usage.prompt_tokens,
+        completion_tokens: resp.usage.completion_tokens,
+        total_tokens: resp.usage.total_tokens,
+      }
+    : undefined;
+  return {
+    is_event: parsed.is_event === true,
+    title: typeof parsed.title === 'string' ? parsed.title : '',
+    start_iso: typeof parsed.start_iso === 'string' && parsed.start_iso ? parsed.start_iso : null,
+    end_iso: typeof parsed.end_iso === 'string' && parsed.end_iso ? parsed.end_iso : null,
+    location: typeof parsed.location === 'string' && parsed.location ? parsed.location : null,
+    participants:
+      typeof parsed.participants === 'string' && parsed.participants ? parsed.participants : null,
+    notes: typeof parsed.notes === 'string' ? parsed.notes : '',
+    confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.5,
+    reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
+    model: resp.model || config.openai.model,
+    usage,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* monitor rules — per-message AI evaluation against user prompts      */
+/* ------------------------------------------------------------------ */
+
+const MONITOR_EVAL_SYSTEM = `You are evaluating an incoming iMessage against a user-defined monitoring rule. Be conservative — only flag when the match is unambiguous. False positives are worse than missed flags.
+
+You will be given:
+- A rule (plain English description of what to flag)
+- The sender's name or handle
+- The message text
+
+Decide: does this message clearly match the rule?
+
+Output ONLY JSON of this exact shape:
+{ "match": boolean, "confidence": number between 0 and 1, "reasoning": "one short sentence explaining" }`;
+
+export interface RuleEvalInput {
+  rulePrompt: string;
+  sender: string;
+  messageText: string;
+}
+
+export interface RuleEvalResult {
+  match: boolean;
+  confidence: number;
+  reasoning: string;
+  model: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+export async function evaluateRuleAgainstMessage(input: RuleEvalInput): Promise<RuleEvalResult> {
+  const client = getOpenAI();
+  const resp = await client.chat.completions.create({
+    model: config.openai.model,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: MONITOR_EVAL_SYSTEM },
+      {
+        role: 'user',
+        content: `Rule: "${input.rulePrompt}"\nSender: ${input.sender}\nMessage: "${input.messageText}"`,
+      },
+    ],
+    max_tokens: 200,
+    temperature: 0.2,
+  });
+  const raw = resp.choices[0]?.message?.content ?? '{}';
+  let parsed: { match?: unknown; confidence?: unknown; reasoning?: unknown };
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = {};
+  }
+  return {
+    match: parsed.match === true,
+    confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+    reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
+    model: resp.model || config.openai.model,
+    usage: resp.usage
+      ? {
+          prompt_tokens: resp.usage.prompt_tokens,
+          completion_tokens: resp.usage.completion_tokens,
+          total_tokens: resp.usage.total_tokens,
+        }
+      : undefined,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* drafting — Phase 4 generation                                       */
 /* ------------------------------------------------------------------ */
 
@@ -95,42 +586,152 @@ If you genuinely cannot predict an appropriate reply (sensitive topic, missing p
 
 Output ONLY the predicted reply text — no preamble, no quotes, no explanation.`;
 
+export const TEMPERAMENTS = [
+  'normal',
+  'warm',
+  'casual',
+  'professional',
+  'enthusiastic',
+  'apologetic',
+  'snarky',
+  'blunt',
+  'angry',
+  'sad',
+  'aggressive',
+] as const;
+export type Temperament = (typeof TEMPERAMENTS)[number];
+
+const TEMPERAMENT_GUIDANCE: Record<Temperament, string> = {
+  normal: '',
+  warm:
+    'Lean noticeably warmer/more personable than the user\'s baseline — softer phrasing, a touch of care, but still in-voice.',
+  casual:
+    'Lean more casual than the user\'s baseline — looser, less polished, more conversational.',
+  professional:
+    'Lean more professional than the user\'s baseline — fewer abbreviations, cleaner punctuation, more measured. Still recognizably them.',
+  enthusiastic:
+    'Higher energy than baseline — more positive, more emoji or exclamations if the user ever uses them at all, but don\'t fake it if they never do.',
+  apologetic:
+    'Self-effacing and accommodating — own the inconvenience, but only as much as the user actually does. Don\'t over-apologize.',
+  snarky:
+    'Drier and more sardonic than baseline — light sarcasm, gentle ribbing, in the user\'s voice. Not mean.',
+  blunt:
+    'More direct and terser than baseline — no padding, no qualifiers, get to the point.',
+  angry:
+    'Visibly irritated. Terse, sharp, no warmth. Stop short of cruelty or insults — the user wants to express frustration, not blow up the relationship.',
+  sad: 'Subdued, lower energy, somber tone. Less emoji and exclamations than baseline. Honest about feeling off if the thread invites it.',
+  aggressive:
+    'Confrontational — willing to push back hard, challenge the other person\'s premise, demand more. Still the user\'s voice; do not insult or threaten.',
+};
+
 export interface ThreadTurn {
+  /** 'me' for user-sent, 'them' for incoming. */
   author: 'me' | 'them';
   text: string;
+  /** Optional name attribution — used in group chats so the model knows who said what. */
+  attribution?: string;
 }
 
 export interface DraftReplyInput {
   thread: ThreadTurn[];
+  /** User's freeform hint for THIS draft (e.g. "tell them I'm running 15 min late"). */
   contextNote?: string;
+  /** Distilled prose voice profile from generateVoiceProfile(). Empty / undefined = skip. */
+  voiceProfile?: string;
+  /** Per-contact memory notes (relationship intel for THIS recipient). Each is a separate note. */
+  contactNotes?: string[];
+  /** Tone override for this draft. 'normal' = baseline. */
+  temperament?: Temperament;
+  /** How many variants to generate (1..5). Defaults to 1. */
+  count?: number;
+}
+
+export interface DraftVariant {
+  body: string;
+  skipped: boolean;
 }
 
 export interface DraftReplyResult {
-  body: string;
-  skipped: boolean;
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  variants: DraftVariant[];
   model: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+function buildSystemPrompt(
+  voiceProfile: string | undefined,
+  contactNotes: string[] | undefined,
+  temperament: Temperament,
+): string {
+  const parts: string[] = [DRAFT_SYSTEM];
+  if (voiceProfile && voiceProfile.trim()) {
+    parts.push(
+      `\nVOICE PROFILE — the user's general writing style, established from prior analysis. Apply throughout (the immediate thread can refine, but this is the baseline):\n"""\n${voiceProfile.trim()}\n"""`,
+    );
+  }
+  if (contactNotes && contactNotes.length > 0) {
+    const lines = contactNotes
+      .map((n) => n.trim())
+      .filter((n) => n.length > 0)
+      .map((n) => `- ${n}`);
+    if (lines.length > 0) {
+      parts.push(
+        `\nNOTES ABOUT THIS CONTACT (relationship intel — apply when drafting; the most recent notes near the bottom are most current):\n${lines.join('\n')}`,
+      );
+    }
+  }
+  const guidance = TEMPERAMENT_GUIDANCE[temperament];
+  if (temperament !== 'normal' && guidance) {
+    parts.push(`\nTEMPERAMENT FOR THIS DRAFT: ${temperament}\n${guidance}`);
+  }
+  return parts.join('\n');
 }
 
 export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResult> {
   const client = getOpenAI();
-  const threadText = input.thread.map((m) => `${m.author}: ${m.text}`).join('\n');
+  const threadText = input.thread
+    .map((m) => {
+      const speaker = m.author === 'me' ? 'me' : m.attribution ? `them (${m.attribution})` : 'them';
+      return `${speaker}: ${m.text}`;
+    })
+    .join('\n');
   const note = input.contextNote?.trim();
   const userContent = note
     ? `Thread (oldest → newest):\n${threadText}\n\nUser's guidance for this specific reply (factor this in while still matching their voice): ${note}`
     : `Thread (oldest → newest):\n${threadText}`;
 
+  const temperament: Temperament =
+    input.temperament && (TEMPERAMENTS as readonly string[]).includes(input.temperament)
+      ? input.temperament
+      : 'normal';
+  const systemPrompt = buildSystemPrompt(input.voiceProfile, input.contactNotes, temperament);
+  const requestedCount = Math.max(1, Math.min(5, Math.floor(input.count ?? 1)));
+
   const resp = await client.chat.completions.create({
     model: config.openai.model,
     messages: [
-      { role: 'system', content: DRAFT_SYSTEM },
+      { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
     ],
     max_tokens: 300,
     temperature: 0.7,
+    n: requestedCount,
   });
 
-  const raw = (resp.choices[0]?.message?.content ?? '').trim();
+  const variants: DraftVariant[] = (resp.choices ?? []).map((choice) => {
+    const raw = (choice.message?.content ?? '').trim();
+    if (raw === 'SKIP' || raw === '') return { body: '', skipped: true };
+    const body = raw.replace(/^["']|["']$/g, '').trim();
+    return { body, skipped: false };
+  });
+  // De-duplicate variants when the model returns identical strings.
+  const seen = new Set<string>();
+  const dedup = variants.filter((v) => {
+    const key = v.skipped ? '__SKIP__' : v.body;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   const usage = resp.usage
     ? {
         prompt_tokens: resp.usage.prompt_tokens,
@@ -140,11 +741,7 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
     : undefined;
   const model = resp.model || config.openai.model;
 
-  if (raw === 'SKIP' || raw === '') return { body: '', skipped: true, usage, model };
-
-  // Strip leading/trailing quotes the model sometimes adds.
-  const body = raw.replace(/^["']|["']$/g, '').trim();
-  return { body, skipped: false, usage, model };
+  return { variants: dedup.length ? dedup : variants, model, usage };
 }
 
 /* ------------------------------------------------------------------ */

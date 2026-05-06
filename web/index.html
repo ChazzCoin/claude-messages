@@ -672,6 +672,733 @@
   }
   .settings-status.ok { color: var(--green); }
   .settings-status.err { color: var(--red); }
+  .settings-row textarea {
+    width: 100%; padding: 10px 12px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: 'Inter', sans-serif; font-size: 13px; line-height: 1.55;
+    resize: vertical; box-sizing: border-box;
+  }
+  .settings-row textarea.mono { font-family: var(--mono); font-size: 12.5px; }
+  .settings-row textarea:focus { outline: none; border-color: var(--cyan); }
+  .voice-meta {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    margin-bottom: 6px;
+  }
+  .voice-meta .accent { color: var(--cyan); }
+
+  /* Temperament dropdown + variant chooser in the thread compose */
+  .compose-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-top: 10px;
+  }
+  .compose-row select {
+    padding: 6px 10px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: var(--mono); font-size: 12px;
+    cursor: pointer;
+  }
+  .compose-row select:focus { outline: none; border-color: var(--cyan); }
+  .compose-row .compose-status {
+    margin-left: auto; font-family: var(--mono); font-size: 11px;
+    color: var(--text-dim); min-height: 14px;
+  }
+
+  /* Summarize panel (inside thread top toolbar reveal) */
+  .summary-panel {
+    margin-top: 12px; padding: 14px 16px;
+    background: var(--bg-card); border: 1px solid var(--border-strong);
+    border-radius: 10px;
+  }
+  .summary-panel .summary-head {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .summary-panel .summary-head .badge {
+    padding: 1px 6px; border-radius: 3px;
+    background: rgba(88, 166, 255, 0.12); color: var(--cyan);
+    text-transform: none; letter-spacing: 0;
+  }
+  .summary-panel .summary-body {
+    font-size: 13.5px; color: var(--text); line-height: 1.6;
+    white-space: pre-wrap; word-wrap: break-word;
+  }
+  .summary-panel .summary-body strong { color: var(--text); }
+  .summary-panel .summary-foot {
+    margin-top: 10px; display: flex; gap: 8px; align-items: center;
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
+  }
+  .summary-panel .summary-foot .btn { padding: 4px 10px; font-size: 11.5px; }
+
+  /* Monitor rule form (richer than old regex form) */
+  .form select.monitor-scope {
+    cursor: pointer;
+  }
+  .form textarea.monitor-prompt { min-height: 80px; }
+  .scope-handle-row { display: none; }
+  .scope-handle-row.show { display: block; }
+
+  /* Flags view */
+  .flag-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px 14px;
+    align-items: start;
+    transition: border-color 0.12s;
+  }
+  .flag-card:hover { border-color: var(--border-strong); }
+  .flag-card.unreviewed { border-left: 3px solid var(--orange); }
+  .flag-card.reviewed { opacity: 0.6; }
+  .flag-card .flag-rule {
+    grid-column: 1 / -1;
+    font-family: var(--mono); font-size: 11px; color: var(--cyan);
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .flag-card .flag-rule .conf {
+    color: var(--text-faint); font-size: 10.5px;
+  }
+  .flag-card .flag-meta {
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
+    text-align: right;
+  }
+  .flag-card .flag-body {
+    font-size: 13.5px; color: var(--text); line-height: 1.5;
+    word-wrap: break-word;
+  }
+  .flag-card .flag-from {
+    font-size: 12.5px; color: var(--text-dim); margin-bottom: 4px;
+  }
+  .flag-card .flag-from .name { color: var(--text); font-weight: 500; }
+  .flag-card .flag-reasoning {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    line-height: 1.5; margin-top: 6px; padding-top: 6px;
+    border-top: 1px dashed var(--border);
+  }
+  .flag-card .flag-actions {
+    grid-column: 1 / -1;
+    display: flex; gap: 8px; padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .flag-card .flag-actions .btn { padding: 5px 10px; font-size: 11.5px; }
+
+  /* Radar view */
+  .radar-grid { display: grid; gap: 10px; }
+  .radar-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.12s;
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 12px;
+    align-items: center;
+  }
+  .radar-card:hover { border-color: var(--cyan); }
+  .radar-card.disabled { opacity: 0.5; }
+  .radar-card .radar-name { font-size: 14px; color: var(--text); font-weight: 500; }
+  .radar-card .radar-handle { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+  .radar-card .radar-counts {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;
+  }
+  .radar-card .radar-counts .cat {
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+  }
+  .radar-card .radar-actions {
+    display: flex; gap: 6px;
+  }
+  .radar-card .radar-actions .btn { padding: 4px 10px; font-size: 11px; }
+  .radar-detail {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 1100px) { .radar-detail { grid-template-columns: 1fr; } }
+  .radar-profile-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .radar-profile-block h3 {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.6px; margin: 0 0 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .radar-profile-block h3 .when { color: var(--cyan); text-transform: none; letter-spacing: 0; }
+  .radar-profile-block textarea {
+    width: 100%; min-height: 240px;
+    padding: 12px 14px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+    resize: vertical; box-sizing: border-box;
+  }
+  .radar-profile-block textarea:focus { outline: none; border-color: var(--cyan); }
+  .radar-profile-actions {
+    display: flex; gap: 8px; margin-top: 10px; align-items: center;
+  }
+  .radar-profile-actions .compose-status { margin-left: auto; }
+  .radar-signals-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .radar-signals-block h3 {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.6px; margin: 0 0 12px;
+  }
+  .radar-cat-tabs {
+    display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px;
+  }
+  .radar-cat-tabs .cat-tab {
+    padding: 3px 8px; border-radius: 4px;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-dim);
+    cursor: pointer; user-select: none;
+  }
+  .radar-cat-tabs .cat-tab:hover { color: var(--text); border-color: var(--border-strong); }
+  .radar-cat-tabs .cat-tab.active { color: var(--text); background: var(--bg-card); border-color: var(--cyan); }
+  .signal-list { display: flex; flex-direction: column; gap: 6px; }
+  .signal-item {
+    padding: 8px 10px;
+    background: var(--bg-elev);
+    border-left: 2px solid var(--cyan);
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px; color: var(--text); line-height: 1.5;
+    position: relative;
+  }
+  .signal-item .signal-meta {
+    font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+    margin-bottom: 4px; display: flex; gap: 6px; align-items: center;
+  }
+  .signal-item .signal-meta .badge {
+    padding: 0 5px; border-radius: 3px;
+    background: rgba(88, 166, 255, 0.12); color: var(--cyan);
+  }
+  .signal-item .signal-remove {
+    position: absolute; top: 4px; right: 6px;
+    color: var(--text-faint); cursor: pointer; padding: 0 4px;
+    font-family: var(--mono); font-size: 11px; opacity: 0;
+  }
+  .signal-item:hover .signal-remove { opacity: 1; }
+  .signal-item .signal-remove:hover { color: var(--red); }
+
+  /* Right column: collapses outside thread view */
+  .app.no-rightpanel {
+    grid-template-columns: 240px 1fr;
+  }
+  .app.no-rightpanel .rightpanel { display: none; }
+  .rightpanel.thread-mode { padding: 16px; }
+  .rightpanel.thread-mode > .panel-title { margin-top: 14px; }
+
+  /* Visual date+time picker */
+  .dt-picker {
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-family: 'Inter', sans-serif;
+  }
+  .dt-presets {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+  }
+  .dt-presets .dt-preset {
+    padding: 5px 10px;
+    background: var(--bg-elev); color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: var(--mono); font-size: 11px;
+    cursor: pointer; transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .dt-presets .dt-preset:hover { color: var(--text); border-color: var(--cyan); }
+  .dt-cal {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+  .dt-cal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+    font-family: var(--mono); font-size: 12.5px; color: var(--text);
+  }
+  .dt-cal-head button {
+    width: 24px; height: 24px;
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 4px; color: var(--text-dim); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .dt-cal-head button:hover { color: var(--text); border-color: var(--border-strong); }
+  .dt-cal-grid {
+    display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
+  }
+  .dt-cal-dow {
+    font-family: var(--mono); font-size: 9.5px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.6px;
+    text-align: center; padding: 4px 0;
+  }
+  .dt-cal-day {
+    aspect-ratio: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    user-select: none;
+  }
+  .dt-cal-day:hover:not(.past) { background: var(--bg-card-hover); color: var(--text); }
+  .dt-cal-day.muted { color: var(--text-faint); opacity: 0.4; }
+  .dt-cal-day.today { border-color: var(--cyan); color: var(--cyan); }
+  .dt-cal-day.selected {
+    background: var(--cyan); color: #0a0c10; border-color: var(--cyan);
+    font-weight: 600;
+  }
+  .dt-cal-day.past { color: var(--text-faint); opacity: 0.25; cursor: not-allowed; }
+  .dt-time-row {
+    display: flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 13px; color: var(--text);
+    margin-bottom: 8px;
+  }
+  .dt-time-row select {
+    padding: 5px 8px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .dt-time-row select:focus { outline: none; border-color: var(--cyan); }
+  .dt-time-row .colon { color: var(--text-faint); }
+  .dt-result {
+    font-family: var(--mono); font-size: 12px; color: var(--green);
+    padding: 8px 0;
+    border-top: 1px dashed var(--border);
+  }
+  .dt-result .label { color: var(--text-faint); margin-right: 6px; }
+
+  /* Modal overlay (used by schedule-from-draft) */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0, 0, 0, 0.65);
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .modal-card {
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 20px 22px;
+    min-width: 360px;
+    max-width: 480px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal-card h3 {
+    font-family: var(--mono); font-size: 12px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.6px; margin: 0 0 14px;
+  }
+  .modal-actions {
+    display: flex; gap: 8px; margin-top: 14px;
+    justify-content: flex-end;
+  }
+
+  /* Contact autocomplete */
+  .ac-wrap { position: relative; }
+  .contact-autocomplete {
+    position: absolute;
+    top: calc(100% + 4px); left: 0; right: 0;
+    z-index: 50;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    max-height: 240px;
+    overflow-y: auto;
+    display: none;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .contact-autocomplete.open { display: block; }
+  .ac-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .ac-item:hover, .ac-item.active { background: var(--bg-card-hover); }
+  .ac-item .ac-name { font-size: 13px; color: var(--text); }
+  .ac-item .ac-handle { font-family: var(--mono); font-size: 11px; color: var(--text-faint); margin-top: 1px; }
+  .ac-empty {
+    padding: 8px 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+  }
+
+  /* Away mode view */
+  .away-toggle-block {
+    background: var(--bg-card);
+    border: 2px solid var(--border-strong);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    align-items: center;
+  }
+  .away-toggle-block.on { border-color: var(--yellow); background: rgba(210, 153, 34, 0.05); }
+  .away-toggle-block .away-headline {
+    font-size: 18px; font-weight: 600; color: var(--text);
+    margin-bottom: 4px;
+  }
+  .away-toggle-block .away-sub {
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
+  }
+  .away-toggle-block .away-sub.on { color: var(--yellow); }
+  .away-toggle-switch {
+    width: 56px; height: 30px;
+    border-radius: 999px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-strong);
+    cursor: pointer;
+    position: relative;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .away-toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 22px; height: 22px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: transform 0.15s, background 0.15s;
+  }
+  .away-toggle-switch.on { background: var(--yellow); border-color: var(--yellow); }
+  .away-toggle-switch.on::after { transform: translateX(26px); background: #0a0c10; }
+  .away-toggle-switch:hover { border-color: var(--cyan); }
+
+  .away-grid {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 1100px) { .away-grid { grid-template-columns: 1fr; } }
+
+  .away-config {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .away-config h3, .away-sessions-block h3 {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.6px; margin: 0 0 12px;
+  }
+  .away-config textarea {
+    width: 100%; min-height: 90px;
+    padding: 10px 12px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.55;
+    resize: vertical; box-sizing: border-box; margin-bottom: 12px;
+  }
+  .away-config textarea:focus { outline: none; border-color: var(--cyan); }
+  .away-config .num-row {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  .away-config .num-row input[type="number"] {
+    width: 80px; padding: 6px 10px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: var(--mono); font-size: 13px; text-align: right;
+  }
+  .away-sessions-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    max-height: 600px;
+    overflow-y: auto;
+  }
+  .away-session-item {
+    padding: 10px 12px;
+    background: var(--bg-elev);
+    border-left: 3px solid var(--green);
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 6px;
+    font-size: 12.5px; line-height: 1.5;
+  }
+  .away-session-item.ended { border-left-color: var(--text-faint); opacity: 0.6; }
+  .away-session-item .session-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+  }
+  .away-session-item .session-name { color: var(--text); font-weight: 500; }
+  .away-session-item .session-meta {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
+  }
+  .away-session-item .session-stats {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    display: flex; gap: 10px; flex-wrap: wrap;
+  }
+  .away-session-item .session-end {
+    cursor: pointer; color: var(--text-faint); font-family: var(--mono);
+    font-size: 11px; padding: 0 4px;
+  }
+  .away-session-item .session-end:hover { color: var(--red); }
+
+  /* Calendar proposals view */
+  .cal-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    transition: border-color 0.12s;
+  }
+  .cal-card:hover { border-color: var(--border-strong); }
+  .cal-card.pending { border-left: 3px solid var(--cyan); }
+  .cal-card.exported { opacity: 0.6; }
+  .cal-card.dismissed { opacity: 0.4; }
+  .cal-card .cal-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+  }
+  .cal-card .cal-title {
+    font-size: 14.5px; font-weight: 500; color: var(--text);
+  }
+  .cal-card .cal-status {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 10.5px;
+    padding: 2px 8px; border-radius: 4px;
+    background: var(--bg-elev); color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .cal-card .cal-status.pending { color: var(--cyan); }
+  .cal-card .cal-status.exported { color: var(--green); }
+  .cal-card .cal-status.dismissed { color: var(--text-faint); }
+  .cal-card .cal-when {
+    font-family: var(--mono); font-size: 12px; color: var(--text); margin-bottom: 4px;
+  }
+  .cal-card .cal-where {
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); margin-bottom: 4px;
+  }
+  .cal-card .cal-from {
+    font-size: 12.5px; color: var(--text-dim); margin-bottom: 6px;
+  }
+  .cal-card .cal-from .name { color: var(--text); font-weight: 500; }
+  .cal-card .cal-notes {
+    font-size: 12.5px; color: var(--text-dim); line-height: 1.5;
+    margin-bottom: 6px;
+  }
+  .cal-card .cal-reasoning {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    line-height: 1.5; padding-top: 6px; border-top: 1px dashed var(--border);
+  }
+  .cal-card .cal-actions {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .cal-card .cal-actions .btn { padding: 5px 10px; font-size: 11.5px; }
+
+  /* Scheduled view */
+  .sched-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+  }
+  .sched-card.due-soon { border-color: var(--yellow); }
+  .sched-card.sent { opacity: 0.6; }
+  .sched-card.failed { border-color: var(--red); }
+  .sched-card .sched-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+  }
+  .sched-card .sched-when {
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+  }
+  .sched-card .sched-when.due { color: var(--orange); }
+  .sched-card .sched-status {
+    margin-left: auto; font-family: var(--mono); font-size: 10.5px;
+    padding: 2px 8px; border-radius: 4px;
+    background: var(--bg-elev); color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .sched-card .sched-status.sent { color: var(--green); }
+  .sched-card .sched-status.failed { color: var(--red); }
+  .sched-card .sched-status.cancelled { color: var(--text-faint); }
+  .sched-card .sched-to {
+    font-size: 12.5px; color: var(--text-dim); margin-bottom: 6px;
+  }
+  .sched-card .sched-to .name { color: var(--text); font-weight: 500; }
+  .sched-card .sched-body {
+    font-size: 13.5px; color: var(--text); line-height: 1.5; word-wrap: break-word;
+    background: var(--bg-elev); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px;
+  }
+  .sched-card .sched-error {
+    font-family: var(--mono); font-size: 11px; color: var(--red);
+    margin-top: 6px;
+  }
+  .sched-card .sched-actions {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .sched-card .sched-actions .btn { padding: 5px 10px; font-size: 11.5px; }
+
+  /* Reactions / tapbacks on a message bubble */
+  .reactions {
+    display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px;
+  }
+  .reaction-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 1px 8px; border-radius: 999px;
+    background: var(--bg-card); border: 1px solid var(--border-strong);
+    font-size: 11px; color: var(--text-dim); line-height: 1.5;
+  }
+  .reaction-badge .emoji { font-size: 13px; }
+  .reaction-badge .count { color: var(--text-faint); font-family: var(--mono); font-size: 10px; }
+  .bubble-row.me .reactions { justify-content: flex-end; }
+
+  /* Attachments inline (images/gifs) and as file badges */
+  .attachments { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .att-image {
+    max-width: 280px; max-height: 320px;
+    border-radius: 12px; border: 1px solid var(--border);
+    object-fit: contain; background: var(--bg-card);
+    cursor: zoom-in;
+  }
+  .att-file {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 12px; max-width: 280px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; font-size: 12.5px; color: var(--text);
+    text-decoration: none;
+  }
+  .att-file:hover { border-color: var(--border-strong); }
+  .att-file svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-dim); }
+  .att-file .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att-file .size { font-family: var(--mono); font-size: 10px; color: var(--text-faint); margin-left: auto; }
+
+  /* Per-contact memory notes section */
+  .notes-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+  .notes-header {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .notes-header .count { color: var(--cyan); text-transform: none; letter-spacing: 0; }
+  .note-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .note-item {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 8px 10px;
+    background: var(--bg-elev);
+    border-left: 2px solid var(--cyan);
+    border-radius: 0 6px 6px 0;
+    font-size: 13px; color: var(--text); line-height: 1.5;
+  }
+  .note-item .note-body { flex: 1; word-wrap: break-word; }
+  .note-item .note-time {
+    font-family: var(--mono); font-size: 10px; color: var(--text-faint);
+    flex-shrink: 0; padding-top: 1px;
+  }
+  .note-item .note-remove {
+    color: var(--text-faint); cursor: pointer;
+    padding: 0 4px; opacity: 0; transition: opacity 0.12s;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .note-item:hover .note-remove { opacity: 1; }
+  .note-item .note-remove:hover { color: var(--red); }
+  .note-add {
+    display: flex; gap: 8px; align-items: stretch;
+  }
+  .note-add textarea {
+    flex: 1; padding: 8px 10px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: 'Inter', sans-serif; font-size: 13px; line-height: 1.45;
+    resize: vertical; min-height: 36px;
+    box-sizing: border-box;
+  }
+  .note-add textarea:focus { outline: none; border-color: var(--cyan); }
+  .note-add .btn { align-self: flex-end; }
+
+  /* Search view */
+  .search-view { padding-top: 4px; }
+  .search-input {
+    width: 100%; padding: 10px 14px;
+    background: var(--bg-card); color: var(--text);
+    border: 1px solid var(--border-strong); border-radius: 10px;
+    font-family: 'Inter', sans-serif; font-size: 14px;
+    box-sizing: border-box;
+  }
+  .search-input:focus { outline: none; border-color: var(--cyan); }
+  .search-status {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    margin: 8px 4px 12px;
+  }
+  .search-results { display: flex; flex-direction: column; gap: 6px; }
+  .search-result {
+    display: block; padding: 12px 14px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; cursor: pointer;
+    transition: border-color 0.12s;
+  }
+  .search-result:hover { border-color: var(--cyan); }
+  .search-result .sr-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+  }
+  .search-result .sr-name { font-size: 13px; color: var(--text); font-weight: 500; }
+  .search-result .sr-handle { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+  .search-result .sr-time { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+  .search-result .sr-text { font-size: 13.5px; color: var(--text-dim); line-height: 1.5; }
+  .search-result .sr-text mark { background: rgba(126, 231, 135, 0.18); color: var(--text); padding: 0 2px; border-radius: 2px; }
+  .search-result .sr-author { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); margin-right: 6px; }
+
+  /* 3-variant chooser */
+  .variants {
+    display: grid; gap: 10px; margin-top: 14px;
+  }
+  .variant-card {
+    border: 1px solid var(--border-strong);
+    background: var(--bg-elev);
+    border-radius: 8px;
+    padding: 12px 14px;
+    transition: border-color 0.12s;
+  }
+  .variant-card:hover { border-color: var(--cyan); }
+  .variant-meta {
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--text-faint); margin-bottom: 6px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .variant-meta .badge {
+    padding: 1px 6px; border-radius: 3px;
+    background: rgba(88, 166, 255, 0.12); color: var(--cyan);
+  }
+  .variant-body {
+    font-size: 13.5px; line-height: 1.55; color: var(--text);
+    white-space: pre-wrap; word-wrap: break-word;
+  }
+  .variant-actions {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .variant-actions .btn { padding: 5px 10px; font-size: 12px; }
 
   /* AI toolbar in thread view */
   .thread-toolbar {
@@ -820,6 +1547,7 @@
       <div class="pill" id="pill-watcher"><span class="dot"></span><span class="pill-label">watcher</span></div>
       <div class="pill" id="pill-model"><span class="dot"></span><span class="pill-label">gpt-4o-mini</span></div>
       <div class="pill" id="pill-drafts"><span class="dot"></span><span class="pill-label">— drafts pending</span></div>
+      <div class="pill" id="pill-away" style="display:none;"><span class="dot amber"></span><span class="pill-label">away mode on</span></div>
       <div class="topbar-btn" title="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </div>
@@ -844,6 +1572,35 @@
         Sent
         <span class="nav-count" id="nav-sent-count">—</span>
       </div>
+      <div class="nav-item" data-view="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Search
+      </div>
+      <div class="nav-item" data-view="flags">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+        Flags
+        <span class="nav-badge" id="nav-flags-badge" style="display:none;">0</span>
+      </div>
+      <div class="nav-item" data-view="calendar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        Calendar
+        <span class="nav-badge" id="nav-calendar-badge" style="display:none;">0</span>
+      </div>
+      <div class="nav-item" data-view="radar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="12" x2="20.5" y2="3.5"/></svg>
+        Radar
+        <span class="nav-count" id="nav-radar-count">—</span>
+      </div>
+      <div class="nav-item" data-view="away">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        Away mode
+        <span class="nav-badge" id="nav-away-badge" style="display:none;">on</span>
+      </div>
+      <div class="nav-item" data-view="scheduled">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Scheduled
+        <span class="nav-count" id="nav-scheduled-count">—</span>
+      </div>
       <div class="nav-item">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
         Rules
@@ -862,7 +1619,7 @@
       </div>
       <button class="add-btn" data-action="show-form" data-target="form-watched">+ add contact</button>
       <form class="form" id="form-watched" data-form="watched">
-        <input type="text" name="handle" placeholder="phone or email (e.g. +14155550100)" required autocomplete="off" />
+        <input type="text" name="handle" data-contact-autocomplete placeholder="search by name or paste handle" required autocomplete="off" />
         <input type="text" name="label" placeholder="label (optional)" autocomplete="off" />
         <div class="form-row">
           <button type="submit" class="btn primary">Save</button>
@@ -873,18 +1630,31 @@
     </div>
 
     <div class="nav-section">
-      <div class="nav-label">Active rules</div>
+      <div class="nav-label">Monitor rules</div>
       <div id="rules-list-sidebar">
         <div class="empty-row">loading…</div>
       </div>
-      <button class="add-btn" data-action="show-form" data-target="form-rule">+ add rule</button>
-      <form class="form" id="form-rule" data-form="rule">
-        <input type="text" name="name" placeholder="name (e.g. urgent keywords)" required autocomplete="off" />
-        <input type="text" name="pattern" placeholder="regex pattern (e.g. urgent|asap|emergency)" required autocomplete="off" />
-        <input type="text" name="flags" placeholder="flags (default: i)" value="i" autocomplete="off" />
+      <button class="add-btn" data-action="show-form" data-target="form-monitor-rule">+ add rule</button>
+      <form class="form" id="form-monitor-rule" data-form="monitor-rule">
+        <input type="text" name="name" placeholder="name (e.g. 'kid stuff from Mallory')" required autocomplete="off" />
+        <select name="kind" class="monitor-scope" data-kind-select>
+          <option value="flag">type: flag (custom prompt)</option>
+          <option value="calendar">type: auto-calendar (extract events)</option>
+        </select>
+        <select name="scope_type" class="monitor-scope" data-scope-select>
+          <option value="contact">scope: specific contact</option>
+          <option value="unknown">scope: any unknown contact</option>
+          <option value="all">scope: all incoming</option>
+        </select>
+        <div class="scope-handle-row show" data-scope-handle-row>
+          <input type="text" name="scope_handle" data-contact-autocomplete placeholder="search by name or paste handle" autocomplete="off" />
+        </div>
+        <div data-prompt-row>
+          <textarea name="prompt" class="monitor-prompt" placeholder="Plain-English: what should I flag? (e.g. 'flag any message that mentions our kids Lulu or Val, or asks about pickup/school/childcare')"></textarea>
+        </div>
         <div class="form-row">
-          <button type="submit" class="btn primary">Save</button>
-          <button type="button" class="btn ghost" data-action="hide-form" data-target="form-rule">Cancel</button>
+          <button type="submit" class="btn primary">Save rule</button>
+          <button type="button" class="btn ghost" data-action="hide-form" data-target="form-monitor-rule">Cancel</button>
         </div>
         <div class="form-error" data-error></div>
       </form>
@@ -913,43 +1683,41 @@
         <div class="empty-title">loading…</div>
       </div>
     </div>
-
-    <div id="thread-compose"></div>
   </div>
 
-  <!-- Right panel -->
+  <!-- Right panel: collapses outside thread view; populated by JS for thread tools. -->
   <div class="rightpanel">
-    <div class="panel-title"><span class="live-dot"></span>Live activity</div>
-    <div class="activity">
-      <div class="activity-line"><span class="activity-time">--:--:--</span><span><span class="info">●</span> SSE stream lands in Phase 2</span></div>
-      <div class="activity-line"><span class="activity-time">--:--:--</span><span>watcher boots in Phase 2</span></div>
-      <div class="activity-line"><span class="activity-time">--:--:--</span><span>classifier comes online in Phase 3</span></div>
-      <div class="activity-line"><span class="activity-time">--:--:--</span><span>drafts generated in Phase 4</span></div>
-    </div>
+    <!-- Thread tools live here when currentView === 'thread'. -->
+    <div id="thread-toolbar"></div>
+    <div id="thread-compose"></div>
+    <div id="thread-notes"></div>
 
-    <div class="panel-title">Today</div>
-    <div class="stats">
-      <div class="stat">
-        <div class="stat-label">Drafted</div>
-        <div class="stat-value" id="stat-drafted">—</div>
+    <!-- Default content shown when in views other than thread. Today + Active Rules. -->
+    <div id="rightpanel-default">
+      <div class="panel-title">Today</div>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-label">Drafted</div>
+          <div class="stat-value" id="stat-drafted">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Sent</div>
+          <div class="stat-value" id="stat-sent">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">API cost</div>
+          <div class="stat-value" style="font-size: 17px;">$0.00</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Approval rate</div>
+          <div class="stat-value" id="stat-approval" style="font-size: 17px;">—</div>
+        </div>
       </div>
-      <div class="stat">
-        <div class="stat-label">Sent</div>
-        <div class="stat-value" id="stat-sent">—</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">API cost</div>
-        <div class="stat-value" style="font-size: 17px;">$0.00</div>
-      </div>
-      <div class="stat">
-        <div class="stat-label">Approval rate</div>
-        <div class="stat-value" id="stat-approval" style="font-size: 17px;">—</div>
-      </div>
-    </div>
 
-    <div class="panel-title">Active rules</div>
-    <div id="rules-list-panel">
-      <div class="empty-row">loading…</div>
+      <div class="panel-title">Active rules</div>
+      <div id="rules-list-panel">
+        <div class="empty-row">loading…</div>
+      </div>
     </div>
   </div>
 
@@ -1030,20 +1798,24 @@
 
   // ---------- drafts ----------
   function renderDraftCard(d) {
+    const displayName = d.contact_name || d.handle;
     const av = avatarClass(d.handle);
-    const init = initials(d.handle);
+    const init = initials(d.contact_name, d.handle);
     const time = relTime(d.created_at);
     const reasoning = d.reasoning
       ? `<div style="margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text-faint);line-height:1.55;">${escapeHtml(d.reasoning)}</div>`
       : '';
+    const subline = d.contact_name
+      ? `${escapeHtml(d.handle)} · chat #${d.chat_id} · ${escapeHtml(time)}`
+      : `chat #${d.chat_id} · ${escapeHtml(time)}`;
     return `
       <div class="draft" data-draft-id="${d.id}">
         <div class="draft-header">
           <div class="draft-contact">
             <div class="avatar ${av}">${escapeHtml(init)}</div>
             <div>
-              <div class="draft-name">${escapeHtml(d.handle)}</div>
-              <div class="draft-handle">chat #${d.chat_id} · ${escapeHtml(time)}</div>
+              <div class="draft-name">${escapeHtml(displayName)}</div>
+              <div class="draft-handle">${subline}</div>
             </div>
           </div>
         </div>
@@ -1056,11 +1828,19 @@
           ${reasoning}
         </div>
         <div class="draft-actions">
-          <button class="btn primary" data-action="approve" data-id="${d.id}">
+          <button class="btn primary" data-action="approve" data-id="${d.id}" title="Send via AppleScript right now">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
             Approve &amp; send
           </button>
-          <button class="btn" data-action="edit" data-id="${d.id}" disabled title="Edit-before-send lands in Phase 4">Edit</button>
+          <button class="btn" data-action="stage" data-id="${d.id}" title="Open in Messages.app with the body pre-filled — review and send there">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            Stage in Messages
+          </button>
+          <button class="btn" data-action="schedule" data-id="${d.id}" title="Schedule this draft to send later">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Schedule
+          </button>
+          ${d.staged_at ? `<span style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);">staged ${escapeHtml(relTime(d.staged_at))}</span>` : ''}
           <div class="spacer"></div>
           <button class="btn ghost" data-action="discard" data-id="${d.id}">Dismiss</button>
         </div>
@@ -1142,15 +1922,26 @@
     if (el) el.innerHTML = renderWatched(watched);
   }
 
-  // ---------- rules ----------
+  // ---------- monitor rules ----------
+  function scopeBadge(r) {
+    if (r.scope_type === 'all') return 'all';
+    if (r.scope_type === 'unknown') return 'unknown';
+    // contact: prefer the contact_name from chats cache if we have it
+    const meta = chatsCache.find((c) => c.identifier === r.scope_handle);
+    return meta?.contact_name || meta?.display_name || r.scope_handle || '?';
+  }
+
   function renderRulesSidebar(rules) {
     if (!rules.length) {
       return `<div class="empty-row">none yet · use + add rule below</div>`;
     }
     return rules.map(r => `
-      <div class="contact-row" title="/${escapeHtml(r.pattern)}/${escapeHtml(r.flags)}">
-        <span style="font-family: var(--mono); font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;">${escapeHtml(r.name)}</span>
-        <span style="font-family: var(--mono); font-size: 11px; color: ${r.enabled ? 'var(--green)' : 'var(--text-faint)'}; flex-shrink: 0;">${r.enabled ? 'on' : 'off'}</span>
+      <div class="contact-row" title="${escapeHtml(r.prompt)}">
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(r.name)}</div>
+          <div style="font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);">→ ${escapeHtml(scopeBadge(r))}</div>
+        </div>
+        <span style="font-family: var(--mono); font-size: 11px; color: ${r.enabled ? 'var(--green)' : 'var(--text-faint)'}; flex-shrink: 0;" data-action="toggle-rule" data-id="${r.id}" data-enabled="${r.enabled}" title="click to toggle">${r.enabled ? 'on' : 'off'}</span>
         <span class="row-remove" data-action="remove-rule" data-id="${r.id}" title="remove">✕</span>
       </div>
     `).join('');
@@ -1158,12 +1949,13 @@
 
   function renderRulesPanel(rules) {
     if (!rules.length) {
-      return `<div class="empty-row" style="padding:8px 0;">No rules configured. POST /api/rules to add one.</div>`;
+      return `<div class="empty-row" style="padding:8px 0;">No monitor rules. Use the sidebar's "+ add rule" to create one.</div>`;
     }
     return rules.map(r => `
       <div class="rule-card">
         <div class="rule-name">${escapeHtml(r.name)}${r.enabled ? '' : ' <span style="color:var(--text-faint);font-weight:400;">(off)</span>'}</div>
-        <div class="rule-trigger">if <span class="op">match</span> /<span class="str">${escapeHtml(r.pattern)}</span>/${escapeHtml(r.flags)}</div>
+        <div class="rule-trigger">scope: <span class="op">${escapeHtml(r.scope_type)}</span>${r.scope_type === 'contact' ? ' → <span class="str">' + escapeHtml(scopeBadge(r)) + '</span>' : ''}</div>
+        <div style="font-size: 11.5px; color: var(--text-dim); margin-top: 6px; line-height: 1.45;">${escapeHtml(r.prompt)}</div>
       </div>
     `).join('');
   }
@@ -1171,9 +1963,9 @@
   async function refreshRules() {
     let rules = [];
     try {
-      const j = await api('/api/rules');
+      const j = await api('/api/monitor/rules');
       rules = j.rules || [];
-    } catch (e) { console.warn('rules fetch failed:', e); }
+    } catch (e) { console.warn('monitor rules fetch failed:', e); }
 
     const sb = document.getElementById('rules-list-sidebar');
     if (sb) sb.innerHTML = renderRulesSidebar(rules);
@@ -1185,8 +1977,32 @@
 
   // ---------- views: inbox + thread ----------
   let chatsCache = [];
-  let settingsCache = { ai_context_count: 20 };
-  let settingsBounds = { ai_context_count: { min: 1, max: 100 } };
+  let settingsCache = {
+    ai_context_count: 20,
+    voice_profile: '',
+    voice_profile_sample_count: 200,
+    voice_profile_user_context: '',
+    voice_profile_updated_at: 0,
+  };
+  let settingsBounds = {
+    ai_context_count: { min: 1, max: 100 },
+    voice_profile_sample_count: { min: 50, max: 2000 },
+  };
+  // Temperament options (kept in sync with server/ai.ts TEMPERAMENTS).
+  const TEMPERAMENTS = [
+    'normal','warm','casual','professional','enthusiastic','apologetic',
+    'snarky','blunt','angry','sad','aggressive',
+  ];
+  let pendingVariants = null; // {variants, chat_id, handle, source_msg_guid, model, usage, temperament, contextNote}
+  let currentView = 'inbox';
+  let currentChatId = null;
+  let currentRadarHandle = null;
+  let radarSignalsTab = 'all';
+  let calendarTab = 'pending';
+  let radarHandlesCache = new Set();
+  let searchTimer = null;
+  let sse = null;
+  let scheduleFormPicker = null; // returned by mountDatePicker for the inline schedule form
 
   async function refreshSettings() {
     try {
@@ -1212,20 +2028,25 @@
   }
 
   function renderChatRow(c) {
-    const name = c.display_name || c.identifier || '(unknown)';
+    // Prefer contact_name (resolved from macOS Contacts) → group display_name → handle.
+    const name = c.contact_name || c.display_name || c.identifier || '(unknown)';
     const seed = c.identifier || c.guid || String(c.id);
     const av = avatarClass(seed);
-    const init = initials(c.display_name, c.identifier);
+    const init = initials(c.contact_name, c.display_name, c.identifier);
     const time = relTime(c.last_date_ms);
     const previewText = c.last_text
       ? (c.last_is_from_me ? 'You: ' : '') + c.last_text
       : '[encoded message — decoder skipped]';
+    // Only show the raw identifier under the name when we DON'T already display the contact name.
+    const subline = c.contact_name && c.contact_name !== c.identifier
+      ? `${escapeHtml(c.identifier || '')}${c.service_name ? ' · ' + escapeHtml(c.service_name) : ''}`
+      : (c.service_name ? escapeHtml(c.service_name) : '');
     return `
       <div class="chat-row" data-action="open-thread" data-chat-id="${c.id}">
         <div class="avatar ${av}">${escapeHtml(init)}</div>
         <div class="row-text">
           <div class="row-name">${escapeHtml(name)}</div>
-          <div class="row-handle">${escapeHtml(c.identifier || '')}${c.service_name ? ' · ' + escapeHtml(c.service_name) : ''}</div>
+          <div class="row-handle">${subline}</div>
           <div class="row-preview">${escapeHtml(previewText)}</div>
         </div>
         <div class="row-meta">${escapeHtml(time)}</div>
@@ -1268,17 +2089,67 @@
     }
   }
 
+  function fmtBytes(n) {
+    if (!n || n < 1024) return n ? `${n} B` : '';
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+
+  function renderReactions(reactions) {
+    if (!reactions || reactions.length === 0) return '';
+    // Group by emoji, count, list senders for tooltip
+    const groups = new Map();
+    for (const r of reactions) {
+      const key = r.emoji || '·';
+      const entry = groups.get(key) || { emoji: key, count: 0, senders: [] };
+      entry.count++;
+      const who = r.is_from_me ? 'You' : (r.sender_contact_name || r.sender_handle || '?');
+      entry.senders.push(who);
+      groups.set(key, entry);
+    }
+    const badges = [...groups.values()].map((g) => {
+      const tooltip = `${g.senders.join(', ')}`;
+      return `<span class="reaction-badge" title="${escapeHtml(tooltip)}"><span class="emoji">${escapeHtml(g.emoji)}</span>${g.count > 1 ? `<span class="count">${g.count}</span>` : ''}</span>`;
+    });
+    return `<div class="reactions">${badges.join('')}</div>`;
+  }
+
+  function renderAttachments(attachments) {
+    if (!attachments || attachments.length === 0) return '';
+    return `<div class="attachments">${attachments.map((a) => {
+      const name = a.transfer_name || a.filename?.split('/').pop() || 'file';
+      const size = fmtBytes(a.total_bytes);
+      if (a.is_image) {
+        return `<a href="/api/attachments/${a.rowid}" target="_blank" rel="noopener"><img class="att-image" src="/api/attachments/${a.rowid}" alt="${escapeHtml(name)}" loading="lazy" /></a>`;
+      }
+      return `<a class="att-file" href="/api/attachments/${a.rowid}" target="_blank" rel="noopener" title="${escapeHtml(name)}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span class="name">${escapeHtml(name)}</span>
+        ${size ? `<span class="size">${size}</span>` : ''}
+      </a>`;
+    }).join('')}</div>`;
+  }
+
   function renderMessageBubble(m) {
     const fromMe = m.is_from_me === 1;
     const time = relTime(m.date_ms);
     const text = m.text ?? '';
+    const senderLabel = fromMe ? '' : (m.contact_name || m.handle || '');
+    const hasText = text && text.trim().length > 0 && text !== '￼';
+    const bubbleInner = hasText
+      ? escapeHtml(text)
+      : (m.attachments && m.attachments.length
+          ? '' // attachments below stand on their own
+          : '<span class="bubble-empty">[encoded message — decoder skipped]</span>');
     return `
       <div class="bubble-row ${fromMe ? 'me' : ''}">
         <div>
-          <div class="bubble ${fromMe ? 'me' : 'them'}">${
-            text ? escapeHtml(text) : '<span class="bubble-empty">[encoded message — decoder skipped]</span>'
-          }</div>
-          <div class="bubble-meta ${fromMe ? 'right' : ''}">${escapeHtml(time)}${m.handle && !fromMe ? ' · ' + escapeHtml(m.handle) : ''}</div>
+          ${hasText || !(m.attachments && m.attachments.length)
+            ? `<div class="bubble ${fromMe ? 'me' : 'them'}">${bubbleInner}</div>` : ''}
+          ${renderAttachments(m.attachments)}
+          ${renderReactions(m.reactions)}
+          <div class="bubble-meta ${fromMe ? 'right' : ''}">${escapeHtml(time)}${senderLabel ? ' · ' + escapeHtml(senderLabel) : ''}</div>
         </div>
       </div>
     `;
@@ -1287,11 +2158,22 @@
   function renderThreadToolbar(chatId) {
     const max = settingsBounds.ai_context_count?.max || 100;
     const dflt = settingsCache.ai_context_count;
+    const meta = chatsCache.find((c) => c.id === chatId);
+    const handle = meta?.identifier || '';
+    const onRadar = !!radarHandlesCache.has(handle);
     return `
       <div class="thread-toolbar">
         <button class="btn primary" data-action="ai-draft" data-chat-id="${chatId}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
           Draft AI reply
+        </button>
+        <button class="btn" data-action="ai-summarize" data-chat-id="${chatId}" title="Quick AI summary of recent messages">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          Summarize
+        </button>
+        <button class="btn" data-action="toggle-radar" data-handle="${escapeHtml(handle)}" title="${onRadar ? 'On radar — click to remove' : 'Add this contact to radar (memory bank)'}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="${onRadar ? 'color: var(--green);' : ''}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="12" x2="20.5" y2="3.5"/></svg>
+          ${onRadar ? 'On Radar' : 'Add to Radar'}
         </button>
         <label>last
           <input class="ctx-input" type="number" min="1" max="${max}" value="${dflt}" data-ctx-input />
@@ -1299,22 +2181,26 @@
         </label>
         <span class="toolbar-status" data-toolbar-status></span>
       </div>
+      <div class="summary-panel" data-summary-panel hidden></div>
     `;
   }
 
   async function renderThreadView(chatId) {
     const meta = chatsCache.find((c) => c.id === chatId);
-    const title = meta?.display_name || meta?.identifier || `Chat #${chatId}`;
+    const title = meta?.contact_name || meta?.display_name || meta?.identifier || `Chat #${chatId}`;
     setMainHeader({
       title,
       subHTML: `<a class="back-link" data-action="back-to-inbox">← back to inbox</a>${meta?.identifier ? ' · ' + escapeHtml(meta.identifier) : ''}`,
       showFilters: false,
     });
-    const tb = document.getElementById('drafts-toolbar');
+    // Thread tools live in the right panel now.
+    const tb = document.getElementById('thread-toolbar');
     if (tb) tb.innerHTML = renderThreadToolbar(chatId);
 
     const compose = document.getElementById('thread-compose');
     if (compose) compose.innerHTML = renderThreadCompose(chatId);
+
+    if (meta?.identifier) loadAndRenderNotes(meta.identifier);
 
     const list = document.getElementById('drafts-list');
     if (list) list.innerHTML = `<div class="empty"><div class="empty-title">loading…</div></div>`;
@@ -1411,6 +2297,12 @@
         </div>
       `;
 
+    const vpUpdated = settingsCache.voice_profile_updated_at;
+    const vpUpdatedLabel = vpUpdated > 0
+      ? new Date(vpUpdated).toLocaleString()
+      : 'never';
+    const vpSampleBounds = settingsBounds.voice_profile_sample_count || { min: 50, max: 2000 };
+
     list.innerHTML = `
       <form class="settings-section" data-form="settings">
         <h3>AI</h3>
@@ -1427,6 +2319,45 @@
         <div class="settings-actions">
           <button type="submit" class="btn primary">Save</button>
           <button type="button" class="btn ghost" data-action="reset-settings">Reset to defaults</button>
+          <span class="settings-status" data-error></span>
+        </div>
+      </form>
+
+      <form class="settings-section" data-form="voice-profile">
+        <h3>Voice profile</h3>
+
+        <div class="settings-row">
+          <label class="field-label" for="vp-sample">
+            Sample size
+            <span class="desc">How many of your most recent sent messages to read when (re)generating. Larger = more evidence, more tokens. Range ${vpSampleBounds.min}–${vpSampleBounds.max}.</span>
+          </label>
+          <div class="field-input">
+            <input id="vp-sample" type="number" name="voice_profile_sample_count" min="${vpSampleBounds.min}" max="${vpSampleBounds.max}" value="${settingsCache.voice_profile_sample_count}" />
+            <span class="unit">messages</span>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <label class="field-label" for="vp-context">
+            Your context
+            <span class="desc">Optional guidance the model should know when profiling you (e.g. "I'm 30, work in tech, southern, casual"). Persists across regenerations. Leave blank to skip.</span>
+          </label>
+          <textarea id="vp-context" name="voice_profile_user_context" rows="3" placeholder="Optional…">${escapeHtml(settingsCache.voice_profile_user_context || '')}</textarea>
+        </div>
+
+        <div class="settings-row" style="grid-template-columns: 1fr;">
+          <div>
+            <div class="voice-meta">Voice profile <span class="accent">// fed into every AI draft prompt</span> · last updated: ${escapeHtml(vpUpdatedLabel)}</div>
+            <textarea name="voice_profile" class="mono" rows="14" placeholder="Empty. Click 'Regenerate from chat.db' to produce one, or paste/edit your own.">${escapeHtml(settingsCache.voice_profile || '')}</textarea>
+          </div>
+        </div>
+
+        <div class="settings-actions">
+          <button type="submit" class="btn primary">Save edits</button>
+          <button type="button" class="btn" data-action="vp-regenerate">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+            Regenerate from chat.db
+          </button>
           <span class="settings-status" data-error></span>
         </div>
       </form>
@@ -1461,33 +2392,98 @@
     if (tb) tb.innerHTML = '';
   }
 
-  function clearThreadCompose() {
-    const c = document.getElementById('thread-compose');
-    if (c) c.innerHTML = '';
+  function clearThreadTools() {
+    for (const id of ['thread-toolbar', 'thread-compose', 'thread-notes']) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '';
+    }
+  }
+
+  function setRightPanelMode(mode) {
+    const app = document.querySelector('.app');
+    const rp = document.querySelector('.rightpanel');
+    const def = document.getElementById('rightpanel-default');
+    if (mode === 'thread') {
+      app?.classList.remove('no-rightpanel');
+      rp?.classList.add('thread-mode');
+      if (def) def.style.display = 'none';
+    } else {
+      app?.classList.add('no-rightpanel');
+      rp?.classList.remove('thread-mode');
+      if (def) def.style.display = '';
+      clearThreadTools();
+    }
   }
 
   function renderThreadCompose(chatId) {
+    const tempOpts = TEMPERAMENTS.map(
+      (t) => `<option value="${t}">${t}</option>`,
+    ).join('');
+    const vpApplied = (settingsCache.voice_profile || '').trim().length > 0;
     return `
       <div class="compose-label">
         <span>Custom prompt</span>
-        <span class="accent">// last ${settingsCache.ai_context_count} messages will be attached</span>
+        <span class="accent">// last ${settingsCache.ai_context_count} messages${vpApplied ? ' + voice profile' : ''} will be attached</span>
       </div>
       <textarea data-compose-input placeholder="Add guidance for the draft (e.g. 'tell them I'm running 15 min late', 'be warmer than my last reply', 'ask for the address')"></textarea>
-      <div class="compose-actions">
+      <div class="compose-row">
         <button class="btn primary" data-action="ai-draft-with-context" data-chat-id="${chatId}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
-          Draft with context
+          Draft reply
         </button>
-        <span class="ctx-hint">⌘ + Enter to submit</span>
+        <button class="btn" data-action="ai-draft-variants" data-chat-id="${chatId}" title="Generate 3 alternative drafts; pick one to save">
+          3 options
+        </button>
+        <label style="display:inline-flex; align-items:center; gap:6px; font-family: var(--mono); font-size: 11px; color: var(--text-dim);">
+          tone:
+          <select data-temperament-input>
+            ${tempOpts}
+          </select>
+        </label>
+        <span class="ctx-hint" style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);">⌘+Enter = draft 1</span>
         <span class="compose-status" data-compose-status></span>
       </div>
+      <div class="variants" data-variants></div>
     `;
   }
 
+  function renderVariantCards(state) {
+    const usable = state.variants.filter((v) => !v.skipped && v.body.trim().length > 0);
+    if (usable.length === 0) {
+      return `<div class="empty-row" style="padding:8px 0;">model returned SKIP for all variants — try adjusting your prompt or temperament</div>`;
+    }
+    const tempBadge = state.temperament && state.temperament !== 'normal'
+      ? `<span class="badge">tone: ${escapeHtml(state.temperament)}</span>` : '';
+    const tokens = state.usage ? `${state.usage.total_tokens} tok total` : '';
+    const noteBadge = state.contextNote ? `<span class="badge">+ context</span>` : '';
+    return usable.map((v, i) => `
+      <div class="variant-card" data-variant-index="${i}">
+        <div class="variant-meta">
+          <span class="badge">variant ${i + 1} of ${usable.length}</span>
+          ${tempBadge}
+          ${noteBadge}
+          <span style="margin-left:auto;">${escapeHtml(tokens)}</span>
+        </div>
+        <div class="variant-body">${escapeHtml(v.body)}</div>
+        <div class="variant-actions">
+          <button class="btn primary" data-action="save-variant" data-index="${i}">Use this →</button>
+          <button class="btn ghost" data-action="dismiss-variants" style="margin-left:auto;">Discard all</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function clearThreadNotes() {
+    const n = document.getElementById('thread-notes');
+    if (n) n.innerHTML = '';
+  }
+
   async function setView(view, chatId = null) {
+    currentView = view;
+    currentChatId = view === 'thread' ? chatId : null;
     setActiveNav(view === 'thread' ? 'inbox' : view);
+    setRightPanelMode(view === 'thread' ? 'thread' : 'collapsed');
     if (view !== 'drafts') clearDraftsToolbar();
-    if (view !== 'thread') clearThreadCompose();
     if (view === 'inbox') {
       await renderInboxView();
     } else if (view === 'thread') {
@@ -1496,6 +2492,1120 @@
       await renderDraftsView();
     } else if (view === 'settings') {
       await renderSettingsView();
+    } else if (view === 'search') {
+      await renderSearchView();
+    } else if (view === 'flags') {
+      await renderFlagsView();
+    } else if (view === 'scheduled') {
+      await renderScheduledView();
+    } else if (view === 'radar') {
+      currentRadarHandle = null;
+      await renderRadarView();
+    } else if (view === 'radar-detail') {
+      await renderRadarDetail(chatId); // chatId param reused as handle string here
+    } else if (view === 'calendar') {
+      await renderCalendarView();
+    } else if (view === 'away') {
+      await renderAwayView();
+    }
+    // Mount autocomplete on any handle inputs that just appeared.
+    mountAllContactAutocompletes();
+  }
+
+  /* ---------- per-contact notes ---------- */
+
+  function renderNotesBlock(handle, notes) {
+    const items = notes.length === 0
+      ? `<div class="empty-row" style="padding:6px 0;">no notes for this contact yet — first one below ↓</div>`
+      : notes.map((n) => `
+          <div class="note-item" data-note-id="${n.id}">
+            <div class="note-body">${escapeHtml(n.body)}</div>
+            <div class="note-time">${escapeHtml(relTime(n.created_at))}</div>
+            <span class="note-remove" data-action="remove-note" data-id="${n.id}" title="remove">✕</span>
+          </div>
+        `).join('');
+    return `
+      <div class="notes-block">
+        <div class="notes-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span>Memory notes for this contact</span>
+          <span class="count">${notes.length}</span>
+          <span style="margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--text-faint);text-transform:none;letter-spacing:0;">// fed into every AI draft for this contact</span>
+        </div>
+        <div class="note-list">${items}</div>
+        <form class="note-add" data-form="contact-note" data-handle="${escapeHtml(handle)}">
+          <textarea name="body" rows="1" placeholder="Add a note about this contact (e.g. 'sister; mostly logistics for parents'). ⌘+Enter to save."></textarea>
+          <button type="submit" class="btn primary">Add</button>
+        </form>
+      </div>
+    `;
+  }
+
+  async function loadAndRenderNotes(handle) {
+    const el = document.getElementById('thread-notes');
+    if (!el) return;
+    if (!handle) { el.innerHTML = ''; return; }
+    try {
+      const r = await api(`/api/contacts/notes?handle=${encodeURIComponent(handle)}`);
+      el.innerHTML = renderNotesBlock(handle, r.notes || []);
+    } catch (e) { el.innerHTML = ''; console.warn('notes fetch failed:', e); }
+  }
+
+  /* ---------- Flags view (monitor matches) ---------- */
+
+  function renderFlagCard(f) {
+    const time = relTime(f.flagged_at);
+    const sender = f.contact_name || f.handle || '(unknown)';
+    const conf = typeof f.confidence === 'number' ? `· conf ${f.confidence.toFixed(2)}` : '';
+    const reviewed = f.reviewed_at != null;
+    return `
+      <div class="flag-card ${reviewed ? 'reviewed' : 'unreviewed'}" data-flag-id="${f.id}">
+        <div class="flag-rule">
+          <strong>${escapeHtml(f.rule_name || 'rule')}</strong> matched
+          <span class="conf">${conf}</span>
+        </div>
+        <div>
+          <div class="flag-from">from <span class="name">${escapeHtml(sender)}</span> · ${escapeHtml(f.handle || '')}</div>
+          <div class="flag-body">${escapeHtml(f.text || '')}</div>
+          ${f.reasoning ? `<div class="flag-reasoning">${escapeHtml(f.reasoning)}</div>` : ''}
+        </div>
+        <div class="flag-meta">${escapeHtml(time)}</div>
+        <div class="flag-actions">
+          <button class="btn primary" data-action="open-thread" data-chat-id="${f.chat_id}">Open thread</button>
+          ${!reviewed ? `<button class="btn" data-action="review-flag" data-id="${f.id}">Mark reviewed</button>` : '<span style="font-family:var(--mono);font-size:11px;color:var(--text-faint);align-self:center;">reviewed</span>'}
+          <div class="spacer" style="flex:1;"></div>
+          <button class="btn ghost" data-action="remove-flag" data-id="${f.id}">Delete</button>
+        </div>
+      </div>
+    `;
+  }
+
+  let flagsTab = 'unreviewed'; // 'unreviewed' | 'all'
+
+  async function renderFlagsView() {
+    setMainHeader({
+      title: 'Flags',
+      subHTML: '<span class="accent" id="flags-count">— unreviewed</span> · monitor-rule matches',
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (!list) return;
+    list.innerHTML = `
+      <div style="display:flex;gap:6px;margin-bottom:12px;">
+        <button class="filter ${flagsTab === 'unreviewed' ? 'active' : ''}" data-action="flags-tab" data-tab="unreviewed">unreviewed</button>
+        <button class="filter ${flagsTab === 'all' ? 'active' : ''}" data-action="flags-tab" data-tab="all">all</button>
+      </div>
+      <div id="flags-list"><div class="empty"><div class="empty-title">loading…</div></div></div>
+    `;
+    await refreshFlagsList();
+  }
+
+  async function refreshFlagsList() {
+    const target = document.getElementById('flags-list');
+    if (!target) return;
+    try {
+      const reviewedQuery = flagsTab === 'unreviewed' ? '?reviewed=false&limit=200' : '?limit=200';
+      const r = await api(`/api/monitor/flags${reviewedQuery}`);
+      const flags = r.flags || [];
+      const countEl = document.getElementById('flags-count');
+      if (countEl) countEl.textContent = `${r.unreviewed} unreviewed`;
+      updateFlagsBadge(r.unreviewed);
+      if (!flags.length) {
+        target.innerHTML = `<div class="empty"><div class="empty-title">No ${flagsTab === 'unreviewed' ? 'unreviewed' : ''} flags.</div><div class="empty-sub">Set up a monitor rule in the sidebar; matching incoming messages will appear here.</div></div>`;
+      } else {
+        target.innerHTML = flags.map(renderFlagCard).join('');
+      }
+    } catch (err) {
+      target.innerHTML = `<div class="empty"><div class="empty-title">Failed to load flags.</div><div class="empty-sub">${escapeHtml(err.message)}</div></div>`;
+    }
+  }
+
+  function updateFlagsBadge(unreviewed) {
+    const badge = document.getElementById('nav-flags-badge');
+    if (!badge) return;
+    if (unreviewed > 0) {
+      badge.style.display = '';
+      badge.textContent = unreviewed;
+      badge.style.background = 'var(--orange)';
+      badge.style.color = '#0a0c10';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  /* ---------- Scheduled view ---------- */
+
+  function fmtSendAt(ts) {
+    const d = new Date(ts);
+    const now = Date.now();
+    const diff = ts - now;
+    const abs = d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    if (diff < 0) return `${abs} (overdue)`;
+    if (diff < 60_000) return `${abs} (in <1 min)`;
+    if (diff < 3_600_000) return `${abs} (in ${Math.round(diff / 60_000)} min)`;
+    if (diff < 86_400_000) return `${abs} (in ${Math.round(diff / 3_600_000)} hr)`;
+    return abs;
+  }
+
+  function renderSchedCard(s) {
+    const due = s.status === 'pending' && s.send_at <= Date.now() + 60_000;
+    const cls = s.status === 'sent' ? 'sent' : s.status === 'failed' ? 'failed' : (due ? 'due-soon' : '');
+    const recipient = s.contact_name || s.handle;
+    return `
+      <div class="sched-card ${cls}" data-sched-id="${s.id}">
+        <div class="sched-head">
+          <span class="sched-when ${due ? 'due' : ''}">${escapeHtml(fmtSendAt(s.send_at))}</span>
+          <span class="sched-status ${s.status}">${s.status}</span>
+        </div>
+        <div class="sched-to">to <span class="name">${escapeHtml(recipient)}</span>${s.contact_name ? ' · ' + escapeHtml(s.handle) : ''}</div>
+        <div class="sched-body">${escapeHtml(s.body)}</div>
+        ${s.error ? `<div class="sched-error">error: ${escapeHtml(s.error)}</div>` : ''}
+        <div class="sched-actions">
+          ${s.status === 'pending'
+            ? `<button class="btn ghost" data-action="cancel-sched" data-id="${s.id}">Cancel</button>`
+            : ''}
+          <button class="btn ghost" data-action="open-thread-by-handle" data-handle="${escapeHtml(s.handle)}">Open thread</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderScheduledView() {
+    setMainHeader({
+      title: 'Scheduled',
+      subHTML: '<span class="accent" id="sched-count">— pending</span> · queued to send later',
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (!list) return;
+    scheduleFormPicker = null; // reset; remounted below if/when the form is shown
+    list.innerHTML = `
+      <button class="btn add-btn" data-action="show-form" data-target="form-schedule" style="width:auto;padding:8px 14px;margin-bottom:12px;">+ schedule a message</button>
+      <form class="form" id="form-schedule" data-form="schedule" style="margin-bottom:14px;">
+        <select name="chat_id" required>
+          <option value="">Select a chat…</option>
+          ${chatsCache.map(c => {
+            const label = (c.contact_name || c.display_name || c.identifier || `chat #${c.id}`) +
+              (c.identifier && (c.contact_name || c.display_name) ? ` · ${c.identifier}` : '');
+            return `<option value="${c.id}">${escapeHtml(label)}</option>`;
+          }).join('')}
+        </select>
+        <textarea name="body" placeholder="Message body…" required></textarea>
+        <div data-schedule-picker style="margin-bottom: 8px;"></div>
+        <div class="form-row">
+          <button type="submit" class="btn primary">Schedule</button>
+          <button type="button" class="btn ghost" data-action="hide-form" data-target="form-schedule">Cancel</button>
+        </div>
+        <div class="form-error" data-error></div>
+      </form>
+      <div id="sched-list"><div class="empty"><div class="empty-title">loading…</div></div></div>
+    `;
+    // Mount the visual picker into the schedule form
+    const pickerEl = list.querySelector('[data-schedule-picker]');
+    if (pickerEl) scheduleFormPicker = mountDatePicker(pickerEl);
+    await refreshScheduledList();
+  }
+
+  async function refreshScheduledList() {
+    const target = document.getElementById('sched-list');
+    if (!target) return;
+    try {
+      const r = await api('/api/scheduled');
+      const all = r.scheduled || [];
+      const pending = all.filter(s => s.status === 'pending');
+      const past = all.filter(s => s.status !== 'pending');
+      const countEl = document.getElementById('sched-count');
+      if (countEl) countEl.textContent = `${pending.length} pending`;
+      const navCount = document.getElementById('nav-scheduled-count');
+      if (navCount) navCount.textContent = pending.length || '—';
+      if (!all.length) {
+        target.innerHTML = `<div class="empty"><div class="empty-title">No scheduled messages.</div><div class="empty-sub">Use the form above, or hit "Schedule" on any draft card.</div></div>`;
+      } else {
+        const sortedPending = [...pending].sort((a, b) => a.send_at - b.send_at);
+        const sortedPast = [...past].sort((a, b) => b.send_at - a.send_at);
+        target.innerHTML = [...sortedPending, ...sortedPast].map(renderSchedCard).join('');
+      }
+    } catch (err) {
+      target.innerHTML = `<div class="empty"><div class="empty-title">Failed to load.</div><div class="empty-sub">${escapeHtml(err.message)}</div></div>`;
+    }
+  }
+
+  function refreshScheduledCount() {
+    api('/api/scheduled?status=pending').then((r) => {
+      const navCount = document.getElementById('nav-scheduled-count');
+      if (navCount) navCount.textContent = (r.scheduled?.length ?? 0) || '—';
+    }).catch(() => {});
+  }
+
+  /* ---------- Visual date+time picker ---------- */
+
+  const DT_DAY_NAMES = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  const DT_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  function mountDatePicker(container, opts = {}) {
+    const initial = new Date(opts.defaultTs || Date.now() + 60 * 60 * 1000);
+    let selectedDate = new Date(initial);
+    selectedDate.setHours(0, 0, 0, 0);
+    let viewMonth = new Date(selectedDate);
+    viewMonth.setDate(1);
+    let hour12 = (initial.getHours() % 12) || 12;
+    let minute = Math.round(initial.getMinutes() / 5) * 5 % 60;
+    let ampm = initial.getHours() >= 12 ? 'PM' : 'AM';
+
+    function chosenDate() {
+      const d = new Date(selectedDate);
+      let h = hour12 % 12;
+      if (ampm === 'PM') h += 12;
+      d.setHours(h, minute, 0, 0);
+      return d;
+    }
+
+    function monthGridHTML() {
+      const y = viewMonth.getFullYear();
+      const m = viewMonth.getMonth();
+      const first = new Date(y, m, 1);
+      const startDow = first.getDay();
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const daysInPrev = new Date(y, m, 0).getDate();
+      const today = new Date(); today.setHours(0,0,0,0);
+      const cells = [];
+      for (let i = 0; i < startDow; i++) {
+        const day = daysInPrev - startDow + 1 + i;
+        cells.push({ day, muted: true, disabled: true });
+      }
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dt = new Date(y, m, d);
+        const isPast = dt.getTime() < today.getTime();
+        const isToday = dt.getTime() === today.getTime();
+        const isSelected =
+          dt.getFullYear() === selectedDate.getFullYear() &&
+          dt.getMonth() === selectedDate.getMonth() &&
+          dt.getDate() === selectedDate.getDate();
+        cells.push({ day: d, today: isToday, selected: isSelected, past: isPast });
+      }
+      // Pad to multiple of 7
+      while (cells.length % 7 !== 0) cells.push({ day: cells.length - daysInMonth - startDow + 1, muted: true, disabled: true });
+      const headers = DT_DAY_NAMES.map(d => `<div class="dt-cal-dow">${d}</div>`).join('');
+      const days = cells.map((c, i) => {
+        const cls = ['dt-cal-day'];
+        if (c.muted) cls.push('muted');
+        if (c.today) cls.push('today');
+        if (c.selected) cls.push('selected');
+        if (c.past) cls.push('past');
+        const interactive = !c.disabled && !c.past;
+        return `<div class="${cls.join(' ')}" ${interactive ? `data-action="dt-pick-day" data-day="${c.day}"` : ''}>${c.day}</div>`;
+      }).join('');
+      return headers + days;
+    }
+
+    function fmtSelected() {
+      const d = chosenDate();
+      const opts = { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+      return d.toLocaleString(undefined, opts);
+    }
+
+    function render() {
+      const hourOpts = Array.from({length: 12}, (_, i) => `<option value="${i+1}" ${(i+1) === hour12 ? 'selected' : ''}>${(i+1).toString().padStart(2,'0')}</option>`).join('');
+      const minuteOpts = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(m => `<option value="${m}" ${m === minute ? 'selected' : ''}>${m.toString().padStart(2,'0')}</option>`).join('');
+      container.innerHTML = `
+        <div class="dt-picker">
+          <div class="dt-presets">
+            <button type="button" class="dt-preset" data-action="dt-preset" data-preset="1h">in 1 hour</button>
+            <button type="button" class="dt-preset" data-action="dt-preset" data-preset="3h">in 3 hours</button>
+            <button type="button" class="dt-preset" data-action="dt-preset" data-preset="tonight">tonight 8pm</button>
+            <button type="button" class="dt-preset" data-action="dt-preset" data-preset="tom-am">tomorrow 9am</button>
+            <button type="button" class="dt-preset" data-action="dt-preset" data-preset="tom-pm">tomorrow 7pm</button>
+            <button type="button" class="dt-preset" data-action="dt-preset" data-preset="next-week">next week</button>
+          </div>
+          <div class="dt-cal">
+            <div class="dt-cal-head">
+              <button type="button" data-action="dt-prev-month" aria-label="previous">‹</button>
+              <span>${escapeHtml(DT_MONTH_NAMES[viewMonth.getMonth()])} ${viewMonth.getFullYear()}</span>
+              <button type="button" data-action="dt-next-month" aria-label="next">›</button>
+            </div>
+            <div class="dt-cal-grid">${monthGridHTML()}</div>
+          </div>
+          <div class="dt-time-row">
+            <span style="color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:0.6px;">time</span>
+            <select data-dt-hour>${hourOpts}</select>
+            <span class="colon">:</span>
+            <select data-dt-min>${minuteOpts}</select>
+            <select data-dt-ampm>
+              <option value="AM" ${ampm === 'AM' ? 'selected' : ''}>AM</option>
+              <option value="PM" ${ampm === 'PM' ? 'selected' : ''}>PM</option>
+            </select>
+          </div>
+          <div class="dt-result"><span class="label">selected:</span><span data-dt-display>${escapeHtml(fmtSelected())}</span></div>
+        </div>
+      `;
+    }
+
+    function applyPreset(preset) {
+      const now = new Date();
+      let target = new Date();
+      switch (preset) {
+        case '1h':       target = new Date(now.getTime() + 60*60*1000); break;
+        case '3h':       target = new Date(now.getTime() + 3*60*60*1000); break;
+        case 'tonight':  target.setHours(20, 0, 0, 0); if (target <= now) target.setDate(target.getDate()+1); break;
+        case 'tom-am':   target.setDate(now.getDate()+1); target.setHours(9, 0, 0, 0); break;
+        case 'tom-pm':   target.setDate(now.getDate()+1); target.setHours(19, 0, 0, 0); break;
+        case 'next-week':target.setDate(now.getDate()+7); break;
+        default: return;
+      }
+      selectedDate = new Date(target); selectedDate.setHours(0,0,0,0);
+      viewMonth = new Date(selectedDate); viewMonth.setDate(1);
+      hour12 = (target.getHours() % 12) || 12;
+      minute = Math.round(target.getMinutes()/5)*5 % 60;
+      ampm = target.getHours() >= 12 ? 'PM' : 'AM';
+      render();
+    }
+
+    container.addEventListener('click', (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const a = target.closest('[data-action]');
+      if (!a) return;
+      const act = a.getAttribute('data-action');
+      if (act === 'dt-preset') { applyPreset(a.getAttribute('data-preset')); return; }
+      if (act === 'dt-prev-month') { viewMonth.setMonth(viewMonth.getMonth()-1); render(); return; }
+      if (act === 'dt-next-month') { viewMonth.setMonth(viewMonth.getMonth()+1); render(); return; }
+      if (act === 'dt-pick-day') {
+        const day = parseInt(a.getAttribute('data-day'), 10);
+        if (Number.isFinite(day)) {
+          selectedDate = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), day);
+          render();
+        }
+        return;
+      }
+    });
+
+    container.addEventListener('change', (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLSelectElement)) return;
+      if (target.matches('[data-dt-hour]')) hour12 = parseInt(target.value, 10);
+      else if (target.matches('[data-dt-min]')) minute = parseInt(target.value, 10);
+      else if (target.matches('[data-dt-ampm]')) ampm = target.value;
+      // Update only the result display
+      const disp = container.querySelector('[data-dt-display]');
+      if (disp) disp.textContent = fmtSelected();
+    });
+
+    render();
+    return {
+      getMs: () => chosenDate().getTime(),
+      getDate: () => chosenDate(),
+    };
+  }
+
+  /* ---------- Modal helper ---------- */
+
+  function openModal({ title, contentEl, onConfirm, confirmLabel = 'Confirm' }) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    const card = document.createElement('div');
+    card.className = 'modal-card';
+    card.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+    card.appendChild(contentEl);
+    const actions = document.createElement('div');
+    actions.className = 'modal-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn ghost';
+    cancelBtn.type = 'button';
+    cancelBtn.textContent = 'Cancel';
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn primary';
+    confirmBtn.type = 'button';
+    confirmBtn.textContent = confirmLabel;
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+    card.appendChild(actions);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    cancelBtn.addEventListener('click', close);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    document.addEventListener('keydown', function onKey(e) {
+      if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+    });
+    confirmBtn.addEventListener('click', async () => {
+      try {
+        await onConfirm();
+        close();
+      } catch (err) { alert(err.message || String(err)); }
+    });
+  }
+
+  /* ---------- Contact autocomplete ---------- */
+
+  let contactsCache = []; // [{full_name, first_name, last_name, organization, handles: [...]}]
+
+  async function refreshContactsCache() {
+    try {
+      const r = await api('/api/contacts');
+      contactsCache = (r.contacts || []).filter((c) => c.handles && c.handles.length);
+    } catch { /* keep cache */ }
+  }
+
+  function mountContactAutocomplete(input) {
+    if (!input || input.dataset.acMounted === '1') return;
+    input.dataset.acMounted = '1';
+    input.setAttribute('autocomplete', 'off');
+
+    // Wrap the input so the dropdown can position absolute relative to it.
+    const parent = input.parentElement;
+    if (parent && !parent.classList.contains('ac-wrap')) {
+      const wrap = document.createElement('div');
+      wrap.className = 'ac-wrap';
+      parent.insertBefore(wrap, input);
+      wrap.appendChild(input);
+    }
+    const wrap = input.parentElement;
+    let dropdown = wrap.querySelector('.contact-autocomplete');
+    if (!dropdown) {
+      dropdown = document.createElement('div');
+      dropdown.className = 'contact-autocomplete';
+      wrap.appendChild(dropdown);
+    }
+
+    let activeIndex = -1;
+    let matches = [];
+
+    function compute() {
+      const q = (input.value || '').trim().toLowerCase();
+      const all = contactsCache.flatMap((c) =>
+        c.handles.map((h) => ({ name: c.full_name, handle: h, contact: c })),
+      );
+      let pool = all;
+      if (q.length > 0) {
+        pool = all.filter(
+          (m) =>
+            m.name.toLowerCase().includes(q) ||
+            m.handle.toLowerCase().includes(q),
+        );
+      }
+      // Sort: exact-prefix match first
+      pool.sort((a, b) => {
+        const ap = a.name.toLowerCase().startsWith(q) ? 0 : 1;
+        const bp = b.name.toLowerCase().startsWith(q) ? 0 : 1;
+        if (ap !== bp) return ap - bp;
+        return a.name.localeCompare(b.name);
+      });
+      matches = pool.slice(0, 12);
+      activeIndex = matches.length > 0 ? 0 : -1;
+      paint();
+    }
+
+    function paint() {
+      if (matches.length === 0) {
+        dropdown.innerHTML = `<div class="ac-empty">no matching contacts</div>`;
+        dropdown.classList.add('open');
+        return;
+      }
+      dropdown.innerHTML = matches.map((m, i) => `
+        <div class="ac-item ${i === activeIndex ? 'active' : ''}" data-idx="${i}">
+          <div class="avatar ${avatarClass(m.handle)}">${escapeHtml(initials(m.name, m.handle))}</div>
+          <div>
+            <div class="ac-name">${escapeHtml(m.name)}</div>
+            <div class="ac-handle">${escapeHtml(m.handle)}</div>
+          </div>
+        </div>
+      `).join('');
+      dropdown.classList.add('open');
+    }
+
+    function pick(idx) {
+      const m = matches[idx];
+      if (!m) return;
+      input.value = m.handle;
+      // Auto-fill a sibling label input if blank.
+      const form = input.closest('form');
+      const labelInput = form?.querySelector('input[name="label"]');
+      if (labelInput && !labelInput.value) labelInput.value = m.name;
+      dropdown.classList.remove('open');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+
+    input.addEventListener('focus', compute);
+    input.addEventListener('input', compute);
+    input.addEventListener('blur', () => {
+      // Delay so click events on dropdown items fire first.
+      setTimeout(() => dropdown.classList.remove('open'), 150);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (!dropdown.classList.contains('open')) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); activeIndex = Math.min(matches.length - 1, activeIndex + 1); paint(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); activeIndex = Math.max(0, activeIndex - 1); paint(); }
+      else if (e.key === 'Enter' && activeIndex >= 0) { e.preventDefault(); pick(activeIndex); }
+      else if (e.key === 'Escape') { dropdown.classList.remove('open'); }
+    });
+    dropdown.addEventListener('mousedown', (e) => {
+      const item = e.target instanceof HTMLElement ? e.target.closest('.ac-item') : null;
+      if (!item) return;
+      e.preventDefault();
+      const idx = parseInt(item.getAttribute('data-idx'), 10);
+      pick(idx);
+    });
+  }
+
+  function mountAllContactAutocompletes() {
+    document.querySelectorAll('[data-contact-autocomplete]').forEach((el) => {
+      mountContactAutocomplete(el);
+    });
+  }
+
+  /* ---------- Away mode view ---------- */
+
+  function renderAwayContact(c) {
+    const name = c.contact_name || c.label || c.handle;
+    const av = avatarClass(c.handle);
+    const init = initials(c.contact_name, c.label, c.handle);
+    return `
+      <div class="contact-row" data-away-id="${c.id}" title="${escapeHtml(c.handle)}">
+        <div class="avatar ${av}">${escapeHtml(init)}</div>
+        <div class="contact-name">${escapeHtml(name)}</div>
+        <span style="font-family: var(--mono); font-size: 11px; color: ${c.enabled ? 'var(--green)' : 'var(--text-faint)'}; margin-left: auto; cursor: pointer;" data-action="toggle-away-contact" data-id="${c.id}" data-enabled="${c.enabled}" title="click to toggle">${c.enabled ? 'on' : 'off'}</span>
+        <span class="row-remove" data-action="remove-away-contact" data-id="${c.id}" title="remove">✕</span>
+      </div>
+    `;
+  }
+
+  function renderAwaySession(s) {
+    const name = s.contact_name || s.handle;
+    const isActive = s.status !== 'ended';
+    const status = s.status === 'greeting_sent' ? 'greeting sent' : s.status;
+    return `
+      <div class="away-session-item ${isActive ? '' : 'ended'}" data-session-id="${s.id}">
+        <div class="session-head">
+          <span class="session-name">${escapeHtml(name)}</span>
+          <span class="session-meta">${escapeHtml(s.handle)} · started ${escapeHtml(relTime(s.started_at))}</span>
+          ${isActive ? `<span class="session-end" data-action="end-away-session" data-id="${s.id}" title="end this session">end</span>` : ''}
+        </div>
+        <div class="session-stats">
+          <span>${escapeHtml(status)}</span>
+          <span>${s.ai_reply_count} AI ${s.ai_reply_count === 1 ? 'reply' : 'replies'}</span>
+          ${s.last_ai_reply_at ? `<span>last reply ${escapeHtml(relTime(s.last_ai_reply_at))}</span>` : ''}
+          ${s.ended_reason ? `<span>· ended: ${escapeHtml(s.ended_reason)}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderAwayView() {
+    const enabled = !!settingsCache.away_mode_enabled;
+    setMainHeader({
+      title: 'Away mode',
+      subHTML: enabled
+        ? '<span class="accent" style="color: var(--yellow);">● ACTIVE</span> · the AI is auto-responding for opted-in contacts'
+        : '<span class="accent">off</span> · auto-responder is disabled',
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (!list) return;
+
+    let contacts = [];
+    let sessions = [];
+    try {
+      const [c, s] = await Promise.all([
+        api('/api/away/contacts'),
+        api('/api/away/sessions?limit=100'),
+      ]);
+      contacts = c.contacts || [];
+      sessions = s.sessions || [];
+    } catch (err) {
+      list.innerHTML = `<div class="empty"><div class="empty-title">Failed to load.</div><div class="empty-sub">${escapeHtml(err.message)}</div></div>`;
+      return;
+    }
+
+    const max = settingsBounds.away_max_replies_per_session?.max || 200;
+    const min = settingsBounds.away_max_replies_per_session?.min || 1;
+
+    const contactList = contacts.length === 0
+      ? '<div class="empty-row">no contacts whitelisted yet — only opted-in contacts get auto-responded</div>'
+      : contacts.map(renderAwayContact).join('');
+
+    const activeSessions = sessions.filter((s) => s.status !== 'ended');
+    const pastSessions = sessions.filter((s) => s.status === 'ended').slice(0, 30);
+    const sessionList = sessions.length === 0
+      ? '<div class="empty-row" style="padding:8px 0;">no sessions yet</div>'
+      : [
+          ...activeSessions.map(renderAwaySession),
+          pastSessions.length > 0 ? `<div style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.6px;margin:14px 0 8px;">past · ${pastSessions.length}</div>` : '',
+          ...pastSessions.map(renderAwaySession),
+        ].join('');
+
+    list.innerHTML = `
+      <div class="away-toggle-block ${enabled ? 'on' : ''}">
+        <div>
+          <div class="away-headline">${enabled ? 'Away mode is ON' : 'Away mode is off'}</div>
+          <div class="away-sub ${enabled ? 'on' : ''}">${enabled
+            ? 'Opted-in contacts will get auto-responded to — first by the canned greeting, then by AI in your voice. Toggling this off ends every active session.'
+            : 'Toggle on to start auto-responding. Only contacts in the whitelist below will be handled.'}</div>
+        </div>
+        <div class="away-toggle-switch ${enabled ? 'on' : ''}" data-action="toggle-away-mode" title="${enabled ? 'turn off' : 'turn on'}"></div>
+      </div>
+
+      <div class="away-grid">
+        <form class="away-config" data-form="away-config">
+          <h3>Greeting + safety</h3>
+          <div style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);margin-bottom:6px;">first canned reply when an opted-in contact messages</div>
+          <textarea name="away_message">${escapeHtml(settingsCache.away_message || '')}</textarea>
+          <div class="num-row">
+            <span>max AI replies per session</span>
+            <input type="number" name="away_max_replies_per_session" min="${min}" max="${max}" value="${settingsCache.away_max_replies_per_session}" />
+            <span style="color:var(--text-faint);">safety cap; sessions auto-end at this count</span>
+          </div>
+          <div class="form-row">
+            <button type="submit" class="btn primary">Save</button>
+            <span class="settings-status" data-error></span>
+          </div>
+        </form>
+
+        <div>
+          <div class="away-config" style="margin-bottom: 12px;">
+            <h3>Whitelisted contacts</h3>
+            <div id="away-contacts-list">${contactList}</div>
+            <button class="add-btn" data-action="show-form" data-target="form-away-contact" style="width:auto;padding:6px 12px;margin-top:8px;">+ add contact</button>
+            <form class="form" id="form-away-contact" data-form="away-contact">
+              <input type="text" name="handle" data-contact-autocomplete placeholder="search by name or paste handle" required autocomplete="off" />
+              <input type="text" name="label" placeholder="label (optional)" autocomplete="off" />
+              <div class="form-row">
+                <button type="submit" class="btn primary">Add</button>
+                <button type="button" class="btn ghost" data-action="hide-form" data-target="form-away-contact">Cancel</button>
+              </div>
+              <div class="form-error" data-error></div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="away-sessions-block" style="margin-top:16px;">
+        <h3>Sessions ${activeSessions.length > 0 ? `· ${activeSessions.length} active` : ''}</h3>
+        ${sessionList}
+      </div>
+    `;
+  }
+
+  function updateAwayPill() {
+    const pill = document.getElementById('pill-away');
+    const navBadge = document.getElementById('nav-away-badge');
+    const on = !!settingsCache.away_mode_enabled;
+    if (pill) pill.style.display = on ? '' : 'none';
+    if (navBadge) {
+      navBadge.style.display = on ? '' : 'none';
+      if (on) {
+        navBadge.style.background = 'var(--yellow)';
+        navBadge.style.color = '#0a0c10';
+      }
+    }
+  }
+
+  /* ---------- Radar view (memory bank per contact) ---------- */
+
+  async function refreshRadarHandlesCache() {
+    try {
+      const r = await api('/api/radar/contacts');
+      radarHandlesCache = new Set((r.contacts || []).filter((c) => c.enabled).map((c) => c.handle));
+      const el = document.getElementById('nav-radar-count');
+      if (el) el.textContent = (r.contacts || []).length || '—';
+      return r.contacts || [];
+    } catch { return []; }
+  }
+
+  async function renderRadarView() {
+    setMainHeader({
+      title: 'Radar',
+      subHTML: '<span class="accent" id="radar-count">— contacts</span> · live memory bank',
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (!list) return;
+    list.innerHTML = `<div class="empty"><div class="empty-title">loading…</div></div>`;
+
+    const contacts = await refreshRadarHandlesCache();
+    const countEl = document.getElementById('radar-count');
+    if (countEl) countEl.textContent = `${contacts.length} contacts`;
+
+    if (contacts.length === 0) {
+      list.innerHTML = `
+        <div class="empty">
+          <div class="empty-title">No one on radar yet.</div>
+          <div class="empty-sub">Open any thread and click <strong>Add to Radar</strong> to start tracking.<br/>Once added, every incoming message from that contact gets analyzed into a memory bank — likes, wants, schedule, gift ideas, etc.</div>
+        </div>
+      `;
+      return;
+    }
+
+    list.innerHTML = `<div class="radar-grid">${contacts.map(renderRadarCard).join('')}</div>`;
+  }
+
+  function renderRadarCard(c) {
+    const name = c.contact_name || c.label || c.handle;
+    const seed = c.handle;
+    const av = avatarClass(seed);
+    const init = initials(c.contact_name, c.label, c.handle);
+    const counts = Object.entries(c.signal_counts || {}).map(
+      ([cat, n]) => `<span class="cat">${escapeHtml(cat)} ${n}</span>`,
+    ).join('');
+    const updated = c.profile_updated_at > 0
+      ? `· profile updated ${escapeHtml(relTime(c.profile_updated_at))}`
+      : '· no profile yet';
+    return `
+      <div class="radar-card ${c.enabled ? '' : 'disabled'}" data-action="open-radar" data-handle="${escapeHtml(c.handle)}">
+        <div class="avatar ${av}">${escapeHtml(init)}</div>
+        <div>
+          <div class="radar-name">${escapeHtml(name)}</div>
+          <div class="radar-handle">${escapeHtml(c.handle)} ${updated}</div>
+          <div class="radar-counts">${counts || '<span class="cat">no signals yet</span>'}</div>
+        </div>
+        <div class="radar-actions">
+          <button class="btn" data-action="toggle-radar-enabled" data-id="${c.id}" data-enabled="${c.enabled}">${c.enabled ? 'pause' : 'resume'}</button>
+          <button class="btn ghost" data-action="remove-radar" data-id="${c.id}">remove</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderRadarDetail(handle) {
+    currentRadarHandle = handle;
+    setMainHeader({
+      title: 'Radar',
+      subHTML: `<a class="back-link" data-action="radar-back">← back to radar</a> · ${escapeHtml(handle)}`,
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (!list) return;
+    list.innerHTML = `<div class="empty"><div class="empty-title">loading…</div></div>`;
+
+    try {
+      const r = await api(`/api/radar/contacts/by-handle/${encodeURIComponent(handle)}`);
+      const c = r.contact;
+      const name = c.contact_name || c.label || c.handle;
+      const updated = c.profile_updated_at > 0 ? new Date(c.profile_updated_at).toLocaleString() : 'never';
+
+      const cats = ['all', ...r.categories];
+      const tabs = cats.map((cat) => {
+        const count = cat === 'all'
+          ? r.signals.length
+          : (r.signal_counts?.[cat] ?? 0);
+        const cls = (cat === radarSignalsTab) ? 'cat-tab active' : 'cat-tab';
+        return `<span class="${cls}" data-action="radar-cat" data-cat="${escapeHtml(cat)}">${escapeHtml(cat)} ${count > 0 ? '· ' + count : ''}</span>`;
+      }).join('');
+
+      const filtered = radarSignalsTab === 'all'
+        ? r.signals
+        : r.signals.filter((s) => s.category === radarSignalsTab);
+
+      const signalItems = filtered.length === 0
+        ? `<div class="empty-row" style="padding:8px 0;">no signals in this category yet</div>`
+        : filtered.map((s) => `
+            <div class="signal-item" data-signal-id="${s.id}">
+              <div class="signal-meta">
+                <span class="badge">${escapeHtml(s.category)}</span>
+                <span>${escapeHtml(relTime(s.extracted_at))}</span>
+                ${typeof s.confidence === 'number' ? `<span>conf ${s.confidence.toFixed(2)}</span>` : ''}
+              </div>
+              <div>${escapeHtml(s.content)}</div>
+              <span class="signal-remove" data-action="remove-radar-signal" data-id="${s.id}" title="remove">✕</span>
+            </div>
+          `).join('');
+
+      list.innerHTML = `
+        <div class="radar-detail">
+          <form class="radar-profile-block" data-form="radar-profile" data-handle="${escapeHtml(handle)}">
+            <h3>
+              <span>${escapeHtml(name)} — profile</span>
+              <span class="when">last updated ${escapeHtml(updated)}</span>
+            </h3>
+            <textarea name="profile" placeholder="No profile yet. Click 'Regenerate' to distill from extracted signals.">${escapeHtml(c.profile || '')}</textarea>
+            <div class="radar-profile-actions">
+              <button type="submit" class="btn primary">Save edits</button>
+              <button type="button" class="btn" data-action="radar-regenerate" data-handle="${escapeHtml(handle)}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+                Regenerate from signals
+              </button>
+              <span class="compose-status" data-error></span>
+            </div>
+          </form>
+          <div class="radar-signals-block">
+            <h3>extracted signals · ${r.signals.length} total</h3>
+            <div class="radar-cat-tabs">${tabs}</div>
+            <div class="signal-list">${signalItems}</div>
+          </div>
+        </div>
+      `;
+    } catch (err) {
+      list.innerHTML = `<div class="empty"><div class="empty-title">Failed to load.</div><div class="empty-sub">${escapeHtml(err.message)}</div></div>`;
+    }
+  }
+
+  /* ---------- Calendar proposals view ---------- */
+
+  async function refreshCalendarBadgeOnly() {
+    try {
+      const r = await api('/api/calendar/proposals?status=pending&limit=1');
+      const n = r.pending ?? 0;
+      const badge = document.getElementById('nav-calendar-badge');
+      if (badge) {
+        if (n > 0) {
+          badge.style.display = '';
+          badge.textContent = n;
+          badge.style.background = 'var(--cyan)';
+          badge.style.color = '#0a0c10';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+    } catch {}
+  }
+
+  function fmtCalEventTime(startMs, endMs) {
+    if (!startMs) return '(no time)';
+    const start = new Date(startMs);
+    const end = endMs ? new Date(endMs) : null;
+    const opts = { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+    let s = start.toLocaleString(undefined, opts);
+    if (end) {
+      const sameDay = start.toDateString() === end.toDateString();
+      const endOpts = sameDay
+        ? { hour: 'numeric', minute: '2-digit' }
+        : opts;
+      s += ' – ' + end.toLocaleString(undefined, endOpts);
+    }
+    return s;
+  }
+
+  function renderCalCard(p) {
+    const sender = p.contact_name || p.handle;
+    return `
+      <div class="cal-card ${p.status}" data-cal-id="${p.id}">
+        <div class="cal-head">
+          <div class="cal-title">${escapeHtml(p.title || 'Event')}</div>
+          <div class="cal-status ${p.status}">${p.status}</div>
+        </div>
+        <div class="cal-when">📅 ${escapeHtml(fmtCalEventTime(p.start_ms, p.end_ms))}</div>
+        ${p.location ? `<div class="cal-where">📍 ${escapeHtml(p.location)}</div>` : ''}
+        <div class="cal-from">from <span class="name">${escapeHtml(sender)}</span>${p.participants ? ` · with ${escapeHtml(p.participants)}` : ''}</div>
+        ${p.notes ? `<div class="cal-notes">${escapeHtml(p.notes)}</div>` : ''}
+        ${p.reasoning ? `<div class="cal-reasoning">${escapeHtml(p.reasoning)}${typeof p.confidence === 'number' ? ' · conf ' + p.confidence.toFixed(2) : ''}</div>` : ''}
+        <div class="cal-actions">
+          ${p.status === 'pending' ? `
+            <button class="btn primary" data-action="cal-export" data-id="${p.id}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              Add to Calendar
+            </button>
+            <button class="btn" data-action="cal-dismiss" data-id="${p.id}">Dismiss</button>
+          ` : ''}
+          <button class="btn ghost" data-action="open-thread" data-chat-id="${p.chat_id}">Open thread</button>
+          <div class="spacer" style="flex:1;"></div>
+          <button class="btn ghost" data-action="cal-remove" data-id="${p.id}">Delete</button>
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderCalendarView() {
+    setMainHeader({
+      title: 'Calendar',
+      subHTML: '<span class="accent" id="cal-count">— pending</span> · auto-extracted events',
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (!list) return;
+    list.innerHTML = `
+      <div style="display:flex;gap:6px;margin-bottom:12px;">
+        <button class="filter ${calendarTab === 'pending' ? 'active' : ''}" data-action="cal-tab" data-tab="pending">pending</button>
+        <button class="filter ${calendarTab === 'exported' ? 'active' : ''}" data-action="cal-tab" data-tab="exported">exported</button>
+        <button class="filter ${calendarTab === 'dismissed' ? 'active' : ''}" data-action="cal-tab" data-tab="dismissed">dismissed</button>
+        <button class="filter ${calendarTab === 'all' ? 'active' : ''}" data-action="cal-tab" data-tab="all">all</button>
+      </div>
+      <div id="cal-list"><div class="empty"><div class="empty-title">loading…</div></div></div>
+    `;
+    await refreshCalendarList();
+  }
+
+  async function refreshCalendarList() {
+    const target = document.getElementById('cal-list');
+    if (!target) return;
+    try {
+      const q = calendarTab === 'all' ? '' : `?status=${calendarTab}`;
+      const r = await api(`/api/calendar/proposals${q}`);
+      const items = r.proposals || [];
+      const countEl = document.getElementById('cal-count');
+      if (countEl) countEl.textContent = `${r.pending ?? 0} pending`;
+      refreshCalendarBadgeOnly();
+      if (!items.length) {
+        target.innerHTML = `<div class="empty"><div class="empty-title">No ${calendarTab !== 'all' ? calendarTab : ''} proposals.</div><div class="empty-sub">Set up a monitor rule with type <strong>auto-calendar</strong>; matching incoming messages will produce event proposals here.</div></div>`;
+      } else {
+        target.innerHTML = items.map(renderCalCard).join('');
+      }
+    } catch (err) {
+      target.innerHTML = `<div class="empty"><div class="empty-title">Failed to load.</div><div class="empty-sub">${escapeHtml(err.message)}</div></div>`;
+    }
+  }
+
+  /* ---------- search view ---------- */
+
+  async function renderSearchView() {
+    setMainHeader({
+      title: 'Search',
+      subHTML: '<span class="accent">find any message</span> · across all chats',
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (!list) return;
+    list.innerHTML = `
+      <div class="search-view">
+        <input type="search" class="search-input" id="search-input" placeholder="Search all messages…" autocomplete="off" />
+        <div class="search-status" id="search-status">type 2+ characters to begin · LIKE search against chat.db</div>
+        <div class="search-results" id="search-results"></div>
+      </div>
+    `;
+    const input = document.getElementById('search-input');
+    if (input) input.focus();
+  }
+
+  function renderSearchResults(query, results) {
+    if (!results.length) {
+      return `<div class="empty-row" style="padding:8px 4px;">no matches</div>`;
+    }
+    const re = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    return results.map((r) => {
+      const who = r.is_from_me
+        ? 'You'
+        : (r.contact_name || r.handle || 'them');
+      const chatName = r.chat_contact_name || r.chat_display_name || r.chat_identifier || `chat #${r.chat_id}`;
+      const text = (r.text || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+      const highlighted = text.replace(re, '<mark>$1</mark>');
+      return `
+        <div class="search-result" data-action="open-thread" data-chat-id="${r.chat_id}">
+          <div class="sr-head">
+            <div class="sr-name">${escapeHtml(chatName)}</div>
+            <div class="sr-handle">${escapeHtml(r.chat_identifier || '')}</div>
+            <div class="sr-time">${escapeHtml(relTime(r.date_ms))}</div>
+          </div>
+          <div class="sr-text"><span class="sr-author">${escapeHtml(who)}:</span>${highlighted}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function runSearch(query) {
+    const status = document.getElementById('search-status');
+    const results = document.getElementById('search-results');
+    if (!query || query.length < 2) {
+      if (status) status.textContent = 'type 2+ characters to begin · LIKE search against chat.db';
+      if (results) results.innerHTML = '';
+      return;
+    }
+    if (status) status.textContent = 'searching…';
+    try {
+      const r = await api(`/api/messages/search?q=${encodeURIComponent(query)}&limit=100`);
+      if (status) status.textContent = `${r.results.length} match${r.results.length === 1 ? '' : 'es'} · LIKE search`;
+      if (results) results.innerHTML = renderSearchResults(query, r.results);
+    } catch (err) {
+      if (status) status.textContent = `error: ${err.message}`;
+      if (results) results.innerHTML = '';
+    }
+  }
+
+  /* ---------- SSE: live updates ---------- */
+
+  function connectSSE() {
+    if (sse) return;
+    try {
+      sse = new EventSource('/api/stream');
+
+      sse.addEventListener('message.new', async (e) => {
+        let data;
+        try { data = JSON.parse(e.data); } catch { return; }
+        const messages = data.messages || [];
+        if (!messages.length) return;
+        if (currentView === 'inbox') {
+          await renderInboxView();
+        } else if (currentView === 'thread' && currentChatId != null
+                   && messages.some((m) => m.chat_id === currentChatId)) {
+          await renderThreadView(currentChatId);
+        }
+      });
+
+      sse.addEventListener('flag.new', async (e) => {
+        let data;
+        try { data = JSON.parse(e.data); } catch { return; }
+        // Bump the unreviewed badge always; refresh the Flags view if open.
+        try {
+          const r = await api('/api/monitor/flags?reviewed=false&limit=1');
+          updateFlagsBadge(r.unreviewed);
+        } catch {}
+        if (currentView === 'flags') {
+          await refreshFlagsList();
+        }
+        // Subtle visual nudge in the topbar: pulse the model pill amber briefly.
+        const rule = data?.rule_name ? ` "${data.rule_name}"` : '';
+        console.log(`[flag] new match${rule} (confidence ${data?.confidence ?? '?'})`);
+      });
+
+      sse.addEventListener('scheduled.sent', async (e) => {
+        if (currentView === 'scheduled') await refreshScheduledList();
+        else refreshScheduledCount();
+      });
+      sse.addEventListener('scheduled.failed', async (e) => {
+        if (currentView === 'scheduled') await refreshScheduledList();
+      });
+
+      sse.addEventListener('calendar.proposal', async (e) => {
+        let data;
+        try { data = JSON.parse(e.data); } catch { return; }
+        await refreshCalendarBadgeOnly();
+        if (currentView === 'calendar') await refreshCalendarList();
+        console.log('[calendar] new proposal:', data?.proposal?.title);
+      });
+
+      sse.addEventListener('radar.signals', async (e) => {
+        let data;
+        try { data = JSON.parse(e.data); } catch { return; }
+        if (currentView === 'radar-detail' && currentRadarHandle && data.handle === currentRadarHandle) {
+          await renderRadarDetail(currentRadarHandle);
+        } else if (currentView === 'radar') {
+          await renderRadarView();
+        }
+        console.log(`[radar] +${data?.count} signals from ${data?.contact_name || data?.handle}`);
+      });
+
+      sse.addEventListener('away.greeting_sent', async (e) => {
+        let data;
+        try { data = JSON.parse(e.data); } catch { return; }
+        console.log(`[away] greeting sent to ${data?.session?.contact_name || data?.session?.handle}`);
+        if (currentView === 'away') await renderAwayView();
+      });
+      sse.addEventListener('away.replied', async (e) => {
+        let data;
+        try { data = JSON.parse(e.data); } catch { return; }
+        console.log(`[away] auto-reply sent (count=${data?.session?.ai_reply_count})`);
+        if (currentView === 'away') await renderAwayView();
+      });
+      sse.addEventListener('away.session_ended', async (e) => {
+        let data;
+        try { data = JSON.parse(e.data); } catch { return; }
+        console.log(`[away] session ended: ${data?.reason}`);
+        if (currentView === 'away') await renderAwayView();
+      });
+      sse.addEventListener('away.mode_disabled', async () => {
+        await refreshHealth();
+        try {
+          const r = await api('/api/settings');
+          if (r.settings) settingsCache = { ...settingsCache, ...r.settings };
+        } catch {}
+        updateAwayPill();
+        if (currentView === 'away') await renderAwayView();
+      });
+
+      sse.onerror = () => {
+        console.warn('[sse] disconnected, reconnecting…');
+      };
+    } catch (err) {
+      console.warn('[sse] failed to connect:', err);
     }
   }
 
@@ -1565,6 +3675,338 @@
       return;
     }
 
+    // Open thread by handle (used by scheduled list).
+    if (action === 'open-thread-by-handle') {
+      const handle = btn.dataset.handle;
+      const meta = chatsCache.find((c) => c.identifier === handle);
+      if (meta) setView('thread', meta.id);
+      else alert('chat not found in current list');
+      return;
+    }
+
+    // Flags tab toggle
+    if (action === 'flags-tab') {
+      flagsTab = btn.dataset.tab === 'all' ? 'all' : 'unreviewed';
+      await renderFlagsView();
+      return;
+    }
+
+    // Mark a flag reviewed
+    if (action === 'review-flag') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/monitor/flags/${id}/review`, { method: 'POST', body: {} });
+        await refreshFlagsList();
+      } catch (err) { alert(`review failed: ${err.message}`); }
+      return;
+    }
+
+    // Delete a flag
+    if (action === 'remove-flag') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/monitor/flags/${id}`, { method: 'DELETE' });
+        await refreshFlagsList();
+      } catch (err) { alert(`remove failed: ${err.message}`); }
+      return;
+    }
+
+    // Toggle a monitor rule on/off
+    if (action === 'toggle-rule') {
+      const id = parseInt(btn.dataset.id, 10);
+      const wasEnabled = btn.dataset.enabled === '1';
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/monitor/rules/${id}`, { method: 'PATCH', body: { enabled: !wasEnabled } });
+        await refreshRules();
+      } catch (err) { alert(`toggle failed: ${err.message}`); }
+      return;
+    }
+
+    // Cancel a scheduled message
+    if (action === 'cancel-sched') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      if (!confirm('Cancel this scheduled message?')) return;
+      try {
+        await api(`/api/scheduled/${id}`, { method: 'DELETE' });
+        await refreshScheduledList();
+      } catch (err) { alert(`cancel failed: ${err.message}`); }
+      return;
+    }
+
+    // Quick AI summary of the current thread
+    if (action === 'ai-summarize') {
+      const chatId = parseInt(btn.dataset.chatId, 10);
+      if (!Number.isFinite(chatId)) return;
+      const status = document.querySelector('[data-toolbar-status]');
+      const panel = document.querySelector('[data-summary-panel]');
+      btn.disabled = true;
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Summarizing…';
+      if (status) { status.className = 'toolbar-status'; status.textContent = ''; }
+      try {
+        const r = await api('/api/ai/summarize', {
+          method: 'POST',
+          body: { chat_id: chatId, count: settingsCache.ai_context_count },
+        });
+        if (panel) {
+          panel.hidden = false;
+          const tokens = r.usage ? `${r.usage.total_tokens} tok` : '';
+          panel.innerHTML = `
+            <div class="summary-head">
+              <span>summary</span>
+              <span class="badge">${r.turns} turns</span>
+              <span style="margin-left:auto;text-transform:none;letter-spacing:0;">${escapeHtml(tokens)}</span>
+            </div>
+            <div class="summary-body">${escapeHtml(r.summary)}</div>
+            <div class="summary-foot">
+              <button class="btn ghost" data-action="dismiss-summary">Dismiss</button>
+            </div>
+          `;
+        }
+      } catch (err) {
+        if (status) { status.className = 'toolbar-status err'; status.textContent = err.message; }
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+      }
+      return;
+    }
+
+    if (action === 'dismiss-summary') {
+      const panel = document.querySelector('[data-summary-panel]');
+      if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+      return;
+    }
+
+    /* ---------- Away mode actions ---------- */
+
+    if (action === 'toggle-away-mode') {
+      const next = !settingsCache.away_mode_enabled;
+      if (settingsCache.away_mode_enabled && !next) {
+        if (!confirm('Turn off away mode? Every active AI conversation will end immediately.')) return;
+      }
+      try {
+        const r = await api('/api/settings', { method: 'PUT', body: { away_mode_enabled: next } });
+        if (r.settings) settingsCache = { ...settingsCache, ...r.settings };
+        updateAwayPill();
+        await renderAwayView();
+      } catch (err) { alert(`toggle failed: ${err.message}`); }
+      return;
+    }
+
+    if (action === 'toggle-away-contact') {
+      const id = parseInt(btn.dataset.id, 10);
+      const wasEnabled = btn.dataset.enabled === '1';
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/away/contacts/${id}`, { method: 'PATCH', body: { enabled: !wasEnabled } });
+        await renderAwayView();
+      } catch (err) { alert(`toggle failed: ${err.message}`); }
+      return;
+    }
+
+    if (action === 'remove-away-contact') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/away/contacts/${id}`, { method: 'DELETE' });
+        await renderAwayView();
+      } catch (err) { alert(`remove failed: ${err.message}`); }
+      return;
+    }
+
+    if (action === 'end-away-session') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      if (!confirm('End this session? The AI will stop replying to this contact.')) return;
+      try {
+        await api(`/api/away/sessions/${id}`, { method: 'DELETE' });
+        await renderAwayView();
+      } catch (err) { alert(`end failed: ${err.message}`); }
+      return;
+    }
+
+    /* ---------- Radar actions ---------- */
+
+    if (action === 'open-radar') {
+      const handle = btn.dataset.handle;
+      if (handle) setView('radar-detail', handle);
+      return;
+    }
+
+    if (action === 'radar-back') {
+      setView('radar');
+      return;
+    }
+
+    if (action === 'radar-cat') {
+      radarSignalsTab = btn.dataset.cat || 'all';
+      if (currentRadarHandle) await renderRadarDetail(currentRadarHandle);
+      return;
+    }
+
+    if (action === 'toggle-radar') {
+      const handle = btn.dataset.handle;
+      if (!handle) return;
+      const meta = chatsCache.find((c) => c.identifier === handle);
+      const label = meta?.contact_name || meta?.display_name || null;
+      const onRadar = radarHandlesCache.has(handle);
+      btn.disabled = true;
+      try {
+        if (onRadar) {
+          const r = await api('/api/radar/contacts');
+          const existing = (r.contacts || []).find((c) => c.handle === handle);
+          if (existing) {
+            await api(`/api/radar/contacts/${existing.id}`, { method: 'DELETE' });
+          }
+        } else {
+          await api('/api/radar/contacts', { method: 'POST', body: { handle, label } });
+        }
+        await refreshRadarHandlesCache();
+        // Re-render the toolbar so the button label flips
+        if (currentView === 'thread' && currentChatId != null) {
+          const tb = document.getElementById('drafts-toolbar');
+          if (tb) tb.innerHTML = renderThreadToolbar(currentChatId);
+        }
+      } catch (err) { alert(`radar toggle failed: ${err.message}`); }
+      finally { btn.disabled = false; }
+      return;
+    }
+
+    if (action === 'toggle-radar-enabled') {
+      const id = parseInt(btn.dataset.id, 10);
+      const wasEnabled = btn.dataset.enabled === '1';
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/radar/contacts/${id}`, { method: 'PATCH', body: { enabled: !wasEnabled } });
+        await renderRadarView();
+      } catch (err) { alert(`toggle failed: ${err.message}`); }
+      return;
+    }
+
+    if (action === 'remove-radar') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      if (!confirm('Remove this contact from radar? Existing signals stay in the database.')) return;
+      try {
+        await api(`/api/radar/contacts/${id}`, { method: 'DELETE' });
+        await refreshRadarHandlesCache();
+        await renderRadarView();
+      } catch (err) { alert(`remove failed: ${err.message}`); }
+      return;
+    }
+
+    if (action === 'remove-radar-signal') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/radar/signals/${id}`, { method: 'DELETE' });
+        if (currentRadarHandle) await renderRadarDetail(currentRadarHandle);
+      } catch (err) { alert(`remove failed: ${err.message}`); }
+      return;
+    }
+
+    if (action === 'radar-regenerate') {
+      const handle = btn.dataset.handle;
+      if (!handle) return;
+      const status = btn.closest('form')?.querySelector('[data-error]');
+      if (status) { status.classList.remove('ok', 'err'); status.textContent = ''; }
+      btn.disabled = true;
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Distilling…';
+      try {
+        const r = await api(`/api/radar/contacts/by-handle/${encodeURIComponent(handle)}/regenerate`, {
+          method: 'POST', body: {},
+        });
+        const tok = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
+        if (status) {
+          status.classList.add('ok');
+          status.textContent = `✓ regenerated · ${r.signal_count} signals${tok}`;
+        }
+        await renderRadarDetail(handle);
+      } catch (err) {
+        if (status) { status.classList.add('err'); status.textContent = err.message; }
+        btn.disabled = false;
+        btn.innerHTML = orig;
+      }
+      return;
+    }
+
+    /* ---------- Calendar proposal actions ---------- */
+
+    if (action === 'cal-tab') {
+      calendarTab = btn.dataset.tab || 'pending';
+      await renderCalendarView();
+      return;
+    }
+
+    if (action === 'cal-export') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      btn.disabled = true;
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Exporting…';
+      try {
+        await api(`/api/calendar/proposals/${id}/export`, { method: 'POST', body: {} });
+        await refreshCalendarList();
+      } catch (err) {
+        alert(`export failed: ${err.message}`);
+        btn.disabled = false;
+        btn.innerHTML = orig;
+      }
+      return;
+    }
+
+    if (action === 'cal-dismiss') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/calendar/proposals/${id}/dismiss`, { method: 'POST', body: {} });
+        await refreshCalendarList();
+      } catch (err) { alert(`dismiss failed: ${err.message}`); }
+      return;
+    }
+
+    if (action === 'cal-remove') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      if (!confirm('Delete this proposal?')) return;
+      try {
+        await api(`/api/calendar/proposals/${id}`, { method: 'DELETE' });
+        await refreshCalendarList();
+      } catch (err) { alert(`delete failed: ${err.message}`); }
+      return;
+    }
+
+    // Schedule a draft for later send — opens a visual picker modal.
+    if (action === 'schedule') {
+      const id = btn.dataset.id;
+      if (!id) return;
+      const card = btn.closest('.draft');
+      const recipient = card?.querySelector('.draft-name')?.textContent?.trim() || 'this contact';
+      const pickerEl = document.createElement('div');
+      let modalPicker = null;
+      openModal({
+        title: `Schedule send to ${recipient}`,
+        contentEl: pickerEl,
+        confirmLabel: 'Schedule',
+        onConfirm: async () => {
+          const ts = modalPicker?.getMs();
+          if (!Number.isFinite(ts)) throw new Error('pick a date and time first');
+          if (ts <= Date.now()) throw new Error('that time is in the past');
+          await api(`/api/drafts/${id}/schedule`, { method: 'POST', body: { send_at: ts } });
+          refreshScheduledCount();
+          await refreshDrafts();
+        },
+      });
+      modalPicker = mountDatePicker(pickerEl);
+      return;
+    }
+
     // One-click predict from the inbox row (last 20 msgs, no extra prompt).
     if (action === 'ai-draft-row') {
       const chatId = parseInt(btn.dataset.chatId, 10);
@@ -1620,8 +4062,10 @@
       if (!Number.isFinite(chatId)) return;
 
       const ta = document.querySelector('[data-compose-input]');
+      const tempSel = document.querySelector('[data-temperament-input]');
       const status = document.querySelector('[data-compose-status]');
       const note = (ta?.value || '').trim();
+      const temperament = tempSel?.value || 'normal';
 
       btn.disabled = true;
       const originalLabel = btn.innerHTML;
@@ -1631,15 +4075,17 @@
       try {
         const r = await api('/api/ai/draft', {
           method: 'POST',
-          body: { chat_id: chatId, save: true, context_note: note },
+          body: { chat_id: chatId, save: true, context_note: note, temperament },
         });
         if (r.skipped) {
           if (status) { status.className = 'compose-status err'; status.textContent = 'model returned SKIP — no draft saved'; }
         } else {
           const tokens = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
+          const tempPart = temperament !== 'normal' ? ` · ${temperament}` : '';
+          const vpPart = r.voice_profile_applied ? ' + voice profile' : '';
           if (status) {
             status.className = 'compose-status ok';
-            status.textContent = `✓ saved · ${r.thread.length} turns of context${note ? ' + custom prompt' : ''}${tokens}`;
+            status.textContent = `✓ saved · ${r.thread_turns} turns${vpPart}${tempPart}${note ? ' + custom prompt' : ''}${tokens}`;
           }
           if (ta) ta.value = '';
           await refreshDrafts();
@@ -1649,6 +4095,147 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = originalLabel;
+      }
+      return;
+    }
+
+    // Generate 3 variant drafts (no auto-save). User picks one via [Use this].
+    if (action === 'ai-draft-variants') {
+      const chatId = parseInt(btn.dataset.chatId, 10);
+      if (!Number.isFinite(chatId)) return;
+
+      const ta = document.querySelector('[data-compose-input]');
+      const tempSel = document.querySelector('[data-temperament-input]');
+      const status = document.querySelector('[data-compose-status]');
+      const variantsEl = document.querySelector('[data-variants]');
+      const note = (ta?.value || '').trim();
+      const temperament = tempSel?.value || 'normal';
+
+      btn.disabled = true;
+      const originalLabel = btn.innerHTML;
+      btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Generating 3…';
+      if (status) { status.className = 'compose-status'; status.textContent = ''; }
+
+      try {
+        const r = await api('/api/ai/draft', {
+          method: 'POST',
+          body: { chat_id: chatId, save: false, count: 3, context_note: note, temperament },
+        });
+        pendingVariants = {
+          variants: r.variants,
+          chat_id: r.chat_id,
+          handle: r.handle,
+          contact_name: r.contact_name,
+          source_msg_guid: r.source_msg_guid,
+          model: r.model,
+          usage: r.usage,
+          temperament: r.temperament,
+          contextNote: note,
+          voice_profile_applied: r.voice_profile_applied,
+          thread_turns: r.thread_turns,
+        };
+        if (variantsEl) variantsEl.innerHTML = renderVariantCards(pendingVariants);
+        if (status) {
+          status.className = 'compose-status ok';
+          const tokens = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
+          status.textContent = `${r.variants.filter((v) => !v.skipped).length} of ${r.variants.length} usable${tokens} · pick one`;
+        }
+      } catch (err) {
+        if (status) { status.className = 'compose-status err'; status.textContent = err.message; }
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalLabel;
+      }
+      return;
+    }
+
+    // Save a chosen variant to the drafts queue.
+    if (action === 'save-variant') {
+      if (!pendingVariants) return;
+      const idx = parseInt(btn.dataset.index, 10);
+      const usable = pendingVariants.variants.filter((v) => !v.skipped && v.body.trim().length > 0);
+      const chosen = usable[idx];
+      if (!chosen) return;
+
+      btn.disabled = true;
+      const originalLabel = btn.textContent;
+      btn.textContent = 'Saving…';
+
+      try {
+        const tokenLine = pendingVariants.usage
+          ? `tokens: ${pendingVariants.usage.prompt_tokens}+${pendingVariants.usage.completion_tokens}`
+          : 'tokens: ?';
+        const tempLine = pendingVariants.temperament && pendingVariants.temperament !== 'normal'
+          ? ` · temperament: ${pendingVariants.temperament}` : '';
+        const noteLine = pendingVariants.contextNote ? ` · note: ${JSON.stringify(pendingVariants.contextNote)}` : '';
+        const vpLine = pendingVariants.voice_profile_applied ? ' · voice-profile: applied' : '';
+        const variantLine = ` · variant ${idx + 1} of ${usable.length}`;
+
+        await api('/api/drafts', {
+          method: 'POST',
+          body: {
+            chat_id: pendingVariants.chat_id,
+            handle: pendingVariants.handle,
+            body: chosen.body,
+            source_msg_guid: pendingVariants.source_msg_guid,
+            reasoning: `AI · model=${pendingVariants.model} · context=${pendingVariants.thread_turns} turns · ${tokenLine}${vpLine}${tempLine}${noteLine}${variantLine}`,
+          },
+        });
+        const variantsEl = document.querySelector('[data-variants]');
+        const status = document.querySelector('[data-compose-status]');
+        const ta = document.querySelector('[data-compose-input]');
+        if (variantsEl) variantsEl.innerHTML = '';
+        if (ta) ta.value = '';
+        if (status) { status.className = 'compose-status ok'; status.textContent = '✓ saved to drafts'; }
+        pendingVariants = null;
+        await Promise.all([refreshDrafts(), refreshSentStats()]);
+      } catch (err) {
+        alert(`save failed: ${err.message}`);
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
+      return;
+    }
+
+    if (action === 'dismiss-variants') {
+      const variantsEl = document.querySelector('[data-variants]');
+      if (variantsEl) variantsEl.innerHTML = '';
+      pendingVariants = null;
+      const status = document.querySelector('[data-compose-status]');
+      if (status) { status.className = 'compose-status'; status.textContent = ''; }
+      return;
+    }
+
+    // Voice profile regeneration.
+    if (action === 'vp-regenerate') {
+      const form = btn.closest('form[data-form="voice-profile"]');
+      if (!form) return;
+      const sample = parseInt(form.querySelector('[name="voice_profile_sample_count"]').value, 10);
+      const userContext = form.querySelector('[name="voice_profile_user_context"]').value;
+      const errEl = form.querySelector('[data-error]');
+      if (errEl) { errEl.classList.remove('ok', 'err'); errEl.textContent = ''; }
+
+      const original = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Reading chat.db & calling model…';
+      try {
+        const r = await api('/api/ai/voice-profile/regenerate', {
+          method: 'POST',
+          body: { sample_count: sample, user_context: userContext },
+        });
+        if (r.settings) settingsCache = { ...settingsCache, ...r.settings };
+        await renderSettingsView(); // re-render with the fresh values
+        // After rerender, surface a success message
+        const newErr = document.querySelector('form[data-form="voice-profile"] [data-error]');
+        if (newErr) {
+          newErr.classList.add('ok');
+          const tok = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
+          newErr.textContent = `✓ regenerated · ${r.sample_count} samples${tok}`;
+        }
+      } catch (err) {
+        if (errEl) { errEl.classList.add('err'); errEl.textContent = err.message; }
+        btn.disabled = false;
+        btn.innerHTML = original;
       }
       return;
     }
@@ -1684,6 +4271,37 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = originalLabel;
+      }
+      return;
+    }
+
+    // Remove a contact note
+    if (action === 'remove-note') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/contacts/notes/${id}`, { method: 'DELETE' });
+        // Reload notes for current thread
+        const meta = chatsCache.find((c) => c.id === currentChatId);
+        if (meta?.identifier) await loadAndRenderNotes(meta.identifier);
+      } catch (err) { alert(`remove failed: ${err.message}`); }
+      return;
+    }
+
+    // Stage a draft into Messages.app's input field
+    if (action === 'stage') {
+      const id = btn.dataset.id;
+      if (!id) return;
+      btn.disabled = true;
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Opening Messages…';
+      try {
+        await api(`/api/drafts/${id}/stage`, { method: 'POST', body: {} });
+        await refreshDrafts();
+      } catch (err) {
+        alert(`stage failed: ${err.message}`);
+        btn.disabled = false;
+        btn.innerHTML = orig;
       }
       return;
     }
@@ -1740,16 +4358,62 @@
     }
   });
 
-  // ⌘ / Ctrl + Enter inside the compose textarea = trigger draft-with-context.
+  // ⌘ / Ctrl + Enter inside compose textareas = trigger their primary submit.
   document.addEventListener('keydown', (e) => {
-    const ta = e.target;
-    if (!(ta instanceof HTMLTextAreaElement)) return;
-    if (!ta.matches('[data-compose-input]')) return;
+    if (!(e.target instanceof HTMLTextAreaElement)) return;
     if (e.key !== 'Enter') return;
     if (!(e.metaKey || e.ctrlKey)) return;
-    e.preventDefault();
-    const btn = document.querySelector('[data-action="ai-draft-with-context"]');
-    if (btn && !btn.disabled) btn.click();
+
+    if (e.target.matches('[data-compose-input]')) {
+      e.preventDefault();
+      const btn = document.querySelector('[data-action="ai-draft-with-context"]');
+      if (btn && !btn.disabled) btn.click();
+    } else if (e.target.matches('form.note-add textarea')) {
+      e.preventDefault();
+      const btn = e.target.closest('form')?.querySelector('button[type="submit"]');
+      if (btn && !btn.disabled) btn.click();
+    }
+  });
+
+  // Live search input (debounced).
+  document.addEventListener('input', (e) => {
+    if (e.target instanceof HTMLInputElement && e.target.id === 'search-input') {
+      const q = e.target.value.trim();
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => runSearch(q), 200);
+    }
+  });
+
+  // Monitor-rule form: scope reveal + kind reveal.
+  document.addEventListener('change', (e) => {
+    if (e.target instanceof HTMLSelectElement && e.target.matches('[data-scope-select]')) {
+      const form = e.target.closest('form');
+      const row = form?.querySelector('[data-scope-handle-row]');
+      const input = row?.querySelector('input[name="scope_handle"]');
+      if (!row || !input) return;
+      if (e.target.value === 'contact') {
+        row.classList.add('show');
+        input.required = true;
+      } else {
+        row.classList.remove('show');
+        input.required = false;
+        input.value = '';
+      }
+    }
+    if (e.target instanceof HTMLSelectElement && e.target.matches('[data-kind-select]')) {
+      const form = e.target.closest('form');
+      const row = form?.querySelector('[data-prompt-row]');
+      const ta = row?.querySelector('textarea[name="prompt"]');
+      if (!row || !ta) return;
+      if (e.target.value === 'calendar') {
+        row.style.display = 'none';
+        ta.required = false;
+        ta.value = '';
+      } else {
+        row.style.display = '';
+        ta.required = true;
+      }
+    }
   });
 
   // ---------- form submit handlers ----------
@@ -1771,12 +4435,66 @@
         closeForm('form-watched');
         await refreshWatched();
       } else if (kind === 'rule') {
+        // Legacy regex rule form (no longer surfaced in UI; kept for completeness).
         await api('/api/rules', {
           method: 'POST',
           body: { name: data.name, pattern: data.pattern, flags: data.flags || 'i' },
         });
         closeForm('form-rule');
         await refreshRules();
+      } else if (kind === 'monitor-rule') {
+        const payload = {
+          name: data.name,
+          kind: data.kind || 'flag',
+          scope_type: data.scope_type,
+          scope_handle: data.scope_type === 'contact' ? (data.scope_handle || '') : null,
+          prompt: data.kind === 'calendar' ? '' : (data.prompt || ''),
+        };
+        await api('/api/monitor/rules', { method: 'POST', body: payload });
+        closeForm('form-monitor-rule');
+        await refreshRules();
+      } else if (kind === 'away-contact') {
+        await api('/api/away/contacts', {
+          method: 'POST',
+          body: { handle: data.handle, label: data.label || null },
+        });
+        closeForm('form-away-contact');
+        await renderAwayView();
+      } else if (kind === 'away-config') {
+        const r = await api('/api/settings', {
+          method: 'PUT',
+          body: {
+            away_message: data.away_message || '',
+            away_max_replies_per_session: parseInt(data.away_max_replies_per_session, 10),
+          },
+        });
+        if (r.settings) settingsCache = { ...settingsCache, ...r.settings };
+        if (errEl) {
+          errEl.classList.add('ok');
+          errEl.textContent = '✓ saved';
+          setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+        }
+      } else if (kind === 'radar-profile') {
+        const handle = form.dataset.handle;
+        await api(`/api/radar/contacts/by-handle/${encodeURIComponent(handle)}/profile`, {
+          method: 'PUT',
+          body: { profile: data.profile || '' },
+        });
+        if (errEl) {
+          errEl.classList.add('ok');
+          errEl.textContent = '✓ profile saved';
+          setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+        }
+      } else if (kind === 'schedule') {
+        const ts = scheduleFormPicker?.getMs();
+        if (!Number.isFinite(ts)) throw new Error('pick a date and time first');
+        if (ts <= Date.now()) throw new Error('that time is in the past');
+        await api('/api/scheduled', {
+          method: 'POST',
+          body: { chat_id: parseInt(data.chat_id, 10), body: data.body, send_at: ts },
+        });
+        closeForm('form-schedule');
+        await refreshScheduledList();
       } else if (kind === 'draft') {
         await api('/api/drafts', {
           method: 'POST',
@@ -1795,6 +4513,35 @@
           errEl.textContent = `✓ saved · ai_context_count = ${settingsCache.ai_context_count}`;
           setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
         }
+      } else if (kind === 'contact-note') {
+        const handle = form.dataset.handle;
+        const body = (data.body || '').trim();
+        if (!body) {
+          if (errEl) { errEl.classList.add('err'); errEl.textContent = 'note body required'; }
+        } else {
+          await api('/api/contacts/notes', {
+            method: 'POST',
+            body: { handle, body },
+          });
+          // Clear the textarea, reload notes
+          form.reset();
+          await loadAndRenderNotes(handle);
+        }
+      } else if (kind === 'voice-profile') {
+        const r = await api('/api/settings', {
+          method: 'PUT',
+          body: {
+            voice_profile: data.voice_profile ?? '',
+            voice_profile_sample_count: parseInt(data.voice_profile_sample_count, 10),
+            voice_profile_user_context: data.voice_profile_user_context ?? '',
+          },
+        });
+        if (r.settings) settingsCache = { ...settingsCache, ...r.settings };
+        if (errEl) {
+          errEl.classList.add('ok');
+          errEl.textContent = '✓ voice profile saved';
+          setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+        }
       }
     } catch (err) {
       if (errEl) {
@@ -1810,11 +4557,41 @@
   async function init() {
     // Settings first so dependent renderers see the cached values.
     await refreshSettings();
+    updateAwayPill();
     // Sidebar/right-panel data is the same regardless of which main view is up.
-    await Promise.all([refreshHealth(), refreshWatched(), refreshRules(), refreshSentStats()]);
-    // Land on the inbox so the user sees real messages immediately. Once Phase 4
-    // lands AI-driven drafts, this default can flip back to 'drafts'.
+    await Promise.all([
+      refreshHealth(),
+      refreshWatched(),
+      refreshRules(),
+      refreshSentStats(),
+      refreshFlagsBadgeOnly(),
+      refreshScheduledCountOnly(),
+      refreshRadarHandlesCache(),
+      refreshCalendarBadgeOnly(),
+      refreshContactsCache(),
+    ]);
+    // Mount autocomplete on the static sidebar forms now that contacts are cached.
+    mountAllContactAutocompletes();
+    // Land on the inbox so the user sees real messages immediately.
     await setView('inbox');
+    // Live updates from the watcher.
+    connectSSE();
+  }
+
+  async function refreshFlagsBadgeOnly() {
+    try {
+      const r = await api('/api/monitor/flags?reviewed=false&limit=1');
+      updateFlagsBadge(r.unreviewed ?? 0);
+    } catch {}
+  }
+
+  async function refreshScheduledCountOnly() {
+    try {
+      const r = await api('/api/scheduled?status=pending');
+      const n = r.scheduled?.length ?? 0;
+      const el = document.getElementById('nav-scheduled-count');
+      if (el) el.textContent = n || '—';
+    } catch {}
   }
 
   if (document.readyState === 'loading') {
