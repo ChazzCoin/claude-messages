@@ -39,6 +39,75 @@ Emoji set:
 
 ## 2026-05-06
 
+- 🏗 **Away notes — auto-extracted follow-up items.** New `away_notes`
+  table (idempotent on message_guid). After every inbound during an
+  away session (greeting OR continuation), `extractAwayNote` fires in
+  parallel — JSON-mode extractor that decides whether the message
+  carries something the user should personally follow up on
+  (categorized `meet` / `discuss` / `request` / `urgent` / `other`,
+  with summary + reasoning). Conservative prompt — banter and pure
+  pleasantries get skipped. UI: Notes panel in the Away view with
+  color-coded category badges, message quote, mark-reviewed /
+  open-thread / delete actions, plus a "mark all reviewed" header
+  action. Away nav badge shows the unreviewed count (orange) when
+  notes exist; falls back to "on" (yellow) for away-mode state.
+  SSE `away.note_created` for live updates. Adds one ~$0.0001 OpenAI
+  call per inbound during away mode.
+- 🏗 **Handle normalization across all entry points.** New
+  `normalizeHandle()` exported from `db/contacts.ts` — phones to E.164
+  (with `+`), emails lowercased, idempotent on canonical input.
+  Applied on ingest in every handle-accepting endpoint (watched,
+  monitor scope, contact notes, radar, away, scheduled, drafts), and
+  on lookup in `listEnabledAwayHandles` /
+  `listEnabledRadarHandles` / `ruleMatchesScope` so existing
+  un-normalized rows from before the fix still match. Cause:
+  user-typed numbers like `5551234567` or `(555) 123-4567` weren't
+  matching chat.db's canonical `+15551234567`, so away mode silently
+  ignored messages from manually-added handles.
+- 🏗 **Contact autocomplete rewrite — event delegation + body-portaled
+  dropdown.** Single shared dropdown appended to `<body>` and
+  positioned via `getBoundingClientRect()` in `position: fixed`.
+  Pure event delegation on `focusin` / `focusout` / `input` /
+  `keydown` — no per-input mount, no DOM mutation, no
+  `data-acMounted` flag. Robust to forms being rendered, closed,
+  re-rendered. Fixes the "search box sometimes just doesn't work and
+  i have to refresh" bug. Arrow keys + Enter + Escape all wired
+  through delegation.
+- 🏗 **Contacts reader: recursive .abcddb scan + permissive name
+  handling.** Replaced the two hardcoded paths with a recursive walk
+  of `~/Library/Application Support/AddressBook/`, picking up every
+  source UUID. Phone-only contacts (no first/last/nickname/org) no
+  longer dropped — they get `(unnamed contact)` as a placeholder so
+  they're still searchable by handle. Per-file logging at boot shows
+  exactly which DBs were read and how many contacts each contributed.
+  Diagnosis path during this work surfaced that user's Google
+  contacts were never synced to local AddressBook (Gmail account
+  hooked up but CardDAV / Contacts toggle off in Internet Accounts);
+  now documented.
+- 🏗 **`bin/reload-contacts` script** — convenience wrapper for the
+  existing `POST /api/contacts/reload` endpoint, for when iCloud /
+  CardDAV syncs new contacts and you want the dashboard to pick them
+  up without restarting the LaunchAgent.
+- 🏗 **`away_persona` setting + rewritten away context-note prompt.**
+  New free-text setting in Away config — distinct from voice profile
+  (which captures HOW the user writes); persona shapes HOW the AI
+  BEHAVES while covering. Rewrote the context note from a single
+  butler-tone paragraph into a structured set of rules that
+  explicitly: forbid repeating prior phrasings turn-to-turn, demand
+  energy match to the most recent inbound, ban customer-service
+  phrasings ("apologies for the inconvenience"), provide in-voice
+  deflection examples (instead of always "let me check with him"),
+  and inject the user's persona text on top of voice profile.
+- 🏗 **Recipient-name injection for away replies + group-chat
+  attribution.** `buildThreadFromMessages` now captures per-turn
+  attribution from `contact_name || handle`. For group chats with
+  multiple distinct senders, turns render as `them (Sarah):`,
+  `them (Mike):` so the model knows who said what. For 1:1 chats,
+  attribution collapses (the system note carries the name; per-line
+  labels would be noise). Away context note now opens with
+  `You are responding to: <name>` plus an explicit caveat against
+  shoehorning names into every reply (avoids the LLM tic of
+  "Sure, Mallory!", "Thanks, Mallory!", every turn).
 - 🏗 **launchd LaunchAgent for Mac mini deploy.** Decided against
   Docker — chat.db / AppleScript / Messages.app / AddressBook are all
   macOS-native and don't survive containerization. Shipped instead:

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+#
+# Force the running service to re-read the macOS AddressBook from disk.
+# Useful after iCloud syncs new contacts, or after editing contacts in
+# Contacts.app — the dashboard will pick up the changes immediately.
+
+set -euo pipefail
+PORT="${PORT:-3000}"
+HOST="${HOST:-127.0.0.1}"
+
+echo "→ POST /api/contacts/reload"
+curl -sf -X POST "http://$HOST:$PORT/api/contacts/reload" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(f'  ✓ {d[\"count\"]} contacts, {d[\"handle_bindings\"]} handle bindings reloaded')
+except Exception as e:
+    print(f'  ✗ {e}')
+"

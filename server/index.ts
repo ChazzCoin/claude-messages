@@ -92,6 +92,14 @@ import {
   endAllActiveAwaySessions,
   listAwaySessions,
   countActiveAwaySessions,
+  // away notes
+  listAwayNotes,
+  insertAwayNote,
+  awayNoteAlreadyExists,
+  markAwayNoteReviewed,
+  markAllAwayNotesReviewed,
+  removeAwayNote,
+  countUnreviewedAwayNotes,
   type MonitorScopeType,
   type MonitorKind,
   type MonitorRule,
@@ -108,6 +116,7 @@ import {
   preloadContacts,
   reloadContacts,
   getContactNameForHandle,
+  normalizeHandle,
 } from './db/contacts.js';
 import type { Draft } from './db/app.js';
 
@@ -128,6 +137,7 @@ import {
   extractRadarSignals,
   distillRadarProfile,
   extractCalendarEvent,
+  extractAwayNote,
   TEMPERAMENTS,
   type Temperament,
 } from './ai.js';
@@ -174,6 +184,7 @@ app.get('/api/health', (_req, res) => {
     watcher_running: messageWatcher.isRunning(),
     away_mode_enabled: !!getSettings().away_mode_enabled,
     away_active_sessions: countActiveAwaySessions(),
+    away_unreviewed_notes: countUnreviewedAwayNotes(),
   });
 });
 
@@ -302,7 +313,7 @@ app.get('/api/watched', (_req, res) => {
 });
 
 app.post('/api/watched', (req, res) => {
-  const handle = typeof req.body?.handle === 'string' ? req.body.handle.trim() : '';
+  const handle = normalizeHandle(req.body?.handle);
   const label = typeof req.body?.label === 'string' ? req.body.label.trim() : null;
   if (!handle) return res.status(400).json({ error: 'handle required' });
   return res.status(201).json({ watched: addWatched(handle, label || null) });
@@ -363,7 +374,7 @@ app.get('/api/drafts', (req, res) => {
 app.post('/api/drafts', (req, res) => {
   const chatId = parseInt(req.body?.chat_id, 10);
   const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
-  let handle = typeof req.body?.handle === 'string' ? req.body.handle.trim() : '';
+  let handle = normalizeHandle(req.body?.handle);
   if (!Number.isFinite(chatId) || !body) {
     return res.status(400).json({ error: 'chat_id and body required' });
   }
@@ -511,7 +522,7 @@ app.get('/api/contacts/notes', (req, res) => {
 });
 
 app.post('/api/contacts/notes', (req, res) => {
-  const handle = typeof req.body?.handle === 'string' ? req.body.handle.trim() : '';
+  const handle = normalizeHandle(req.body?.handle);
   const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
   if (!handle || !body) return res.status(400).json({ error: 'handle and body required' });
   res.status(201).json({ note: addNoteForHandle(handle, body) });
@@ -809,7 +820,7 @@ app.post('/api/monitor/rules', (req, res) => {
   const scope_type = scopeRaw as MonitorScopeType;
   const scope_handle =
     scope_type === 'contact'
-      ? (typeof req.body?.scope_handle === 'string' ? req.body.scope_handle.trim() : '')
+      ? normalizeHandle(req.body?.scope_handle) || null
       : null;
   if (!name) return res.status(400).json({ error: 'name required' });
   if (kind === 'flag' && !promptText) {
@@ -890,7 +901,7 @@ app.get('/api/scheduled', (req, res) => {
 });
 
 app.post('/api/scheduled', (req, res) => {
-  const handleRaw = typeof req.body?.handle === 'string' ? req.body.handle.trim() : '';
+  const handleRaw = normalizeHandle(req.body?.handle);
   const chatIdRaw = parseInt(req.body?.chat_id, 10);
   const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
   const sendAt = parseInt(req.body?.send_at, 10);
@@ -996,7 +1007,7 @@ app.get('/api/radar/contacts', (_req, res) => {
 });
 
 app.post('/api/radar/contacts', (req, res) => {
-  const handle = typeof req.body?.handle === 'string' ? req.body.handle.trim() : '';
+  const handle = normalizeHandle(req.body?.handle);
   const label = typeof req.body?.label === 'string' ? req.body.label.trim() : null;
   if (!handle) return res.status(400).json({ error: 'handle required' });
   const resolvedLabel = label || getContactNameForHandle(handle);
@@ -1218,7 +1229,7 @@ app.get('/api/away/contacts', (_req, res) => {
 });
 
 app.post('/api/away/contacts', (req, res) => {
-  const handle = typeof req.body?.handle === 'string' ? req.body.handle.trim() : '';
+  const handle = normalizeHandle(req.body?.handle);
   const labelRaw = typeof req.body?.label === 'string' ? req.body.label.trim() : null;
   if (!handle) return res.status(400).json({ error: 'handle required' });
   const label = labelRaw || getContactNameForHandle(handle);
@@ -1258,6 +1269,41 @@ app.delete('/api/away/sessions/:id', (req, res) => {
   res.json({ session: enrichAway(ended) });
 });
 
+/* ---------- routes: away notes ---------- */
+
+app.get('/api/away/notes', (req, res) => {
+  const reviewedRaw = req.query.reviewed;
+  let reviewed: boolean | undefined;
+  if (reviewedRaw === 'true') reviewed = true;
+  else if (reviewedRaw === 'false') reviewed = false;
+  const limit = intParam(req.query.limit, 200, 1, 500);
+  const notes = listAwayNotes({ reviewed, limit }).map((n) => ({
+    ...n,
+    contact_name: getContactNameForHandle(n.handle),
+  }));
+  res.json({ notes, unreviewed: countUnreviewedAwayNotes() });
+});
+
+app.post('/api/away/notes/:id/review', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  const note = markAwayNoteReviewed(id);
+  if (!note) return res.status(404).json({ error: 'not found' });
+  res.json({ note: { ...note, contact_name: getContactNameForHandle(note.handle) } });
+});
+
+app.post('/api/away/notes/review-all', (_req, res) => {
+  const n = markAllAwayNotesReviewed();
+  res.json({ marked_reviewed: n });
+});
+
+app.delete('/api/away/notes/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  const ok = removeAwayNote(id);
+  return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
+});
+
 /* ---------- watcher → away-mode auto-responder ---------- */
 
 /**
@@ -1292,15 +1338,82 @@ function isAwayEcho(handle: string, body: string | null | undefined): boolean {
   return !!set && set.has(body);
 }
 
-function buildAwayContextNote(): string {
-  return [
-    'You are responding while the user is currently away (their "away mode" is on).',
-    'The contact has ALREADY been told that they are now chatting with the user\'s AI — no need to re-disclose unless they explicitly ask.',
-    'Keep the conversation natural, in-voice, and brief. Match the user\'s style from the thread.',
-    'CRITICAL: do NOT make specific commitments on the user\'s behalf — no "yes I\'ll be there at 7", no "I\'ll send that over", no specific times/places/numbers/promises the user has not already confirmed in this thread.',
-    'When asked about something only the user can decide, defer gracefully ("let me check with him when he\'s back" / "I\'ll have him follow up on that").',
-    'Output only the reply text.',
-  ].join(' ');
+function buildAwayContextNote(persona: string, recipientName: string): string {
+  const sections: string[] = [];
+
+  sections.push(
+    `You are responding to: ${recipientName}. Use their name naturally when it actually fits the conversation — but DON'T shoehorn it. Don't address them by name in every message; that gets robotic fast. A casual reply usually has no name in it at all; reserve it for moments where calling someone by name actually adds warmth or clarity (e.g. opening a slightly serious thought, getting their attention, checking in). When their name does fit, use it the way the user normally would — first name, in the user's case.`,
+  );
+
+  sections.push(
+    "You are continuing this iMessage conversation while the user is away — they've turned on \"away mode\" and the contact has ALREADY been told (in the greeting message earlier in this thread) that they're chatting with the user's AI. Don't re-announce that fact unless they explicitly ask.",
+  );
+
+  sections.push(
+    "Behave like a friend who's covering — not like customer service. Keep the conversation natural, varied, and alive.",
+  );
+
+  sections.push(
+    "Read your OWN previous replies in the thread (the 'me:' lines that already exist) and DO NOT repeat their phrasings, openings, or hedges. Vary turn-to-turn — different opener, different rhythm, different vocabulary. If your last reply started with 'yeah', don't start with 'yeah' again. If you already used a deflection phrase once, find a different way to say it.",
+  );
+
+  sections.push(
+    "Match the energy of the most recent incoming message: if they're playful, be playful; if they're terse, be terse; if they ask a real question and the thread already gives you the answer, just answer.",
+  );
+
+  sections.push(
+    'When you genuinely cannot know something (specific times/places/money/promises the user has not confirmed in the thread, personal details about the user\'s day, anything only the real user can decide): deflect IN THE USER\'S VOICE. Examples — "lol no idea, you\'ll have to wait on him for that" / "lemme have him hit you when he\'s up" / "that one\'s above my pay grade haha". Do NOT say "let me check with him" every time — that\'s the butler reflex; vary it. Only deflect when you actually need to.',
+  );
+
+  sections.push(
+    "What you should NOT do: re-announce being AI every turn; use customer-service phrasings ('apologies for the inconvenience', 'thank you for reaching out'); make up commitments; sound robotic or formal beyond the user's baseline.",
+  );
+
+  if (persona && persona.trim()) {
+    sections.push(
+      `EXTRA GUIDANCE FROM THE USER FOR HOW YOU SHOULD BEHAVE WHILE COVERING (apply this on top of the voice profile — these are explicit personality instructions for away mode):\n"""\n${persona.trim()}\n"""`,
+    );
+  }
+
+  sections.push('Output only the reply text. No quotes, no preamble, no explanation.');
+
+  return sections.join('\n\n');
+}
+
+/**
+ * Fire-and-forget AI extraction: when an inbound message comes in during an
+ * away session, ask the model whether it's something the user should follow
+ * up on personally (meet request, discussion topic, etc.) and persist any
+ * matches into away_notes. Idempotent on message_guid.
+ */
+async function extractAwayNoteForMessage(sessionId: number | null, msg: MessageRow): Promise<void> {
+  if (!msg.text || !msg.handle || !msg.guid) return;
+  if (!isAIConfigured()) return;
+  if (awayNoteAlreadyExists(msg.guid)) return;
+
+  try {
+    const sender = msg.contact_name || msg.handle || 'them';
+    const result = await extractAwayNote({ sender, messageText: msg.text });
+    if (!result.shouldNote || !result.summary) return;
+
+    const note = insertAwayNote({
+      session_id: sessionId,
+      handle: msg.handle,
+      message_guid: msg.guid,
+      message_rowid: msg.id,
+      message_text: msg.text,
+      summary: result.summary,
+      category: result.category,
+      reasoning: result.reasoning,
+    });
+    if (!note) return; // duplicate (race)
+
+    sseBroadcast('away.note_created', {
+      note: { ...note, contact_name: getContactNameForHandle(msg.handle) },
+    });
+  } catch (err) {
+    console.error('[away:note] extraction failed:', (err as Error).message);
+  }
 }
 
 async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
@@ -1356,6 +1469,8 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
         session: enrichAway(newSession),
         message: greeting,
       });
+      // Even the FIRST message can carry a follow-up item — extract.
+      void extractAwayNoteForMessage(newSession.id, msg);
     } catch (err) {
       console.error('[away] greeting send failed:', (err as Error).message);
     }
@@ -1386,11 +1501,12 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     if (thread.length === 0) return;
 
     const contactNotes = listNotesForHandle(msg.handle).map((n) => n.body);
+    const recipientName = msg.contact_name || msg.handle || 'them';
     const result = await draftReply({
       thread,
       voiceProfile: settings.voice_profile,
       contactNotes,
-      contextNote: buildAwayContextNote(),
+      contextNote: buildAwayContextNote(settings.away_persona, recipientName),
       temperament: 'normal',
       count: 1,
     });
@@ -1412,6 +1528,9 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       thread_turns: thread.length,
       usage: result.usage ?? null,
     });
+    // After replying, ask the model whether this inbound carried a follow-up
+    // item the user should see when they're back.
+    void extractAwayNoteForMessage(session.id, msg);
   } catch (err) {
     console.error('[away] continuation failed:', (err as Error).message);
   }
@@ -1549,7 +1668,12 @@ async function evaluateMessageForRadar(msg: MessageRow): Promise<void> {
 function ruleMatchesScope(rule: MonitorRule, msg: MessageRow): boolean {
   if (rule.scope_type === 'all') return true;
   if (rule.scope_type === 'unknown') return msg.contact_name === null;
-  if (rule.scope_type === 'contact') return rule.scope_handle === msg.handle;
+  if (rule.scope_type === 'contact') {
+    // Normalize both sides — msg.handle is already canonical (from chat.db),
+    // but rule.scope_handle may have been stored before ingest-side
+    // normalization landed.
+    return normalizeHandle(rule.scope_handle) === normalizeHandle(msg.handle);
+  }
   return false;
 }
 

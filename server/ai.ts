@@ -495,6 +495,94 @@ export async function extractCalendarEvent(input: {
 }
 
 /* ------------------------------------------------------------------ */
+/* away notes — extract follow-up items from inbound during away mode  */
+/* ------------------------------------------------------------------ */
+
+const AWAY_NOTE_SYSTEM = `You are reviewing an iMessage that came in while the user was away. Their AI auto-replied to keep the conversation going. Now decide: is there something here the USER should personally follow up on when they're back?
+
+Things that ARE worth a note:
+- Meeting / hangout requests (specific or vague)
+- A topic the sender wants to discuss with the user specifically
+- Questions only the user can actually answer (technical, personal, decision-making)
+- Time-sensitive coordination (date confirmations, deadlines, RSVPs)
+- Event invitations
+- Plans being made that the user is part of
+- Bad news / important news requiring a real reply
+- Money / business / legal items
+
+Things that are NOT worth a note:
+- Pleasantries, "lol", emoji-only replies, banter
+- Topics the AI's auto-reply already fully resolved
+- Generic small talk
+- Stuff the user wouldn't recognize as actionable
+
+Be conservative — false positives clutter the note pile and train the user to ignore it. Only flag substantive items.
+
+Output ONLY JSON:
+{
+  "should_note": boolean,
+  "summary": "one short sentence in third person, e.g. 'Mallory wants to grab dinner Thursday' or 'Mike asked about the contract status'",
+  "category": "meet" | "discuss" | "request" | "urgent" | "other",
+  "reasoning": "one short sentence explaining why this needs follow-up"
+}`;
+
+export type AwayNoteCategoryAI = 'meet' | 'discuss' | 'request' | 'urgent' | 'other';
+
+export interface AwayNoteExtract {
+  shouldNote: boolean;
+  summary: string;
+  category: AwayNoteCategoryAI;
+  reasoning: string;
+  model: string;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+}
+
+export async function extractAwayNote(input: {
+  sender: string;
+  messageText: string;
+}): Promise<AwayNoteExtract> {
+  const client = getOpenAI();
+  const resp = await client.chat.completions.create({
+    model: config.openai.model,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: AWAY_NOTE_SYSTEM },
+      {
+        role: 'user',
+        content: `Sender: ${input.sender}\nMessage: "${input.messageText}"`,
+      },
+    ],
+    max_tokens: 250,
+    temperature: 0.2,
+  });
+  const raw = resp.choices[0]?.message?.content ?? '{}';
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = {};
+  }
+  const validCats: AwayNoteCategoryAI[] = ['meet', 'discuss', 'request', 'urgent', 'other'];
+  const cat = (typeof parsed.category === 'string' && (validCats as string[]).includes(parsed.category))
+    ? (parsed.category as AwayNoteCategoryAI)
+    : 'other';
+  return {
+    shouldNote: parsed.should_note === true,
+    summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+    category: cat,
+    reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
+    model: resp.model || config.openai.model,
+    usage: resp.usage
+      ? {
+          prompt_tokens: resp.usage.prompt_tokens,
+          completion_tokens: resp.usage.completion_tokens,
+          total_tokens: resp.usage.total_tokens,
+        }
+      : undefined,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* monitor rules — per-message AI evaluation against user prompts      */
 /* ------------------------------------------------------------------ */
 
@@ -769,11 +857,27 @@ export function buildThreadFromMessages(messagesDesc: MessageRow[]): ThreadTurn[
     if (!isMeaningfulMessageText(m.text)) continue;
     const author: 'me' | 'them' = m.is_from_me === 1 ? 'me' : 'them';
     const text = m.text!.trim();
+    // Capture WHO said this — name when AddressBook resolved it, else the
+    // raw handle. Used by the prompt builder to label group-chat turns.
+    const attribution =
+      author === 'them' ? m.contact_name || m.handle || undefined : undefined;
     const last = turns[turns.length - 1];
-    if (last && last.author === author) {
+    if (last && last.author === author && last.attribution === attribution) {
       last.text = `${last.text}\n${text}`;
     } else {
-      turns.push({ author, text });
+      turns.push({ author, text, attribution });
+    }
+  }
+  // 1:1 chat shortcut: if there's only one distinct 'them' attribution, drop
+  // the per-turn label — the system prompt's "talking to X" line carries it
+  // and we'd otherwise spam `them (X):` on every line, wasting tokens and
+  // making the prompt noisy.
+  const uniqueThemAttrs = new Set(
+    turns.filter((t) => t.author === 'them' && t.attribution).map((t) => t.attribution),
+  );
+  if (uniqueThemAttrs.size <= 1) {
+    for (const t of turns) {
+      if (t.author === 'them') t.attribution = undefined;
     }
   }
   return turns;

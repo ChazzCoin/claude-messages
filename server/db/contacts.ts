@@ -31,16 +31,33 @@ function findAddressBookDbs(): string[] {
   const root = path.join(os.homedir(), 'Library', 'Application Support', 'AddressBook');
   const candidates: string[] = [];
 
-  const topPath = path.join(root, 'AddressBook-v22.abcddb');
-  if (fs.existsSync(topPath)) candidates.push(topPath);
-
-  const sourcesDir = path.join(root, 'Sources');
-  if (fs.existsSync(sourcesDir)) {
-    for (const d of fs.readdirSync(sourcesDir)) {
-      const p = path.join(sourcesDir, d, 'AddressBook-v22.abcddb');
-      if (fs.existsSync(p)) candidates.push(p);
-    }
+  if (!fs.existsSync(root)) {
+    console.warn(`[contacts] AddressBook root missing: ${root}`);
+    return [];
   }
+
+  // Walk the entire AddressBook tree, looking for any .abcddb file. macOS
+  // splits sources (iCloud, Local, Exchange, CardDAV) into Sources/<UUID>/
+  // subdirs, and the exact layout has shifted over macOS versions — recursive
+  // scan beats hardcoded paths.
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 5) return; // cap recursion just in case
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full, depth + 1);
+      } else if (entry.isFile() && entry.name.endsWith('.abcddb')) {
+        candidates.push(full);
+      }
+    }
+  };
+  walk(root, 0);
   return candidates;
 }
 
@@ -56,6 +73,26 @@ function normalizePhone(raw: string): string {
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
   // Treat anything else as already-international; preserve digits.
+  return `+${digits}`;
+}
+
+/**
+ * Normalize ANY handle (phone or email) to the canonical form chat.db uses.
+ * Used everywhere the user types a handle into a form so we can match against
+ * what the watcher emits. Idempotent — feeding canonical input through it
+ * returns the same canonical output.
+ */
+export function normalizeHandle(raw: string | null | undefined): string {
+  if (raw == null) return '';
+  const trimmed = String(raw).trim();
+  if (!trimmed) return '';
+  if (trimmed.includes('@')) return trimmed.toLowerCase();
+  // Empty after stripping non-digits → unparseable; pass through unchanged so
+  // the user can see what they typed.
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) return trimmed;
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
   return `+${digits}`;
 }
 
@@ -114,7 +151,10 @@ function readContactsFrom(dbPath: string): {
           nickname: r.nickname,
         }),
       };
-      if (!info.full_name) continue;
+      // Don't drop phone-only contacts — keep with a placeholder name.
+      // The autocomplete UI can still match by handle, and the Inbox can
+      // resolve "+15551234567 → +15551234567 (no name)" gracefully.
+      if (!info.full_name) info.full_name = '(unnamed contact)';
       recordById.set(r.id, info);
       out.all.push(info);
     }
@@ -172,12 +212,18 @@ function buildIndex(): { byHandle: Map<string, ContactInfo>; all: ContactInfo[] 
   const byHandle = new Map<string, ContactInfo>();
   const all: ContactInfo[] = [];
   const dbs = findAddressBookDbs();
+  console.log(`[contacts] discovered ${dbs.length} AddressBook .abcddb file(s)`);
   for (const dbPath of dbs) {
     const result = readContactsFrom(dbPath);
+    const before = byHandle.size;
     for (const c of result.all) all.push(c);
     for (const { handle, info } of result.handles) {
       if (!byHandle.has(handle)) byHandle.set(handle, info);
     }
+    const newBindings = byHandle.size - before;
+    console.log(
+      `[contacts]   ${dbPath}: ${result.all.length} contacts, +${newBindings} new handle bindings`,
+    );
   }
   return { byHandle, all };
 }

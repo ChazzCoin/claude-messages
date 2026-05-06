@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import type { Database as DB } from 'better-sqlite3';
 import { config } from '../config.js';
+import { normalizeHandle } from './contacts.js';
 
 let _db: DB | null = null;
 
@@ -199,6 +200,27 @@ function migrate(db: DB) {
     CREATE INDEX IF NOT EXISTS idx_away_sessions_handle_status ON away_sessions(handle, status);
     CREATE INDEX IF NOT EXISTS idx_away_sessions_started ON away_sessions(started_at);
 
+    -- Away notes: substantive things from inbound messages during away mode
+    -- that the user should personally follow up on when they're back.
+    CREATE TABLE IF NOT EXISTS away_notes (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id      INTEGER,
+      handle          TEXT NOT NULL,
+      message_guid    TEXT NOT NULL,
+      message_rowid   INTEGER,
+      message_text    TEXT,
+      summary         TEXT NOT NULL,
+      category        TEXT NOT NULL
+                       CHECK (category IN ('meet', 'discuss', 'request', 'urgent', 'other')),
+      reasoning       TEXT,
+      created_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+      reviewed_at     INTEGER
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_away_notes_unique ON away_notes(message_guid);
+    CREATE INDEX IF NOT EXISTS idx_away_notes_handle ON away_notes(handle);
+    CREATE INDEX IF NOT EXISTS idx_away_notes_unreviewed ON away_notes(reviewed_at);
+
     CREATE TABLE IF NOT EXISTS state (
       key          TEXT PRIMARY KEY,
       value        TEXT NOT NULL
@@ -254,6 +276,11 @@ export interface AppSettings {
   away_message: string;
   /** Per-session AI reply cap (safety against runaway). */
   away_max_replies_per_session: number;
+  /** Free-text personality / behavior guidance for the AI WHILE in away mode.
+   *  Distinct from voice_profile (which captures how the user writes).
+   *  This shapes how the AI BEHAVES while covering — banter level, deflection
+   *  style, jokes, how to handle "are you really an AI?" etc. */
+  away_persona: string;
 }
 
 const SETTING_DEFAULTS: AppSettings = {
@@ -266,6 +293,7 @@ const SETTING_DEFAULTS: AppSettings = {
   away_message:
     "I'm currently away. — this is Chazz's AI, designed to mimic him while he's not here. Feel free to keep chatting and I'll do my best to keep things going in his voice. He'll catch up when he's back.",
   away_max_replies_per_session: 50,
+  away_persona: '',
 };
 
 export const SETTING_BOUNDS = {
@@ -306,6 +334,7 @@ export function getSettings(): AppSettings {
       getState('away_max_replies_per_session'),
       SETTING_DEFAULTS.away_max_replies_per_session,
     ),
+    away_persona: getState('away_persona') ?? SETTING_DEFAULTS.away_persona,
   };
 }
 
@@ -342,6 +371,9 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
     const n = Math.max(min, Math.min(max, Math.floor(Number(patch.away_max_replies_per_session))));
     if (!Number.isFinite(n)) throw new Error('away_max_replies_per_session must be an integer');
     setState('away_max_replies_per_session', String(n));
+  }
+  if (patch.away_persona !== undefined) {
+    setState('away_persona', String(patch.away_persona));
   }
   return getSettings();
 }
@@ -894,7 +926,7 @@ export function listEnabledRadarHandles(): Set<string> {
   const rows = db
     .prepare('SELECT handle FROM radar_contacts WHERE enabled = 1')
     .all() as Array<{ handle: string }>;
-  return new Set(rows.map((r) => r.handle));
+  return new Set(rows.map((r) => normalizeHandle(r.handle)));
 }
 
 export function getRadarContact(handle: string): RadarContact | null {
@@ -1201,7 +1233,9 @@ export function listEnabledAwayHandles(): Set<string> {
   const rows = db
     .prepare('SELECT handle FROM away_contacts WHERE enabled = 1')
     .all() as Array<{ handle: string }>;
-  return new Set(rows.map((r) => r.handle));
+  // Normalize on the way out so any rows that were stored before we tightened
+  // ingest still match against chat.db's canonical handles.
+  return new Set(rows.map((r) => normalizeHandle(r.handle)));
 }
 
 export function addAwayContact(handle: string, label: string | null): AwayContact {
@@ -1311,6 +1345,127 @@ export function countActiveAwaySessions(): number {
   const db = getAppDb();
   const row = db
     .prepare("SELECT COUNT(*) as n FROM away_sessions WHERE status != 'ended'")
+    .get() as { n: number } | undefined;
+  return row?.n ?? 0;
+}
+
+/* ---------- away notes (things to follow up on after coming back) ---------- */
+
+export type AwayNoteCategory = 'meet' | 'discuss' | 'request' | 'urgent' | 'other';
+
+export interface AwayNote {
+  id: number;
+  session_id: number | null;
+  handle: string;
+  message_guid: string;
+  message_rowid: number | null;
+  message_text: string | null;
+  summary: string;
+  category: AwayNoteCategory;
+  reasoning: string | null;
+  created_at: number;
+  reviewed_at: number | null;
+}
+
+const AWAY_NOTE_COLS =
+  'id, session_id, handle, message_guid, message_rowid, message_text, summary, category, reasoning, created_at, reviewed_at';
+
+export function awayNoteAlreadyExists(messageGuid: string): boolean {
+  const db = getAppDb();
+  return !!db
+    .prepare('SELECT 1 FROM away_notes WHERE message_guid = ? LIMIT 1')
+    .get(messageGuid);
+}
+
+export function insertAwayNote(input: {
+  session_id: number | null;
+  handle: string;
+  message_guid: string;
+  message_rowid: number | null;
+  message_text: string | null;
+  summary: string;
+  category: AwayNoteCategory;
+  reasoning: string | null;
+}): AwayNote | null {
+  const db = getAppDb();
+  const info = db
+    .prepare(
+      `INSERT OR IGNORE INTO away_notes
+        (session_id, handle, message_guid, message_rowid, message_text, summary, category, reasoning)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.session_id,
+      input.handle,
+      input.message_guid,
+      input.message_rowid,
+      input.message_text,
+      input.summary,
+      input.category,
+      input.reasoning,
+    );
+  if (info.changes === 0) return null;
+  return db
+    .prepare(`SELECT ${AWAY_NOTE_COLS} FROM away_notes WHERE id = ?`)
+    .get(info.lastInsertRowid) as AwayNote;
+}
+
+export function listAwayNotes(opts: { reviewed?: boolean; limit?: number } = {}): AwayNote[] {
+  const db = getAppDb();
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 200));
+  if (opts.reviewed === false) {
+    return db
+      .prepare(
+        `SELECT ${AWAY_NOTE_COLS} FROM away_notes WHERE reviewed_at IS NULL ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(limit) as AwayNote[];
+  }
+  if (opts.reviewed === true) {
+    return db
+      .prepare(
+        `SELECT ${AWAY_NOTE_COLS} FROM away_notes WHERE reviewed_at IS NOT NULL ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(limit) as AwayNote[];
+  }
+  return db
+    .prepare(`SELECT ${AWAY_NOTE_COLS} FROM away_notes ORDER BY created_at DESC LIMIT ?`)
+    .all(limit) as AwayNote[];
+}
+
+export function getAwayNote(id: number): AwayNote | null {
+  const db = getAppDb();
+  const row = db
+    .prepare(`SELECT ${AWAY_NOTE_COLS} FROM away_notes WHERE id = ?`)
+    .get(id) as AwayNote | undefined;
+  return row ?? null;
+}
+
+export function markAwayNoteReviewed(id: number): AwayNote | null {
+  const db = getAppDb();
+  db.prepare(
+    "UPDATE away_notes SET reviewed_at = strftime('%s','now')*1000 WHERE id = ?",
+  ).run(id);
+  return getAwayNote(id);
+}
+
+export function markAllAwayNotesReviewed(): number {
+  const db = getAppDb();
+  return db
+    .prepare(
+      "UPDATE away_notes SET reviewed_at = strftime('%s','now')*1000 WHERE reviewed_at IS NULL",
+    )
+    .run().changes;
+}
+
+export function removeAwayNote(id: number): boolean {
+  const db = getAppDb();
+  return db.prepare('DELETE FROM away_notes WHERE id = ?').run(id).changes > 0;
+}
+
+export function countUnreviewedAwayNotes(): number {
+  const db = getAppDb();
+  const row = db
+    .prepare('SELECT COUNT(*) as n FROM away_notes WHERE reviewed_at IS NULL')
     .get() as { n: number } | undefined;
   return row?.n ?? 0;
 }
