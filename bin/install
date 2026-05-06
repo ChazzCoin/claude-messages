@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#
+# Install the LaunchAgent so the imsg-ai server auto-starts at login and
+# restarts on crash. Re-runnable: replaces any existing install.
+
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LABEL="com.chazzromeo.imsg-ai"
+TEMPLATE="$PROJECT_DIR/launchd/$LABEL.plist.template"
+TARGET="$HOME/Library/LaunchAgents/$LABEL.plist"
+
+if [ ! -f "$TEMPLATE" ]; then
+  echo "✗ template missing: $TEMPLATE" >&2
+  exit 1
+fi
+
+mkdir -p "$PROJECT_DIR/logs"
+mkdir -p "$HOME/Library/LaunchAgents"
+
+# Substitute the absolute project path into the template. Use a sed delimiter
+# unlikely to appear in paths.
+sed "s|__PROJECT_DIR__|$PROJECT_DIR|g" "$TEMPLATE" > "$TARGET"
+
+# Idempotent: unload any previous version, then load fresh.
+launchctl unload "$TARGET" 2>/dev/null || true
+launchctl load -w "$TARGET"
+
+echo "✓ installed:    $TARGET"
+echo "  service:      $LABEL"
+echo "  project:      $PROJECT_DIR"
+echo "  logs:         $PROJECT_DIR/logs/imsg-ai.{out,err}.log"
+
+# Resolve the node binary the LaunchAgent will actually use. macOS TCC attributes
+# Full Disk Access by binary path — the FDA grant on Terminal does NOT carry
+# over to launchd-spawned processes. The user has to add THIS exact node
+# binary to System Settings → Privacy & Security → Full Disk Access.
+NODE_BIN=""
+if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+  if command -v nvm >/dev/null 2>&1; then
+    nvm use --silent 2>/dev/null || true
+    NODE_BIN="$(command -v node 2>/dev/null || true)"
+  fi
+fi
+[ -z "$NODE_BIN" ] && NODE_BIN="$(command -v node 2>/dev/null || echo '<node not found>')"
+
+echo
+echo "════════════════════════════════════════════════════════════════════"
+echo "  IMPORTANT: macOS Full Disk Access for launchd-spawned processes"
+echo "════════════════════════════════════════════════════════════════════"
+echo
+echo "  The LaunchAgent runs Node, NOT Terminal — so your existing Terminal"
+echo "  FDA grant doesn't carry over. macOS attributes FDA per-binary."
+echo
+echo "  → Open System Settings → Privacy & Security → Full Disk Access"
+echo "  → Click '+' and add this exact path:"
+echo
+echo "      $NODE_BIN"
+echo
+echo "  (Tip: in the file picker, press ⌘⇧G and paste the path.)"
+echo
+echo "  After granting, run:  bin/restart"
+echo "  Verify:               bin/status   (chat.db ok should flip to True)"
+echo
+echo "  If you upgrade Node via nvm, repeat for the new binary path."
+echo "════════════════════════════════════════════════════════════════════"
+echo
+echo "Other one-time grants (only the first attempt prompts you):"
+echo "  - Automation → Messages — granted on first AppleScript send"

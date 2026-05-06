@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# Launcher script invoked by launchd (or manually). Sources nvm so the pinned
+# Node version is on PATH, ensures node_modules are present, then exec's the
+# Express server (no file-watcher, this is a service).
+#
+# Run manually for testing:  ./bin/run
+# Run via launchd:           launchctl start com.chazzromeo.imsg-ai
+
+set -euo pipefail
+
+# Resolve project root regardless of where this script is invoked from.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_DIR"
+
+# Source nvm. Quiet flags because launchd captures everything.
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$NVM_DIR/nvm.sh"
+fi
+
+# Honor .nvmrc; install the version if missing.
+if command -v nvm >/dev/null 2>&1; then
+  nvm use --silent 2>/dev/null || nvm install
+fi
+
+# Sanity-check Node is available.
+if ! command -v node >/dev/null 2>&1; then
+  echo "[bin/run] node not on PATH (after nvm) — aborting" >&2
+  exit 127
+fi
+
+# Ensure dependencies are installed. This runs ONCE per fresh checkout.
+if [ ! -d node_modules ]; then
+  echo "[bin/run] node_modules missing, running npm install…"
+  npm install --no-audit --no-fund
+fi
+
+# Logs directory used by the launchd plist.
+mkdir -p logs
+
+echo "[bin/run] $(date '+%Y-%m-%d %H:%M:%S') starting on $(node --version)"
+exec npm run serve

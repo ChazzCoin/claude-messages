@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Start the LaunchAgent (no-op if it's already running).
+exec launchctl start com.chazzromeo.imsg-ai

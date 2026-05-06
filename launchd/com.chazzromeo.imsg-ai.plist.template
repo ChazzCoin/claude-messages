@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Unique service identifier. Used for launchctl start/stop/list. -->
+  <key>Label</key>
+  <string>com.chazzromeo.imsg-ai</string>
+
+  <!-- The launcher script handles nvm sourcing, dep install, and exec. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PROJECT_DIR__/bin/run</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__PROJECT_DIR__</string>
+
+  <!-- Start the moment the LaunchAgent is loaded (i.e. at login). -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart on crash but not on clean exit (so `bin/stop` actually stops it). -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <!-- Throttle so a tight crash loop doesn't burn CPU. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <!-- Logs land here. tail with `bin/logs`. -->
+  <key>StandardOutPath</key>
+  <string>__PROJECT_DIR__/logs/imsg-ai.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>__PROJECT_DIR__/logs/imsg-ai.err.log</string>
+
+  <!-- Keep PATH minimal but include /usr/local/bin and /opt/homebrew/bin so
+       the wrapper script can find git, etc. nvm is sourced inside the wrapper. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- Run as a user agent (per-user). LaunchDaemons run as root and lose
+       access to the user's Full Disk Access + Automation grants — wrong shape
+       for this app. -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>

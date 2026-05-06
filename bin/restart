@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Restart by stop+start. launchctl kickstart -k is the modern equivalent.
+LABEL="com.chazzromeo.imsg-ai"
+launchctl kickstart -k "gui/$(id -u)/$LABEL"
+echo "↻ restarted $LABEL"

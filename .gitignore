@@ -5,6 +5,10 @@ dist/
 *.log
 .DS_Store
 
+# Service runtime artifacts
+logs/
+~/Library/LaunchAgents/com.chazzromeo.imsg-ai.plist
+
 # Local app database — never commit
 data/
 *.db

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# Show the LaunchAgent status (PID, exit code, label) plus a /api/health
+# probe so you know the server is actually responding.
+
+set -euo pipefail
+LABEL="com.chazzromeo.imsg-ai"
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+echo "== launchd =="
+if launchctl list | grep -q "$LABEL"; then
+  launchctl list | awk -v lbl="$LABEL" '$0 ~ lbl { printf "  pid=%s  last_exit=%s  label=%s\n", $1, $2, $3 }'
+else
+  echo "  not loaded (run bin/install first)"
+fi
+
+echo
+echo "== plist =="
+TARGET="$HOME/Library/LaunchAgents/$LABEL.plist"
+if [ -f "$TARGET" ]; then
+  echo "  installed: $TARGET"
+else
+  echo "  not installed"
+fi
+
+echo
+echo "== /api/health =="
+PORT="${PORT:-3000}"
+HOST="${HOST:-127.0.0.1}"
+if curl -sf "http://$HOST:$PORT/api/health" >/dev/null 2>&1; then
+  echo "  ✓ responding on http://$HOST:$PORT"
+  curl -sf "http://$HOST:$PORT/api/health" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print('  chat.db ok       :', d['chat_db']['ok'])
+print('  openai_configured:', d['openai_configured'])
+print('  watcher_running  :', d['watcher_running'])
+print('  away_mode_enabled:', d['away_mode_enabled'])
+print('  away_active_sess :', d['away_active_sessions'])
+"
+else
+  echo "  ✗ no response on http://$HOST:$PORT — check logs:"
+  echo "    bin/logs"
+  echo "    tail $PROJECT_DIR/logs/imsg-ai.err.log"
+fi

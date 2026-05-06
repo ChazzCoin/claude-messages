@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#
+# Tail both stdout and stderr from the launchd-managed service.
+# Ctrl-C to exit.
+
+set -euo pipefail
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LOGS="$PROJECT_DIR/logs"
+
+mkdir -p "$LOGS"
+touch "$LOGS/imsg-ai.out.log" "$LOGS/imsg-ai.err.log"
+
+exec tail -F "$LOGS/imsg-ai.out.log" "$LOGS/imsg-ai.err.log"

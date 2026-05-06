@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#
+# Remove the LaunchAgent (stops the service and prevents auto-start at login).
+# Leaves logs/ and data/ alone — your app state is preserved.
+
+set -euo pipefail
+
+LABEL="com.chazzromeo.imsg-ai"
+TARGET="$HOME/Library/LaunchAgents/$LABEL.plist"
+
+if [ -f "$TARGET" ]; then
+  launchctl unload -w "$TARGET" 2>/dev/null || true
+  rm -f "$TARGET"
+  echo "✓ uninstalled $LABEL"
+  echo "  data/ and logs/ left in place — wipe manually if you want a clean slate"
+else
+  echo "not installed (no $TARGET)"
+fi

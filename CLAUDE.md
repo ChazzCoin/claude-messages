@@ -204,9 +204,69 @@ fixture-based tests against a tiny synthetic `chat.db`.
 
 ## Deploy
 
-There is no deploy. The app runs from `npm run dev` on the owner's
-Mac. A `launchd` plist for auto-start on login may land in a later
-phase under `launchd/com.you.imsg-ai.plist`.
+**Local-only macOS deploy via `launchd`.** No Docker — Docker won't
+work for this app (chat.db is a macOS-specific path; AppleScript /
+`osascript` and Messages.app don't exist in a Linux container; macOS
+Automation permissions are per-process and don't survive
+containerization). The right shape is a per-user `LaunchAgent`.
+
+```bash
+# one-time, after npm install + .env populated
+./bin/install                         # writes ~/Library/LaunchAgents/com.chazzromeo.imsg-ai.plist
+                                      # then launchctl load -w (auto-starts at login)
+./bin/status                          # confirm it booted + /api/health responding
+
+# day-to-day
+./bin/restart                         # after pulling code changes
+./bin/logs                            # tail stdout+stderr (Ctrl-C to exit)
+./bin/stop / ./bin/start              # manual stop/start
+
+# tear down
+./bin/uninstall                       # unload + remove from LaunchAgents
+```
+
+**Plist details:** `launchd/com.chazzromeo.imsg-ai.plist.template`
+defines a LaunchAgent (per-user, NOT a LaunchDaemon — daemons run as
+root and lose access to your Full Disk Access + Automation grants).
+`bin/install` substitutes the absolute project path into the template
+and installs to `~/Library/LaunchAgents/`. `RunAtLoad=true` means it
+starts at login; `KeepAlive` restarts on crash but not on clean exit
+(so `bin/stop` actually stops it). Logs go to `logs/imsg-ai.{out,err}
+.log` — gitignored.
+
+**Wrapper script (`bin/run`)** sources nvm, honors `.nvmrc`, runs
+`npm install` if `node_modules` is missing, then `exec npm run serve`
+(which is `tsx server/index.ts` — no file-watcher, this is a service).
+
+**Permissions — IMPORTANT, this trips people up.** macOS attributes
+Full Disk Access **per-binary**. The FDA grant on your Terminal
+applies to Terminal-spawned processes; it does NOT inherit to
+launchd-spawned processes. After `bin/install`, the service runs Node
+directly under `launchd`, so chat.db / AddressBook / chat.db-wal reads
+fail with `EPERM` until you also grant FDA to the specific Node binary
+the LaunchAgent uses.
+
+`bin/install` prints the exact path to add. Roughly:
+
+1. Open System Settings → Privacy & Security → Full Disk Access
+2. Click `+`. In the file picker, press ⌘⇧G and paste the node path
+   from `bin/install`'s output (e.g.
+   `/Users/chazzromeo/.nvm/versions/node/v22.22.2/bin/node`).
+3. `./bin/restart` and `./bin/status` — `chat.db ok` should flip to
+   True.
+
+If you upgrade Node via nvm, the path changes and you'll need to
+re-grant. To avoid that churn, point the LaunchAgent at a stable Node
+path (Homebrew `/opt/homebrew/bin/node`) — would require editing the
+wrapper to skip nvm.
+
+**Automation → Messages** is a separate grant. The first time the
+service attempts an AppleScript send (away-mode auto-reply, draft
+approve, scheduled send), macOS prompts; grant once and it persists.
+
+**To dev locally with hot-reload while the service is also installed:**
+`./bin/stop`, then `npm run dev`, then `./bin/start` when done.
+Both can't bind port 3000 simultaneously.
 
 ## Conventions
 

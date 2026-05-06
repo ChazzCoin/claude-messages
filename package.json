@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "tsx watch server/index.ts",
+    "serve": "tsx server/index.ts",
     "start": "node dist/server/index.js",
     "build": "tsc",
     "typecheck": "tsc --noEmit"

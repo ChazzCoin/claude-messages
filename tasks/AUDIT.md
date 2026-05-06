@@ -39,6 +39,23 @@ Emoji set:
 
 ## 2026-05-06
 
+- 🏗 **launchd LaunchAgent for Mac mini deploy.** Decided against
+  Docker — chat.db / AppleScript / Messages.app / AddressBook are all
+  macOS-native and don't survive containerization. Shipped instead:
+  `launchd/com.chazzromeo.imsg-ai.plist.template` (LaunchAgent, runs
+  as the user at login, KeepAlive on crash but not clean exit, log
+  redirection) plus `bin/{run,install,uninstall,start,stop,restart,status,logs}`.
+  `bin/install` substitutes the absolute project path into the
+  template, copies to `~/Library/LaunchAgents/`, `launchctl load -w`s
+  it. `bin/run` is a wrapper that sources nvm, honors `.nvmrc`, runs
+  `npm install` if needed, and exec's `npm run serve` (new, non-watch
+  tsx). Verified install puts the agent in `launchctl list` and
+  `/api/health` responds. **Surfaced gotcha**: macOS TCC attributes
+  Full Disk Access per-binary — the FDA grant on Terminal does NOT
+  carry over to launchd-spawned processes (chat.db / AddressBook /
+  chat.db-wal all return EPERM). `bin/install` now prints the exact
+  Node binary path to add to System Settings → Privacy & Security →
+  Full Disk Access. Documented in CLAUDE.md's Deploy section.
 - 🏗 **Right column = thread tool palette + UI polish.** When in thread
   view, the right column hosts the AI toolbar (Draft AI / Summarize /
   Add to Radar / context input), the per-contact memory notes, and the
