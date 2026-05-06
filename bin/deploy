@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+#
+# Deploy local code edits into the running LaunchAgent service.
+# This is the everyday command after editing server/web code:
+#   1. Typecheck — fail fast if anything is broken
+#   2. Restart the launchd-managed service
+#   3. Wait briefly for boot
+#   4. Print a status summary (chat.db / openai / watcher / pid)
+#   5. Surface the last few error-log lines if anything looks off
+#
+# Doesn't require stopping the service first — `launchctl kickstart -k`
+# replaces the running process atomically.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_DIR"
+
+LABEL="com.chazzromeo.imsg-ai"
+
+# Source nvm so the typecheck uses the .nvmrc node version.
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$NVM_DIR/nvm.sh"
+  nvm use --silent 2>/dev/null || true
+fi
+
+echo "▸ typecheck"
+if ! npm run typecheck --silent 2>&1; then
+  echo
+  echo "✗ typecheck failed — aborting deploy. Fix the errors above and re-run."
+  exit 1
+fi
+echo "  ✓ clean"
+echo
+
+# If the agent isn't installed, fall back to advising the user.
+if ! launchctl list | grep -q "$LABEL"; then
+  echo "▸ LaunchAgent not loaded — run ./bin/install first, or use \`npm run dev\` for hot-reload mode."
+  exit 1
+fi
+
+# Capture the error-log size BEFORE the restart so we can show only new
+# output afterwards (avoids surfacing stale errors from prior runs).
+ERR_LOG="$PROJECT_DIR/logs/imsg-ai.err.log"
+PRE_ERR_SIZE=0
+if [ -f "$ERR_LOG" ]; then
+  PRE_ERR_SIZE=$(wc -c < "$ERR_LOG" | tr -d ' ')
+fi
+
+echo "▸ restarting $LABEL"
+launchctl kickstart -k "gui/$(id -u)/$LABEL"
+echo
+
+# Brief wait for the new process to come up + bind 3000.
+sleep 3
+
+echo "▸ status"
+"$SCRIPT_DIR/status"
+echo
+
+# Surface ONLY error-log content written since this deploy started.
+if [ -f "$ERR_LOG" ]; then
+  POST_ERR_SIZE=$(wc -c < "$ERR_LOG" | tr -d ' ')
+  if [ "$POST_ERR_SIZE" -gt "$PRE_ERR_SIZE" ]; then
+    NEW_BYTES=$(( POST_ERR_SIZE - PRE_ERR_SIZE ))
+    NEW_OUTPUT=$(tail -c "$NEW_BYTES" "$ERR_LOG")
+    # Filter to actually-error-shaped lines (skip benign deprecation notices etc).
+    FILTERED=$(echo "$NEW_OUTPUT" | grep -i -E '(error|fail|EPERM|EADDRINUSE|EACCES)' | grep -v -i 'deprecation' || true)
+    if [ -n "$FILTERED" ]; then
+      echo "▸ NEW errors since restart (logs/imsg-ai.err.log):"
+      echo "$FILTERED" | sed 's/^/    /'
+      echo
+      echo "    full tail: ./bin/logs"
+    fi
+  fi
+fi

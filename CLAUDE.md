@@ -268,6 +268,82 @@ approve, scheduled send), macOS prompts; grant once and it persists.
 `./bin/stop`, then `npm run dev`, then `./bin/start` when done.
 Both can't bind port 3000 simultaneously.
 
+## Operations cheat sheet
+
+The dashboard runs as a launchd-managed background service. After the
+one-time install, day-to-day management is one of these scripts. **Both
+Claude and the human operator should use the same commands** — there's
+no "Claude path" vs "manual path."
+
+### Everyday loop (most common)
+
+| intent | command |
+|---|---|
+| **Make my recent code edits live** (server or web) | `./bin/deploy` |
+| **Watch logs live** (Ctrl-C to exit) | `./bin/logs` |
+| **One-shot health check** | `./bin/status` |
+| **Force a contacts re-read** (after iCloud sync) | `./bin/reload-contacts` |
+
+`./bin/deploy` is the keystone. It typechecks first, fails fast on
+errors, restarts the service via `launchctl kickstart -k`, waits for
+the new process to come up, prints status, and surfaces only NEW
+errors written to the log since this deploy started (so stale prior
+errors don't pollute the output).
+
+### Service control
+
+| intent | command |
+|---|---|
+| Stop (will auto-restart on crash unless uninstalled) | `./bin/stop` |
+| Start (after stop) | `./bin/start` |
+| Restart in-place (zero-downtime swap) | `./bin/restart` |
+| Hot-reload mode for active development | `./bin/stop && npm run dev` (Ctrl-C to exit, then `./bin/start`) |
+
+### One-time setup / teardown
+
+| intent | command |
+|---|---|
+| Install LaunchAgent (auto-start at login) | `./bin/install` |
+| Remove LaunchAgent | `./bin/uninstall` |
+| Force fresh `npm install` | `rm -rf node_modules && npm install` |
+
+### When something's wrong
+
+| symptom | diagnostic |
+|---|---|
+| dashboard not loading | `./bin/status` first |
+| `chat.db FAIL: EPERM` | macOS Full Disk Access for the Node binary — see Deploy section above |
+| `EADDRINUSE :3000` | another process owns port 3000: `lsof -i :3000` |
+| AI features 503 | `OPENAI_API_KEY` missing in `.env` — fix and `./bin/restart` |
+| service won't stay up | `./bin/logs` then look at `imsg-ai.err.log` |
+
+### What's where
+
+| | |
+|---|---|
+| LaunchAgent plist | `~/Library/LaunchAgents/com.chazzromeo.imsg-ai.plist` |
+| Service logs | `logs/imsg-ai.{out,err}.log` (gitignored) |
+| App database | `data/app.db` (gitignored, persists across reinstalls) |
+| User config | `.env` (gitignored, never committed) |
+| Service launcher | `bin/run` (called by launchd; sources nvm, exec npm run serve) |
+
+### Notes for Claude (autonomous operation)
+
+When making code changes for the user:
+
+1. Edit files.
+2. **Always end with `./bin/deploy`** before declaring done. Don't
+   just leave changes on disk — they're not live until the LaunchAgent
+   restarts.
+3. If `./bin/deploy` fails on typecheck, fix the errors and re-run.
+   Do not proceed to other work with a broken build.
+4. If `./bin/deploy` succeeds but the status shows something off
+   (e.g. `chat.db ok: False` after the user previously had it green),
+   investigate before continuing.
+5. For data inspection, prefer `curl http://127.0.0.1:3000/api/...`
+   over reading SQLite directly — the API does the joins + enrichment
+   the UI sees, so it's the most accurate view.
+
 ## Conventions
 
 - **`text` first, `attributedBody` as fallback.** Apple stores
