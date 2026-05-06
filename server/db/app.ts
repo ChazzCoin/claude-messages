@@ -76,6 +76,44 @@ export function setState(key: string, value: string): void {
   ).run(key, value);
 }
 
+/* ---------- settings (typed wrapper around state) ---------- */
+
+export interface AppSettings {
+  /** Number of recent messages to attach to AI prompts as context. */
+  ai_context_count: number;
+}
+
+const SETTING_DEFAULTS: AppSettings = { ai_context_count: 20 };
+
+export const SETTING_BOUNDS = {
+  ai_context_count: { min: 1, max: 100 },
+} as const;
+
+function parseIntOr(v: string | null, fallback: number): number {
+  if (v === null) return fallback;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+export function getSettings(): AppSettings {
+  return {
+    ai_context_count: parseIntOr(
+      getState('ai_context_count'),
+      SETTING_DEFAULTS.ai_context_count,
+    ),
+  };
+}
+
+export function updateSettings(patch: Partial<AppSettings>): AppSettings {
+  if (patch.ai_context_count !== undefined) {
+    const { min, max } = SETTING_BOUNDS.ai_context_count;
+    const n = Math.max(min, Math.min(max, Math.floor(Number(patch.ai_context_count))));
+    if (!Number.isFinite(n)) throw new Error('ai_context_count must be an integer');
+    setState('ai_context_count', String(n));
+  }
+  return getSettings();
+}
+
 /* ---------- watched contacts ---------- */
 
 export interface WatchedContact {

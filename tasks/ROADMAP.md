@@ -47,7 +47,7 @@ Tasks:
 Tasks:
 
 - TASK-020 — Regex pre-filter against `rules` table on watcher emit
-- TASK-021 — `classifyIncoming()` real implementation + prompt
+- TASK-021 — `classifyIncoming()` real implementation + prompt *(shipped — see AUDIT)*
 - TASK-022 — Tag messages in UI (question / scheduling / urgent / …)
 - TASK-023 — Cost guardrails: per-day token cap, per-rule cooldown
 
@@ -60,8 +60,8 @@ Tasks:
 
 Tasks:
 
-- TASK-030 — `draftReply()` real implementation with thread context
-- TASK-031 — Drafts queue UI: pending list, edit, approve, discard
+- TASK-030 — `draftReply()` real implementation with thread context *(shipped — see AUDIT)*
+- TASK-031 — Drafts queue UI: pending list, edit, approve, discard *(partial — list/approve/discard shipped; edit-before-send still pending)*
 - TASK-032 — Send-path hardening: error handling, retry, audit log
 - TASK-033 — Improve `attributedBody` decode (swap to imessage-exporter
   shell-out or real typedstream lib)

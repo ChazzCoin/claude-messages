@@ -39,6 +39,37 @@ Emoji set:
 
 ## 2026-05-06
 
+- 📦 **AI drafts shipped (TASK-021 + TASK-030 ahead of Phase 2).**
+  Implemented `classifyIncoming()` (JSON-mode, low temp) and
+  `draftReply()` in `server/ai.ts` with a voice-mimicry prompt that
+  emphasizes *prediction* over generic helpfulness, an optional
+  user-supplied `contextNote`, and a `SKIP` fallback for sensitive
+  cases. Added `buildThreadFromMessages()` helper that collapses
+  adjacent same-author turns and drops attachment-only messages.
+  New routes: `POST /api/ai/classify`, `POST /api/ai/draft`. Both
+  gated by `isAIConfigured()` — 503 with a clear "set OPENAI_API_KEY
+  in .env" message when not configured. `/api/ai/draft` pulls
+  context from chat.db, picks the most-recent incoming message as
+  the source guid, calls the model, and optionally saves into the
+  drafts queue with a token-usage breadcrumb in `reasoning`.
+  *Why ahead of Phase 2:* user wanted drafts now; the watcher is
+  still queued. Manual + on-click triggering until SSE lands.
+- 🏗 **Inbox-row one-click predict + thread compose-with-context.**
+  Sparkle button on every chat row in the inbox view fires
+  `/api/ai/draft` with no context note (uses the global setting),
+  saves to drafts, refreshes the queue count. Per-row busy/ok/err
+  state. Below every thread, a compose textarea + "Draft with
+  context" button (⌘+Enter to submit) sends a user hint alongside
+  the last N messages.
+- 🏗 **Global settings system.** `state` table now backs typed
+  settings with `getSettings()` / `updateSettings()` helpers and
+  bounds metadata in `db/app.ts`. New routes `GET /api/settings`
+  and `PUT /api/settings`. First setting: `ai_context_count`
+  (default 20, range [1, 100]). `/api/ai/draft` uses it as the
+  default context window. Settings nav-item now wired to a Settings
+  view with a numeric editor + reset-to-defaults + a read-only
+  System panel mirroring `/api/health`. Thread toolbar default and
+  AI-button tooltips read from the cached setting.
 - 📦 **TASK-002 — artifact HTML integrated and wired to live API.**
   Replaced the placeholder `web/index.html` with the dashboard design.
   Added a small client-side router (Inbox / Drafts / per-chat thread).

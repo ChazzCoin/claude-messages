@@ -566,6 +566,138 @@
   #drafts-toolbar { margin-bottom: 12px; }
   #drafts-toolbar .add-btn { width: auto; padding: 8px 14px; }
 
+  /* Sparkle button on each chat row in the inbox */
+  .row-ai {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    cursor: pointer; padding: 0;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .row-ai:hover { color: var(--green); border-color: var(--green); background: var(--bg-card-hover); }
+  .row-ai:disabled { cursor: progress; opacity: 0.7; }
+  .row-ai svg { width: 14px; height: 14px; }
+  .row-ai.ok { color: var(--green); border-color: var(--green); }
+  .row-ai.err { color: var(--red); border-color: var(--red); }
+  @keyframes row-ai-spin { to { transform: rotate(360deg); } }
+  .row-ai.busy svg { animation: row-ai-spin 0.9s linear infinite; }
+
+  /* Compose-with-context block at the bottom of the thread view */
+  #thread-compose:not(:empty) {
+    margin-top: 16px; padding: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+  }
+  .compose-label {
+    font-family: var(--mono); font-size: 11px; color: var(--text-faint);
+    text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .compose-label .accent { color: var(--cyan); text-transform: none; letter-spacing: 0; }
+  #thread-compose textarea {
+    width: 100%; min-height: 60px; resize: vertical;
+    padding: 10px 12px; background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5;
+    box-sizing: border-box;
+  }
+  #thread-compose textarea:focus { outline: none; border-color: var(--cyan); }
+  .compose-actions {
+    display: flex; align-items: center; gap: 8px; margin-top: 10px;
+  }
+  .compose-actions .compose-status {
+    margin-left: auto; font-family: var(--mono); font-size: 11px;
+    color: var(--text-dim); min-height: 14px;
+  }
+  .compose-status.ok { color: var(--green); }
+  .compose-status.err { color: var(--red); }
+  .compose-actions .ctx-hint {
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
+    margin-right: auto;
+  }
+
+  /* Settings view */
+  .settings-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .settings-section h3 {
+    font-family: var(--mono); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--text-faint);
+    margin: 0 0 14px;
+  }
+  .settings-row { display: grid; grid-template-columns: 200px 1fr; gap: 16px; align-items: start; padding: 10px 0; }
+  .settings-row + .settings-row { border-top: 1px dashed var(--border); }
+  .settings-row label.field-label {
+    font-size: 13px; color: var(--text); padding-top: 4px;
+    font-family: 'Inter', sans-serif;
+  }
+  .settings-row label.field-label .desc {
+    display: block; font-family: var(--mono); font-size: 11px;
+    color: var(--text-faint); margin-top: 4px; line-height: 1.5;
+  }
+  .settings-row .field-input { display: flex; align-items: center; gap: 8px; }
+  .settings-row .field-input input[type="number"] {
+    width: 90px; padding: 6px 10px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: var(--mono); font-size: 13px; text-align: right;
+  }
+  .settings-row .field-input input:focus { outline: none; border-color: var(--cyan); }
+  .settings-row .field-input .unit { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .settings-row .field-readonly {
+    font-family: var(--mono); font-size: 12.5px; color: var(--text-dim);
+    word-break: break-all;
+  }
+  .settings-row .field-readonly .ok  { color: var(--green); }
+  .settings-row .field-readonly .warn { color: var(--yellow); }
+  .settings-row .field-readonly .err  { color: var(--red); }
+  .settings-actions {
+    display: flex; gap: 8px; align-items: center;
+    margin-top: 12px; padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .settings-actions .settings-status {
+    margin-left: auto; font-family: var(--mono); font-size: 11px;
+    color: var(--text-dim); min-height: 14px;
+  }
+  .settings-status.ok { color: var(--green); }
+  .settings-status.err { color: var(--red); }
+
+  /* AI toolbar in thread view */
+  .thread-toolbar {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 12px; padding: 8px 12px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .thread-toolbar .btn { padding: 6px 12px; font-size: 12.5px; }
+  .thread-toolbar .ctx-input {
+    width: 56px; padding: 4px 6px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 5px;
+    font-family: var(--mono); font-size: 12px; text-align: right;
+  }
+  .thread-toolbar label {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .thread-toolbar .toolbar-status {
+    margin-left: auto; font-family: var(--mono); font-size: 11px;
+    color: var(--text-dim); min-height: 14px;
+  }
+  .toolbar-status.ok { color: var(--green); }
+  .toolbar-status.err { color: var(--red); }
+
   /* Right panel */
   .rightpanel {
     border-left: 1px solid var(--border);
@@ -717,7 +849,7 @@
         Rules
         <span class="nav-count" id="nav-rules-count">—</span>
       </div>
-      <div class="nav-item">
+      <div class="nav-item" data-view="settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         Settings
       </div>
@@ -781,6 +913,8 @@
         <div class="empty-title">loading…</div>
       </div>
     </div>
+
+    <div id="thread-compose"></div>
   </div>
 
   <!-- Right panel -->
@@ -1051,6 +1185,16 @@
 
   // ---------- views: inbox + thread ----------
   let chatsCache = [];
+  let settingsCache = { ai_context_count: 20 };
+  let settingsBounds = { ai_context_count: { min: 1, max: 100 } };
+
+  async function refreshSettings() {
+    try {
+      const r = await api('/api/settings');
+      if (r.settings) settingsCache = { ...settingsCache, ...r.settings };
+      if (r.bounds) settingsBounds = { ...settingsBounds, ...r.bounds };
+    } catch (e) { /* keep prior cache */ }
+  }
 
   function setMainHeader({ title, subHTML, showFilters = false }) {
     const t = document.querySelector('.main-title');
@@ -1085,6 +1229,9 @@
           <div class="row-preview">${escapeHtml(previewText)}</div>
         </div>
         <div class="row-meta">${escapeHtml(time)}</div>
+        <button class="row-ai" data-action="ai-draft-row" data-chat-id="${c.id}" title="Predict and draft a reply (last ${settingsCache.ai_context_count} messages)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+        </button>
       </div>
     `;
   }
@@ -1137,6 +1284,24 @@
     `;
   }
 
+  function renderThreadToolbar(chatId) {
+    const max = settingsBounds.ai_context_count?.max || 100;
+    const dflt = settingsCache.ai_context_count;
+    return `
+      <div class="thread-toolbar">
+        <button class="btn primary" data-action="ai-draft" data-chat-id="${chatId}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+          Draft AI reply
+        </button>
+        <label>last
+          <input class="ctx-input" type="number" min="1" max="${max}" value="${dflt}" data-ctx-input />
+          msgs as context
+        </label>
+        <span class="toolbar-status" data-toolbar-status></span>
+      </div>
+    `;
+  }
+
   async function renderThreadView(chatId) {
     const meta = chatsCache.find((c) => c.id === chatId);
     const title = meta?.display_name || meta?.identifier || `Chat #${chatId}`;
@@ -1145,6 +1310,12 @@
       subHTML: `<a class="back-link" data-action="back-to-inbox">← back to inbox</a>${meta?.identifier ? ' · ' + escapeHtml(meta.identifier) : ''}`,
       showFilters: false,
     });
+    const tb = document.getElementById('drafts-toolbar');
+    if (tb) tb.innerHTML = renderThreadToolbar(chatId);
+
+    const compose = document.getElementById('thread-compose');
+    if (compose) compose.innerHTML = renderThreadCompose(chatId);
+
     const list = document.getElementById('drafts-list');
     if (list) list.innerHTML = `<div class="empty"><div class="empty-title">loading…</div></div>`;
 
@@ -1195,6 +1366,78 @@
     `;
   }
 
+  async function renderSettingsView() {
+    setMainHeader({
+      title: 'Settings',
+      subHTML: '<span class="accent">global config</span> · stored in app.db',
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (!list) return;
+
+    // Load fresh values + system status before rendering.
+    const [_, health] = await Promise.all([refreshSettings(), api('/api/health').catch(() => null)]);
+
+    const cc = settingsCache.ai_context_count;
+    const bounds = settingsBounds.ai_context_count || { min: 1, max: 100 };
+
+    const fmtBool = (b, okLabel, warnLabel) =>
+      b
+        ? `<span class="ok">✓ ${escapeHtml(okLabel)}</span>`
+        : `<span class="warn">✗ ${escapeHtml(warnLabel)}</span>`;
+
+    const sysRows = !health
+      ? `<div class="empty-row">/api/health unreachable</div>`
+      : `
+        <div class="settings-row">
+          <label class="field-label">chat.db<span class="desc">read-only access to Apple's Messages database</span></label>
+          <div class="field-readonly">${escapeHtml(health.chat_db?.path || '')} · ${fmtBool(health.chat_db?.ok, 'readable', health.chat_db?.error || 'not readable')}</div>
+        </div>
+        <div class="settings-row">
+          <label class="field-label">app.db<span class="desc">project-owned SQLite for drafts, watched, rules, settings</span></label>
+          <div class="field-readonly">${escapeHtml(health.app_db?.path || '')}</div>
+        </div>
+        <div class="settings-row">
+          <label class="field-label">OpenAI<span class="desc">required for /api/ai/* endpoints</span></label>
+          <div class="field-readonly">model: ${escapeHtml(health.openai_model || '?')} · ${fmtBool(health.openai_configured, 'key configured', 'OPENAI_API_KEY not set in .env')}</div>
+        </div>
+        <div class="settings-row">
+          <label class="field-label">Watcher<span class="desc">fs.watch on chat.db-wal, idle until Phase 2</span></label>
+          <div class="field-readonly">${health.watcher_running ? '<span class="ok">✓ running</span>' : '<span class="warn">⚠ not running</span>'}</div>
+        </div>
+        <div class="settings-row">
+          <label class="field-label">Server<span class="desc">version + uptime</span></label>
+          <div class="field-readonly">${escapeHtml(health.server || 'imsg-ai')} v${escapeHtml(health.version || '?')}</div>
+        </div>
+      `;
+
+    list.innerHTML = `
+      <form class="settings-section" data-form="settings">
+        <h3>AI</h3>
+        <div class="settings-row">
+          <label class="field-label" for="set-ctx">
+            Context window
+            <span class="desc">How many recent messages get attached to the AI prompt as context. Used by the row sparkle button and "Draft with context". Per-thread overrides still work via the slider in the thread toolbar.</span>
+          </label>
+          <div class="field-input">
+            <input id="set-ctx" type="number" name="ai_context_count" min="${bounds.min}" max="${bounds.max}" value="${cc}" required />
+            <span class="unit">messages · range ${bounds.min}–${bounds.max}</span>
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button type="submit" class="btn primary">Save</button>
+          <button type="button" class="btn ghost" data-action="reset-settings">Reset to defaults</button>
+          <span class="settings-status" data-error></span>
+        </div>
+      </form>
+
+      <div class="settings-section">
+        <h3>System</h3>
+        ${sysRows}
+      </div>
+    `;
+  }
+
   async function renderDraftsView() {
     setMainHeader({
       title: 'Drafts queue',
@@ -1218,15 +1461,41 @@
     if (tb) tb.innerHTML = '';
   }
 
+  function clearThreadCompose() {
+    const c = document.getElementById('thread-compose');
+    if (c) c.innerHTML = '';
+  }
+
+  function renderThreadCompose(chatId) {
+    return `
+      <div class="compose-label">
+        <span>Custom prompt</span>
+        <span class="accent">// last ${settingsCache.ai_context_count} messages will be attached</span>
+      </div>
+      <textarea data-compose-input placeholder="Add guidance for the draft (e.g. 'tell them I'm running 15 min late', 'be warmer than my last reply', 'ask for the address')"></textarea>
+      <div class="compose-actions">
+        <button class="btn primary" data-action="ai-draft-with-context" data-chat-id="${chatId}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+          Draft with context
+        </button>
+        <span class="ctx-hint">⌘ + Enter to submit</span>
+        <span class="compose-status" data-compose-status></span>
+      </div>
+    `;
+  }
+
   async function setView(view, chatId = null) {
     setActiveNav(view === 'thread' ? 'inbox' : view);
     if (view !== 'drafts') clearDraftsToolbar();
+    if (view !== 'thread') clearThreadCompose();
     if (view === 'inbox') {
       await renderInboxView();
     } else if (view === 'thread') {
       await renderThreadView(chatId);
     } else if (view === 'drafts') {
       await renderDraftsView();
+    } else if (view === 'settings') {
+      await renderSettingsView();
     }
   }
 
@@ -1274,6 +1543,18 @@
       return;
     }
 
+    // Settings: reset to defaults
+    if (action === 'reset-settings') {
+      if (!confirm('Reset all settings to defaults?')) return;
+      try {
+        // Defaults are server-defined; resetting = sending the default value.
+        const r = await api('/api/settings', { method: 'PUT', body: { ai_context_count: 20 } });
+        if (r.settings) settingsCache = { ...settingsCache, ...r.settings };
+        await renderSettingsView();
+      } catch (err) { alert(`reset failed: ${err.message}`); }
+      return;
+    }
+
     if (action === 'open-thread') {
       const chatId = parseInt(btn.dataset.chatId, 10);
       if (Number.isFinite(chatId)) setView('thread', chatId);
@@ -1281,6 +1562,129 @@
     }
     if (action === 'back-to-inbox') {
       setView('inbox');
+      return;
+    }
+
+    // One-click predict from the inbox row (last 20 msgs, no extra prompt).
+    if (action === 'ai-draft-row') {
+      const chatId = parseInt(btn.dataset.chatId, 10);
+      if (!Number.isFinite(chatId)) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const original = btn.innerHTML;
+      btn.disabled = true;
+      btn.classList.remove('ok', 'err');
+      btn.classList.add('busy');
+
+      const ctxCount = settingsCache.ai_context_count;
+      const titleBase = `Predict and draft a reply (last ${ctxCount} messages)`;
+
+      try {
+        const r = await api('/api/ai/draft', {
+          method: 'POST',
+          body: { chat_id: chatId, save: true },
+        });
+        btn.classList.remove('busy');
+        if (r.skipped) {
+          btn.classList.add('err');
+          btn.title = 'model returned SKIP — no draft saved';
+        } else {
+          btn.classList.add('ok');
+          btn.title = `draft saved · ${r.thread.length} turns of context${r.usage ? ' · ' + r.usage.total_tokens + ' tok' : ''}`;
+          await refreshDrafts();
+        }
+        setTimeout(() => {
+          btn.classList.remove('ok', 'err');
+          btn.title = titleBase;
+          btn.innerHTML = original;
+          btn.disabled = false;
+        }, 2500);
+      } catch (err) {
+        btn.classList.remove('busy');
+        btn.classList.add('err');
+        btn.title = err.message;
+        setTimeout(() => {
+          btn.classList.remove('err');
+          btn.title = titleBase;
+          btn.innerHTML = original;
+          btn.disabled = false;
+        }, 3000);
+      }
+      return;
+    }
+
+    // Draft with the user's typed context note (compose block at bottom of thread).
+    if (action === 'ai-draft-with-context') {
+      const chatId = parseInt(btn.dataset.chatId, 10);
+      if (!Number.isFinite(chatId)) return;
+
+      const ta = document.querySelector('[data-compose-input]');
+      const status = document.querySelector('[data-compose-status]');
+      const note = (ta?.value || '').trim();
+
+      btn.disabled = true;
+      const originalLabel = btn.innerHTML;
+      btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Drafting…';
+      if (status) { status.className = 'compose-status'; status.textContent = ''; }
+
+      try {
+        const r = await api('/api/ai/draft', {
+          method: 'POST',
+          body: { chat_id: chatId, save: true, context_note: note },
+        });
+        if (r.skipped) {
+          if (status) { status.className = 'compose-status err'; status.textContent = 'model returned SKIP — no draft saved'; }
+        } else {
+          const tokens = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
+          if (status) {
+            status.className = 'compose-status ok';
+            status.textContent = `✓ saved · ${r.thread.length} turns of context${note ? ' + custom prompt' : ''}${tokens}`;
+          }
+          if (ta) ta.value = '';
+          await refreshDrafts();
+        }
+      } catch (err) {
+        if (status) { status.className = 'compose-status err'; status.textContent = err.message; }
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalLabel;
+      }
+      return;
+    }
+
+    // Draft an AI reply for the current thread.
+    if (action === 'ai-draft') {
+      const chatId = parseInt(btn.dataset.chatId, 10);
+      if (!Number.isFinite(chatId)) return;
+      const ctxInput = document.querySelector('[data-ctx-input]');
+      const status = document.querySelector('[data-toolbar-status]');
+      const ctx = parseInt(ctxInput?.value, 10);
+      const contextCount = Number.isFinite(ctx) ? Math.max(1, Math.min(50, ctx)) : 10;
+
+      btn.disabled = true;
+      const originalLabel = btn.innerHTML;
+      btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Drafting…';
+      if (status) { status.className = 'toolbar-status'; status.textContent = ''; }
+
+      try {
+        const r = await api('/api/ai/draft', {
+          method: 'POST',
+          body: { chat_id: chatId, context_count: contextCount, save: true },
+        });
+        if (r.skipped) {
+          if (status) { status.className = 'toolbar-status err'; status.textContent = 'model returned SKIP — no draft saved'; }
+        } else {
+          const tokens = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
+          if (status) { status.className = 'toolbar-status ok'; status.textContent = `✓ saved · ${r.thread.length} turns of context${tokens}`; }
+          await Promise.all([refreshDrafts(), refreshSentStats()]);
+        }
+      } catch (err) {
+        if (status) { status.className = 'toolbar-status err'; status.textContent = err.message; }
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalLabel;
+      }
       return;
     }
 
@@ -1336,6 +1740,18 @@
     }
   });
 
+  // ⌘ / Ctrl + Enter inside the compose textarea = trigger draft-with-context.
+  document.addEventListener('keydown', (e) => {
+    const ta = e.target;
+    if (!(ta instanceof HTMLTextAreaElement)) return;
+    if (!ta.matches('[data-compose-input]')) return;
+    if (e.key !== 'Enter') return;
+    if (!(e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    const btn = document.querySelector('[data-action="ai-draft-with-context"]');
+    if (btn && !btn.disabled) btn.click();
+  });
+
   // ---------- form submit handlers ----------
   document.addEventListener('submit', async (e) => {
     const form = e.target.closest('form[data-form]');
@@ -1368,9 +1784,23 @@
         });
         closeForm('form-draft');
         await Promise.all([refreshDrafts(), refreshSentStats()]);
+      } else if (kind === 'settings') {
+        const r = await api('/api/settings', {
+          method: 'PUT',
+          body: { ai_context_count: parseInt(data.ai_context_count, 10) },
+        });
+        if (r.settings) settingsCache = { ...settingsCache, ...r.settings };
+        if (errEl) {
+          errEl.classList.add('ok');
+          errEl.textContent = `✓ saved · ai_context_count = ${settingsCache.ai_context_count}`;
+          setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+        }
       }
     } catch (err) {
-      if (errEl) errEl.textContent = err.message;
+      if (errEl) {
+        errEl.classList.add('err');
+        errEl.textContent = err.message;
+      }
     } finally {
       if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalLabel ?? 'Save'; }
     }
@@ -1378,6 +1808,8 @@
 
   // ---------- init ----------
   async function init() {
+    // Settings first so dependent renderers see the cached values.
+    await refreshSettings();
     // Sidebar/right-panel data is the same regardless of which main view is up.
     await Promise.all([refreshHealth(), refreshWatched(), refreshRules(), refreshSentStats()]);
     // Land on the inbox so the user sees real messages immediately. Once Phase 4
