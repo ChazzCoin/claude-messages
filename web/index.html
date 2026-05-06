@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>imsg-ai</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --bg-elev: #11141a;
+    --bg-card: #141821;
+    --bg-card-hover: #181d27;
+    --border: #1f2530;
+    --border-strong: #2a3140;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --text-faint: #545d6a;
+    --green: #7ee787;
+    --green-dim: #2ea043;
+    --cyan: #58a6ff;
+    --purple: #bc8cff;
+    --orange: #f0883e;
+    --red: #f85149;
+    --yellow: #d29922;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: -50%;
+    left: -20%;
+    width: 70%;
+    height: 80%;
+    background: radial-gradient(ellipse at center, rgba(126, 231, 135, 0.04) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -30%;
+    right: -10%;
+    width: 60%;
+    height: 70%;
+    background: radial-gradient(ellipse at center, rgba(88, 166, 255, 0.03) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 240px 1fr 320px;
+    grid-template-rows: 52px 1fr;
+    height: 100vh;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Top bar */
+  .topbar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10, 12, 16, 0.8);
+    backdrop-filter: blur(12px);
+    gap: 24px;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: -0.2px;
+  }
+
+  .logo-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--green) 0%, var(--cyan) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #0a0c10;
+    font-weight: 700;
+    font-size: 11px;
+  }
+
+  .logo-text { color: var(--text); }
+  .logo-text .dim { color: var(--text-dim); }
+
+  .status-row {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+    align-items: center;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    background: var(--bg-elev);
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+
+  .dot.amber { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+  .dot.red   { background: var(--red);    box-shadow: 0 0 6px var(--red); }
+
+  .topbar-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-elev);
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .topbar-btn:hover { color: var(--text); border-color: var(--border-strong); }
+
+  /* Sidebar */
+  .sidebar {
+    border-right: 1px solid var(--border);
+    padding: 20px 12px;
+    overflow-y: auto;
+    background: rgba(10, 12, 16, 0.4);
+  }
+
+  .nav-section {
+    margin-bottom: 24px;
+  }
+
+  .nav-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-faint);
+    padding: 0 10px 8px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.12s;
+    margin-bottom: 1px;
+  }
+
+  .nav-item:hover { background: var(--bg-elev); color: var(--text); }
+
+  .nav-item.active {
+    background: var(--bg-card);
+    color: var(--text);
+    box-shadow: inset 2px 0 0 var(--green);
+  }
+
+  .nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+  .nav-badge {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    background: var(--green);
+    color: #0a0c10;
+    padding: 1px 6px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+
+  .nav-count {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  .contact-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+
+  .contact-row:hover { background: var(--bg-elev); }
+
+  .avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2a3140 0%, #1f2530 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text);
+    flex-shrink: 0;
+  }
+
+  .avatar.g1 { background: linear-gradient(135deg, #7ee787 0%, #2ea043 100%); color: #0a0c10; }
+  .avatar.g2 { background: linear-gradient(135deg, #58a6ff 0%, #1f6feb 100%); color: #0a0c10; }
+  .avatar.g3 { background: linear-gradient(135deg, #bc8cff 0%, #8957e5 100%); color: #0a0c10; }
+  .avatar.g4 { background: linear-gradient(135deg, #f0883e 0%, #db6d28 100%); color: #0a0c10; }
+
+  .contact-name { font-size: 12.5px; color: var(--text); }
+  .contact-meta { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+
+  /* Main */
+  .main {
+    overflow-y: auto;
+    padding: 24px 28px;
+  }
+
+  .main-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+
+  .main-title {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+    margin-bottom: 4px;
+  }
+
+  .main-sub {
+    font-size: 13px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+
+  .main-sub .accent { color: var(--green); }
+
+  .filter-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  .filter {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    background: var(--bg-elev);
+    cursor: pointer;
+    font-family: var(--mono);
+    transition: all 0.12s;
+  }
+
+  .filter:hover { color: var(--text); border-color: var(--border-strong); }
+  .filter.active { color: var(--text); background: var(--bg-card); border-color: var(--border-strong); }
+
+  /* Draft card */
+  .draft {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+
+  .draft:hover { border-color: var(--border-strong); }
+
+  .draft-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .draft-contact {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .draft-name { font-weight: 500; font-size: 13.5px; }
+  .draft-handle { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
+
+  .tags {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  .tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-elev);
+    color: var(--text-dim);
+  }
+
+  .tag.q { color: var(--cyan); border-color: rgba(88, 166, 255, 0.3); background: rgba(88, 166, 255, 0.08); }
+  .tag.urgent { color: var(--orange); border-color: rgba(240, 136, 62, 0.3); background: rgba(240, 136, 62, 0.08); }
+  .tag.sched { color: var(--purple); border-color: rgba(188, 140, 255, 0.3); background: rgba(188, 140, 255, 0.08); }
+
+  .draft-body { padding: 16px 18px; }
+
+  .quote-line {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border-left: 2px solid var(--border-strong);
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 14px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .quote-marker { font-family: var(--mono); color: var(--text-faint); font-size: 11px; flex-shrink: 0; padding-top: 1px; }
+
+  .draft-reply-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-faint);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .draft-reply-label .model {
+    color: var(--green);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .draft-reply-label .conf {
+    margin-left: auto;
+    color: var(--text-dim);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .draft-text {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13.5px;
+    color: var(--text);
+    line-height: 1.55;
+  }
+
+  .draft-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.01);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-elev);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.12s;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .btn:hover { background: var(--bg-card-hover); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .btn.primary {
+    background: var(--green);
+    color: #0a0c10;
+    border-color: var(--green);
+    font-weight: 600;
+  }
+
+  .btn.primary:hover { background: #95eb9c; }
+
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
+  .btn.ghost:hover { color: var(--text); background: var(--bg-elev); }
+
+  .btn svg { width: 13px; height: 13px; }
+
+  .kbd {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    color: var(--text-dim);
+    margin-left: 4px;
+  }
+
+  .spacer { flex: 1; }
+
+  /* Empty state inside the drafts queue */
+  .empty {
+    text-align: center;
+    padding: 56px 24px;
+    color: var(--text-dim);
+    background: var(--bg-card);
+    border: 1px dashed var(--border-strong);
+    border-radius: 10px;
+  }
+  .empty .empty-title { font-size: 14px; margin-bottom: 8px; color: var(--text); }
+  .empty .empty-sub   { font-size: 12.5px; line-height: 1.65; font-family: var(--mono); }
+
+  /* Inbox chat-row + thread bubbles */
+  .chat-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .chat-row:hover { border-color: var(--border-strong); background: var(--bg-card-hover); }
+  .chat-row .row-text { flex: 1; min-width: 0; }
+  .chat-row .row-name { font-size: 13.5px; font-weight: 500; color: var(--text); margin-bottom: 2px; }
+  .chat-row .row-handle { font-family: var(--mono); font-size: 11px; color: var(--text-faint); }
+  .chat-row .row-preview {
+    font-size: 12.5px; color: var(--text-dim); margin-top: 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .chat-row .row-meta {
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); flex-shrink: 0;
+    align-self: flex-start;
+  }
+
+  .bubble-row { display: flex; margin-bottom: 8px; }
+  .bubble-row.me { justify-content: flex-end; }
+  .bubble {
+    max-width: 70%;
+    padding: 8px 14px;
+    border-radius: 16px;
+    font-size: 14px;
+    line-height: 1.5;
+    word-wrap: break-word;
+  }
+  .bubble.them { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); }
+  .bubble.me   { background: var(--cyan);    color: #0a0c10; }
+  .bubble-meta {
+    font-family: var(--mono); font-size: 10px; color: var(--text-faint); margin-top: 4px;
+  }
+  .bubble-meta.right { text-align: right; }
+  .bubble-empty { color: var(--text-faint); font-style: italic; }
+
+  .back-link {
+    color: var(--cyan); cursor: pointer; font-family: var(--mono);
+    text-decoration: none; user-select: none;
+  }
+  .back-link:hover { text-decoration: underline; }
+
+  /* Inline forms (sidebar + drafts toolbar) */
+  .add-btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    width: calc(100% - 4px); margin: 6px 2px 0;
+    padding: 6px 10px; border-radius: 6px;
+    border: 1px dashed var(--border-strong);
+    background: transparent; color: var(--text-dim);
+    cursor: pointer; font-family: var(--mono); font-size: 11px;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .add-btn:hover { color: var(--text); border-color: var(--cyan); }
+
+  .form { display: none; padding: 10px; margin-top: 6px;
+          background: var(--bg-card); border: 1px solid var(--border-strong); border-radius: 8px; }
+  .form.open { display: block; }
+  .form input, .form textarea, .form select {
+    display: block; width: 100%; padding: 6px 10px; margin-bottom: 6px;
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    box-sizing: border-box;
+  }
+  .form input:focus, .form textarea:focus, .form select:focus {
+    outline: none; border-color: var(--cyan);
+  }
+  .form textarea { resize: vertical; min-height: 64px; font-family: 'Inter', sans-serif; font-size: 13px; }
+  .form-row { display: flex; gap: 6px; margin-top: 4px; }
+  .form-row .btn { padding: 5px 10px; font-size: 11.5px; }
+  .form-row .btn svg { width: 12px; height: 12px; }
+  .form-error {
+    color: var(--red); font-family: var(--mono); font-size: 11px; margin-top: 4px;
+    min-height: 14px;
+  }
+
+  /* Remove ✕ button on watched/rules entries */
+  .row-remove {
+    margin-left: auto; opacity: 0; transition: opacity 0.12s;
+    color: var(--text-faint); font-family: var(--mono); font-size: 12px;
+    cursor: pointer; padding: 0 4px; line-height: 1;
+  }
+  .contact-row:hover .row-remove { opacity: 1; }
+  .row-remove:hover { color: var(--red); }
+
+  /* New-draft toolbar slot above the drafts list */
+  #drafts-toolbar { margin-bottom: 12px; }
+  #drafts-toolbar .add-btn { width: auto; padding: 8px 14px; }
+
+  /* Right panel */
+  .rightpanel {
+    border-left: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+    background: rgba(10, 12, 16, 0.4);
+  }
+
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-faint);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-title .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .activity {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    padding: 12px 14px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 24px;
+  }
+
+  .activity-line { display: flex; gap: 8px; }
+  .activity-time { color: var(--text-faint); flex-shrink: 0; }
+  .activity-line .ok { color: var(--green); }
+  .activity-line .info { color: var(--cyan); }
+  .activity-line .warn { color: var(--yellow); }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 24px; }
+
+  .stat {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  .stat-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+  }
+
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .stat-delta { font-size: 10.5px; color: var(--green); margin-left: 4px; font-weight: 500; }
+
+  .rule-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  .rule-name { font-weight: 500; color: var(--text); margin-bottom: 4px; font-size: 12.5px; }
+  .rule-trigger { font-family: var(--mono); font-size: 11px; color: var(--text-dim); word-break: break-all; }
+  .rule-trigger .op { color: var(--purple); }
+  .rule-trigger .str { color: var(--green); }
+
+  .empty-row {
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-mark">i</div>
+      <div class="logo-text">imsg-ai<span class="dim"> / drafts</span></div>
+    </div>
+
+    <div class="status-row">
+      <div class="pill" id="pill-chatdb"><span class="dot"></span><span class="pill-label">chat.db</span></div>
+      <div class="pill" id="pill-watcher"><span class="dot"></span><span class="pill-label">watcher</span></div>
+      <div class="pill" id="pill-model"><span class="dot"></span><span class="pill-label">gpt-4o-mini</span></div>
+      <div class="pill" id="pill-drafts"><span class="dot"></span><span class="pill-label">— drafts pending</span></div>
+      <div class="topbar-btn" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="nav-section">
+      <div class="nav-item active" data-view="inbox">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+        Inbox
+        <span class="nav-count" id="nav-inbox-count">—</span>
+      </div>
+      <div class="nav-item" id="nav-drafts" data-view="drafts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Drafts
+        <span class="nav-badge" id="nav-drafts-badge">0</span>
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11H1l8-8 8 8h-8v8"/></svg>
+        Sent
+        <span class="nav-count" id="nav-sent-count">—</span>
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        Rules
+        <span class="nav-count" id="nav-rules-count">—</span>
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Settings
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Watched contacts</div>
+      <div id="watched-list">
+        <div class="empty-row">loading…</div>
+      </div>
+      <button class="add-btn" data-action="show-form" data-target="form-watched">+ add contact</button>
+      <form class="form" id="form-watched" data-form="watched">
+        <input type="text" name="handle" placeholder="phone or email (e.g. +14155550100)" required autocomplete="off" />
+        <input type="text" name="label" placeholder="label (optional)" autocomplete="off" />
+        <div class="form-row">
+          <button type="submit" class="btn primary">Save</button>
+          <button type="button" class="btn ghost" data-action="hide-form" data-target="form-watched">Cancel</button>
+        </div>
+        <div class="form-error" data-error></div>
+      </form>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Active rules</div>
+      <div id="rules-list-sidebar">
+        <div class="empty-row">loading…</div>
+      </div>
+      <button class="add-btn" data-action="show-form" data-target="form-rule">+ add rule</button>
+      <form class="form" id="form-rule" data-form="rule">
+        <input type="text" name="name" placeholder="name (e.g. urgent keywords)" required autocomplete="off" />
+        <input type="text" name="pattern" placeholder="regex pattern (e.g. urgent|asap|emergency)" required autocomplete="off" />
+        <input type="text" name="flags" placeholder="flags (default: i)" value="i" autocomplete="off" />
+        <div class="form-row">
+          <button type="submit" class="btn primary">Save</button>
+          <button type="button" class="btn ghost" data-action="hide-form" data-target="form-rule">Cancel</button>
+        </div>
+        <div class="form-error" data-error></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="main-header">
+      <div>
+        <div class="main-title">Drafts queue</div>
+        <div class="main-sub"><span class="accent" id="main-pending-count">— pending</span> · awaiting your approval before send</div>
+      </div>
+      <div class="filter-row">
+        <div class="filter active">all</div>
+        <div class="filter">questions</div>
+        <div class="filter">scheduling</div>
+        <div class="filter">urgent</div>
+      </div>
+    </div>
+
+    <div id="drafts-toolbar"></div>
+
+    <div id="drafts-list">
+      <div class="empty">
+        <div class="empty-title">loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="rightpanel">
+    <div class="panel-title"><span class="live-dot"></span>Live activity</div>
+    <div class="activity">
+      <div class="activity-line"><span class="activity-time">--:--:--</span><span><span class="info">●</span> SSE stream lands in Phase 2</span></div>
+      <div class="activity-line"><span class="activity-time">--:--:--</span><span>watcher boots in Phase 2</span></div>
+      <div class="activity-line"><span class="activity-time">--:--:--</span><span>classifier comes online in Phase 3</span></div>
+      <div class="activity-line"><span class="activity-time">--:--:--</span><span>drafts generated in Phase 4</span></div>
+    </div>
+
+    <div class="panel-title">Today</div>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Drafted</div>
+        <div class="stat-value" id="stat-drafted">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Sent</div>
+        <div class="stat-value" id="stat-sent">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">API cost</div>
+        <div class="stat-value" style="font-size: 17px;">$0.00</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Approval rate</div>
+        <div class="stat-value" id="stat-approval" style="font-size: 17px;">—</div>
+      </div>
+    </div>
+
+    <div class="panel-title">Active rules</div>
+    <div id="rules-list-panel">
+      <div class="empty-row">loading…</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(() => {
+  // ---------- helpers ----------
+  const escapeHtml = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function initials(...sources) {
+    const src = sources.find(x => x && String(x).trim().length > 0);
+    if (!src) return '?';
+    const trimmed = String(src).trim();
+    if (trimmed.includes('@')) return trimmed.slice(0, 2).toUpperCase();
+    const cleaned = trimmed.replace(/^\+?\d[\d\s().-]*$/, m => m.replace(/\D/g, '').slice(-2));
+    const parts = cleaned.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length-1][0]).toUpperCase();
+    return cleaned.slice(0, 2).toUpperCase() || '?';
+  }
+
+  function avatarClass(seed) {
+    const s = String(seed ?? '');
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return 'g' + (h % 4 + 1);
+  }
+
+  function relTime(ms) {
+    if (!ms) return '';
+    const diff = (Date.now() - ms) / 1000;
+    if (diff < 60) return 'now';
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
+  }
+
+  async function api(path, opts = {}) {
+    const init = { ...opts, headers: { 'content-type': 'application/json', ...(opts.headers || {}) } };
+    if (opts.body !== undefined && opts.method !== 'GET') init.body = JSON.stringify(opts.body);
+    const res = await fetch(path, init);
+    if (!res.ok) {
+      let detail = `${res.status}`;
+      try { const j = await res.json(); if (j.error) detail += `: ${j.error}`; } catch {}
+      throw new Error(detail);
+    }
+    if (res.status === 204) return null;
+    return res.json();
+  }
+
+  function setPill(id, state, label) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const dot = el.querySelector('.dot');
+    const lab = el.querySelector('.pill-label');
+    if (dot) {
+      dot.classList.remove('amber', 'red');
+      if (state === 'warn') dot.classList.add('amber');
+      else if (state === 'error') dot.classList.add('red');
+    }
+    if (lab && label !== undefined) lab.textContent = label;
+  }
+
+  // ---------- health ----------
+  async function refreshHealth() {
+    try {
+      const h = await api('/api/health');
+      setPill('pill-chatdb',  h.chat_db?.ok ? 'ok' : 'error');
+      setPill('pill-watcher', h.watcher_running ? 'ok' : 'warn');
+      setPill('pill-model',   h.openai_configured ? 'ok' : 'warn', h.openai_model || 'gpt-4o-mini');
+    } catch {
+      setPill('pill-chatdb',  'error');
+      setPill('pill-watcher', 'warn');
+      setPill('pill-model',   'warn');
+    }
+  }
+
+  // ---------- drafts ----------
+  function renderDraftCard(d) {
+    const av = avatarClass(d.handle);
+    const init = initials(d.handle);
+    const time = relTime(d.created_at);
+    const reasoning = d.reasoning
+      ? `<div style="margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text-faint);line-height:1.55;">${escapeHtml(d.reasoning)}</div>`
+      : '';
+    return `
+      <div class="draft" data-draft-id="${d.id}">
+        <div class="draft-header">
+          <div class="draft-contact">
+            <div class="avatar ${av}">${escapeHtml(init)}</div>
+            <div>
+              <div class="draft-name">${escapeHtml(d.handle)}</div>
+              <div class="draft-handle">chat #${d.chat_id} · ${escapeHtml(time)}</div>
+            </div>
+          </div>
+        </div>
+        <div class="draft-body">
+          <div class="draft-reply-label">
+            <span>Suggested reply</span>
+            <span class="model">// gpt-4o-mini</span>
+          </div>
+          <div class="draft-text">${escapeHtml(d.body)}</div>
+          ${reasoning}
+        </div>
+        <div class="draft-actions">
+          <button class="btn primary" data-action="approve" data-id="${d.id}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Approve &amp; send
+          </button>
+          <button class="btn" data-action="edit" data-id="${d.id}" disabled title="Edit-before-send lands in Phase 4">Edit</button>
+          <div class="spacer"></div>
+          <button class="btn ghost" data-action="discard" data-id="${d.id}">Dismiss</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderEmptyDrafts() {
+    return `
+      <div class="empty">
+        <div class="empty-title">No drafts pending.</div>
+        <div class="empty-sub">
+          Drafts arrive once the watcher (Phase 2) and classifier (Phase 3) come online.<br/>
+          Until then, the queue stays honest: empty.
+        </div>
+      </div>
+    `;
+  }
+
+  async function refreshDrafts() {
+    let drafts = [];
+    try {
+      const j = await api('/api/drafts?status=pending');
+      drafts = j.drafts || [];
+    } catch (e) { console.warn('drafts fetch failed:', e); }
+
+    const count = drafts.length;
+    setPill('pill-drafts', count > 0 ? 'warn' : 'ok',
+      `${count} draft${count === 1 ? '' : 's'} pending`);
+
+    const badge = document.getElementById('nav-drafts-badge');
+    if (badge) badge.textContent = count;
+    const sub = document.getElementById('main-pending-count');
+    if (sub) sub.textContent = `${count} pending`;
+    document.getElementById('stat-drafted').textContent = count;
+
+    const list = document.getElementById('drafts-list');
+    if (list) list.innerHTML = drafts.length ? drafts.map(renderDraftCard).join('') : renderEmptyDrafts();
+  }
+
+  async function refreshSentStats() {
+    try {
+      const [{drafts: sent}, {drafts: discarded}] = await Promise.all([
+        api('/api/drafts?status=sent'),
+        api('/api/drafts?status=discarded'),
+      ]);
+      const sentEl = document.getElementById('stat-sent');
+      if (sentEl) sentEl.textContent = sent.length;
+      const total = sent.length + discarded.length;
+      const rate = total === 0 ? '—' : Math.round((sent.length / total) * 100) + '%';
+      const apEl = document.getElementById('stat-approval');
+      if (apEl) apEl.textContent = rate;
+      const ns = document.getElementById('nav-sent-count');
+      if (ns) ns.textContent = sent.length;
+    } catch (e) { console.warn('sent stats failed:', e); }
+  }
+
+  // ---------- watched ----------
+  function renderWatched(items) {
+    if (!items.length) {
+      return `<div class="empty-row">none yet · use + add contact below</div>`;
+    }
+    return items.map(w => `
+      <div class="contact-row" data-watched-id="${w.id}" title="${escapeHtml(w.handle)}">
+        <div class="avatar ${avatarClass(w.handle)}">${escapeHtml(initials(w.label, w.handle))}</div>
+        <div class="contact-name">${escapeHtml(w.label || w.handle)}</div>
+        <span class="row-remove" data-action="remove-watched" data-id="${w.id}" title="remove">✕</span>
+      </div>
+    `).join('');
+  }
+
+  async function refreshWatched() {
+    let watched = [];
+    try {
+      const j = await api('/api/watched');
+      watched = j.watched || [];
+    } catch (e) { console.warn('watched fetch failed:', e); }
+    const el = document.getElementById('watched-list');
+    if (el) el.innerHTML = renderWatched(watched);
+  }
+
+  // ---------- rules ----------
+  function renderRulesSidebar(rules) {
+    if (!rules.length) {
+      return `<div class="empty-row">none yet · use + add rule below</div>`;
+    }
+    return rules.map(r => `
+      <div class="contact-row" title="/${escapeHtml(r.pattern)}/${escapeHtml(r.flags)}">
+        <span style="font-family: var(--mono); font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;">${escapeHtml(r.name)}</span>
+        <span style="font-family: var(--mono); font-size: 11px; color: ${r.enabled ? 'var(--green)' : 'var(--text-faint)'}; flex-shrink: 0;">${r.enabled ? 'on' : 'off'}</span>
+        <span class="row-remove" data-action="remove-rule" data-id="${r.id}" title="remove">✕</span>
+      </div>
+    `).join('');
+  }
+
+  function renderRulesPanel(rules) {
+    if (!rules.length) {
+      return `<div class="empty-row" style="padding:8px 0;">No rules configured. POST /api/rules to add one.</div>`;
+    }
+    return rules.map(r => `
+      <div class="rule-card">
+        <div class="rule-name">${escapeHtml(r.name)}${r.enabled ? '' : ' <span style="color:var(--text-faint);font-weight:400;">(off)</span>'}</div>
+        <div class="rule-trigger">if <span class="op">match</span> /<span class="str">${escapeHtml(r.pattern)}</span>/${escapeHtml(r.flags)}</div>
+      </div>
+    `).join('');
+  }
+
+  async function refreshRules() {
+    let rules = [];
+    try {
+      const j = await api('/api/rules');
+      rules = j.rules || [];
+    } catch (e) { console.warn('rules fetch failed:', e); }
+
+    const sb = document.getElementById('rules-list-sidebar');
+    if (sb) sb.innerHTML = renderRulesSidebar(rules);
+    const panel = document.getElementById('rules-list-panel');
+    if (panel) panel.innerHTML = renderRulesPanel(rules);
+    const nc = document.getElementById('nav-rules-count');
+    if (nc) nc.textContent = rules.length;
+  }
+
+  // ---------- views: inbox + thread ----------
+  let chatsCache = [];
+
+  function setMainHeader({ title, subHTML, showFilters = false }) {
+    const t = document.querySelector('.main-title');
+    const s = document.querySelector('.main-sub');
+    const f = document.querySelector('.filter-row');
+    if (t) t.textContent = title;
+    if (s) s.innerHTML = subHTML;
+    if (f) f.style.display = showFilters ? 'flex' : 'none';
+  }
+
+  function setActiveNav(view) {
+    document.querySelectorAll('.nav-item[data-view]').forEach((el) => {
+      el.classList.toggle('active', el.dataset.view === view);
+    });
+  }
+
+  function renderChatRow(c) {
+    const name = c.display_name || c.identifier || '(unknown)';
+    const seed = c.identifier || c.guid || String(c.id);
+    const av = avatarClass(seed);
+    const init = initials(c.display_name, c.identifier);
+    const time = relTime(c.last_date_ms);
+    const previewText = c.last_text
+      ? (c.last_is_from_me ? 'You: ' : '') + c.last_text
+      : '[encoded message — decoder skipped]';
+    return `
+      <div class="chat-row" data-action="open-thread" data-chat-id="${c.id}">
+        <div class="avatar ${av}">${escapeHtml(init)}</div>
+        <div class="row-text">
+          <div class="row-name">${escapeHtml(name)}</div>
+          <div class="row-handle">${escapeHtml(c.identifier || '')}${c.service_name ? ' · ' + escapeHtml(c.service_name) : ''}</div>
+          <div class="row-preview">${escapeHtml(previewText)}</div>
+        </div>
+        <div class="row-meta">${escapeHtml(time)}</div>
+      </div>
+    `;
+  }
+
+  async function renderInboxView() {
+    setMainHeader({
+      title: 'Inbox',
+      subHTML: '<span class="accent" id="main-pending-count">— chats</span> · live read of chat.db',
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (list) list.innerHTML = `<div class="empty"><div class="empty-title">loading…</div></div>`;
+
+    try {
+      const { chats } = await api('/api/chats?limit=200');
+      chatsCache = chats || [];
+      const ic = document.getElementById('nav-inbox-count');
+      if (ic) ic.textContent = chatsCache.length;
+      const sub = document.getElementById('main-pending-count');
+      if (sub) sub.textContent = `${chatsCache.length} chats`;
+      if (!list) return;
+      list.innerHTML = chatsCache.length
+        ? chatsCache.map(renderChatRow).join('')
+        : `<div class="empty"><div class="empty-title">No chats found.</div></div>`;
+    } catch (e) {
+      if (list) {
+        list.innerHTML = `
+          <div class="empty">
+            <div class="empty-title">Failed to load chats.</div>
+            <div class="empty-sub">${escapeHtml(e.message)}</div>
+            <div class="empty-sub" style="margin-top:8px;">Most likely cause: Full Disk Access not granted. System Settings → Privacy &amp; Security → Full Disk Access.</div>
+          </div>`;
+      }
+    }
+  }
+
+  function renderMessageBubble(m) {
+    const fromMe = m.is_from_me === 1;
+    const time = relTime(m.date_ms);
+    const text = m.text ?? '';
+    return `
+      <div class="bubble-row ${fromMe ? 'me' : ''}">
+        <div>
+          <div class="bubble ${fromMe ? 'me' : 'them'}">${
+            text ? escapeHtml(text) : '<span class="bubble-empty">[encoded message — decoder skipped]</span>'
+          }</div>
+          <div class="bubble-meta ${fromMe ? 'right' : ''}">${escapeHtml(time)}${m.handle && !fromMe ? ' · ' + escapeHtml(m.handle) : ''}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function renderThreadView(chatId) {
+    const meta = chatsCache.find((c) => c.id === chatId);
+    const title = meta?.display_name || meta?.identifier || `Chat #${chatId}`;
+    setMainHeader({
+      title,
+      subHTML: `<a class="back-link" data-action="back-to-inbox">← back to inbox</a>${meta?.identifier ? ' · ' + escapeHtml(meta.identifier) : ''}`,
+      showFilters: false,
+    });
+    const list = document.getElementById('drafts-list');
+    if (list) list.innerHTML = `<div class="empty"><div class="empty-title">loading…</div></div>`;
+
+    try {
+      const { messages } = await api(`/api/chats/${chatId}/messages?limit=200`);
+      if (!list) return;
+      if (!messages.length) {
+        list.innerHTML = `<div class="empty"><div class="empty-title">No messages in this chat.</div></div>`;
+        return;
+      }
+      const ascending = messages.slice().reverse();
+      list.innerHTML = ascending.map(renderMessageBubble).join('');
+      // The scrolling container is `.main`, not `#drafts-list`.
+      // requestAnimationFrame so the new content is laid out first.
+      requestAnimationFrame(() => {
+        const main = document.querySelector('.main');
+        if (main) main.scrollTop = main.scrollHeight;
+      });
+    } catch (e) {
+      if (list) {
+        list.innerHTML = `<div class="empty"><div class="empty-title">Failed to load messages.</div><div class="empty-sub">${escapeHtml(e.message)}</div></div>`;
+      }
+    }
+  }
+
+  function renderNewDraftToolbar() {
+    const opts = chatsCache.length
+      ? chatsCache.map(c => {
+          const label = (c.display_name || c.identifier || `chat #${c.id}`) +
+            (c.identifier && c.display_name ? ` · ${c.identifier}` : '');
+          return `<option value="${c.id}">${escapeHtml(label)}</option>`;
+        }).join('')
+      : '<option value="" disabled>no chats loaded — visit Inbox first</option>';
+    return `
+      <button class="btn add-btn" data-action="show-form" data-target="form-draft">+ new draft</button>
+      <form class="form" id="form-draft" data-form="draft">
+        <select name="chat_id" required>
+          <option value="">Select a chat…</option>
+          ${opts}
+        </select>
+        <textarea name="body" placeholder="Draft reply text…" required></textarea>
+        <div class="form-row">
+          <button type="submit" class="btn primary">Save draft</button>
+          <button type="button" class="btn ghost" data-action="hide-form" data-target="form-draft">Cancel</button>
+        </div>
+        <div class="form-error" data-error></div>
+      </form>
+    `;
+  }
+
+  async function renderDraftsView() {
+    setMainHeader({
+      title: 'Drafts queue',
+      subHTML: '<span class="accent" id="main-pending-count">— pending</span> · awaiting your approval before send',
+      showFilters: true,
+    });
+    // Make sure chatsCache is populated for the new-draft chat picker.
+    if (chatsCache.length === 0) {
+      try {
+        const { chats } = await api('/api/chats?limit=200');
+        chatsCache = chats || [];
+      } catch { /* fine — picker just shows the fallback option */ }
+    }
+    const tb = document.getElementById('drafts-toolbar');
+    if (tb) tb.innerHTML = renderNewDraftToolbar();
+    await refreshDrafts();
+  }
+
+  function clearDraftsToolbar() {
+    const tb = document.getElementById('drafts-toolbar');
+    if (tb) tb.innerHTML = '';
+  }
+
+  async function setView(view, chatId = null) {
+    setActiveNav(view === 'thread' ? 'inbox' : view);
+    if (view !== 'drafts') clearDraftsToolbar();
+    if (view === 'inbox') {
+      await renderInboxView();
+    } else if (view === 'thread') {
+      await renderThreadView(chatId);
+    } else if (view === 'drafts') {
+      await renderDraftsView();
+    }
+  }
+
+  // ---------- form helpers ----------
+  function openForm(id) {
+    const f = document.getElementById(id);
+    if (!f) return;
+    f.classList.add('open');
+    const err = f.querySelector('[data-error]');
+    if (err) err.textContent = '';
+    const first = f.querySelector('input, textarea, select');
+    if (first) first.focus();
+  }
+
+  function closeForm(id) {
+    const f = document.getElementById(id);
+    if (!f) return;
+    f.classList.remove('open');
+    f.reset?.();
+    const err = f.querySelector('[data-error]');
+    if (err) err.textContent = '';
+  }
+
+  // ---------- click handlers ----------
+  document.addEventListener('click', async (e) => {
+    // Sidebar nav
+    const nav = e.target.closest('.nav-item[data-view]');
+    if (nav) {
+      setView(nav.dataset.view);
+      return;
+    }
+
+    // Action buttons / rows
+    const btn = e.target.closest('[data-action]');
+    if (!btn || btn.disabled) return;
+    const action = btn.dataset.action;
+
+    // Form open/close
+    if (action === 'show-form') {
+      openForm(btn.dataset.target);
+      return;
+    }
+    if (action === 'hide-form') {
+      closeForm(btn.dataset.target);
+      return;
+    }
+
+    if (action === 'open-thread') {
+      const chatId = parseInt(btn.dataset.chatId, 10);
+      if (Number.isFinite(chatId)) setView('thread', chatId);
+      return;
+    }
+    if (action === 'back-to-inbox') {
+      setView('inbox');
+      return;
+    }
+
+    // Remove watched / rule
+    if (action === 'remove-watched') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      try {
+        await api(`/api/watched/${id}`, { method: 'DELETE' });
+        await refreshWatched();
+      } catch (err) { alert(`remove failed: ${err.message}`); }
+      return;
+    }
+    if (action === 'remove-rule') {
+      const id = parseInt(btn.dataset.id, 10);
+      if (!Number.isFinite(id)) return;
+      if (!confirm('Remove this rule?')) return;
+      try {
+        await api(`/api/rules/${id}`, { method: 'DELETE' });
+        await refreshRules();
+      } catch (err) { alert(`remove failed: ${err.message}`); }
+      return;
+    }
+
+    // Draft actions: approve / discard / edit
+    const id = btn.dataset.id;
+    if (!id) return;
+
+    if (action === 'approve') {
+      const card = btn.closest('.draft');
+      const handle = card?.querySelector('.draft-name')?.textContent || 'this contact';
+      if (!confirm(`Send this reply to ${handle}?`)) return;
+    }
+
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    if (action === 'approve') btn.textContent = 'Sending…';
+    if (action === 'discard') btn.textContent = 'Dismissing…';
+
+    try {
+      if (action === 'approve') {
+        await api(`/api/drafts/${id}/approve`, { method: 'POST', body: {} });
+      } else if (action === 'discard') {
+        await api(`/api/drafts/${id}/discard`, { method: 'POST', body: {} });
+      } else {
+        return;
+      }
+      await Promise.all([refreshDrafts(), refreshSentStats()]);
+    } catch (err) {
+      alert(`${action} failed: ${err.message}`);
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
+
+  // ---------- form submit handlers ----------
+  document.addEventListener('submit', async (e) => {
+    const form = e.target.closest('form[data-form]');
+    if (!form) return;
+    e.preventDefault();
+    const kind = form.dataset.form;
+    const errEl = form.querySelector('[data-error]');
+    if (errEl) errEl.textContent = '';
+    const data = Object.fromEntries(new FormData(form));
+    const submitBtn = form.querySelector('button[type="submit"]');
+    const originalLabel = submitBtn?.textContent;
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving…'; }
+
+    try {
+      if (kind === 'watched') {
+        await api('/api/watched', { method: 'POST', body: { handle: data.handle, label: data.label || null } });
+        closeForm('form-watched');
+        await refreshWatched();
+      } else if (kind === 'rule') {
+        await api('/api/rules', {
+          method: 'POST',
+          body: { name: data.name, pattern: data.pattern, flags: data.flags || 'i' },
+        });
+        closeForm('form-rule');
+        await refreshRules();
+      } else if (kind === 'draft') {
+        await api('/api/drafts', {
+          method: 'POST',
+          body: { chat_id: parseInt(data.chat_id, 10), body: data.body },
+        });
+        closeForm('form-draft');
+        await Promise.all([refreshDrafts(), refreshSentStats()]);
+      }
+    } catch (err) {
+      if (errEl) errEl.textContent = err.message;
+    } finally {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalLabel ?? 'Save'; }
+    }
+  });
+
+  // ---------- init ----------
+  async function init() {
+    // Sidebar/right-panel data is the same regardless of which main view is up.
+    await Promise.all([refreshHealth(), refreshWatched(), refreshRules(), refreshSentStats()]);
+    // Land on the inbox so the user sees real messages immediately. Once Phase 4
+    // lands AI-driven drafts, this default can flip back to 'drafts'.
+    await setView('inbox');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+
+</body>
+</html>

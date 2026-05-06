@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.*.local
+*.log
+.DS_Store
+
+# Local app database — never commit
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Editor
+.vscode/
+.idea/
