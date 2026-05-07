@@ -216,6 +216,29 @@ function migrate(db: DB) {
     CREATE INDEX IF NOT EXISTS idx_away_notes_handle ON away_notes(handle);
     CREATE INDEX IF NOT EXISTS idx_away_notes_unreviewed ON away_notes(reviewed_at);
 
+    -- Summon sessions: Galt is invoked into a live conversation by a user-typed
+    -- trigger phrase ("GALT!!" by default), and stays active until the user
+    -- types the end phrase ("go away galt"), the per-session reply cap is hit,
+    -- the session goes idle past summon_idle_timeout_min, or it's manually
+    -- ended from the dashboard. Distinct from away_sessions (which cover
+    -- when the user is gone). One active session per (chat_id) at a time.
+    CREATE TABLE IF NOT EXISTS summon_sessions (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id           INTEGER NOT NULL,
+      handle            TEXT NOT NULL,
+      started_at        INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+      last_activity_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+      last_ai_reply_at  INTEGER,
+      ai_reply_count    INTEGER NOT NULL DEFAULT 0,
+      status            TEXT NOT NULL DEFAULT 'active'
+                         CHECK (status IN ('active', 'ended')),
+      ended_at          INTEGER,
+      ended_reason      TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_summon_sessions_chat_status ON summon_sessions(chat_id, status);
+    CREATE INDEX IF NOT EXISTS idx_summon_sessions_started ON summon_sessions(started_at);
+
     CREATE TABLE IF NOT EXISTS state (
       key          TEXT PRIMARY KEY,
       value        TEXT NOT NULL
@@ -279,6 +302,21 @@ export interface AppSettings {
   /** Insert a humanizing pause before each away-mode auto-send so replies
    *  don't feel robotically instant. 0/1 (treated as bool). Default 1. */
   away_send_delay_enabled: number;
+  /** Summon mode: master switch. 0/1. Default 1. When off, the trigger
+   *  phrase does nothing. */
+  summon_enabled: number;
+  /** Phrase the USER types to summon Galt into a chat. Strict, case-sensitive
+   *  substring match. */
+  summon_trigger_phrase: string;
+  /** Phrase the USER types to dismiss Galt. Case-insensitive substring match. */
+  summon_end_phrase: string;
+  /** Persona for Galt while summoned. Distinct from away_persona — summon =
+   *  Galt is themselves (a third voice), away = Galt is covering for the user. */
+  summon_persona: string;
+  /** Per-session reply cap. Sessions auto-end when hit. */
+  summon_max_replies_per_session: number;
+  /** Auto-end after this many minutes with no messages in the chat. */
+  summon_idle_timeout_min: number;
   /** OpenAI API key. When set, takes precedence over the OPENAI_API_KEY env
    *  var. Stored locally in app.db so users can configure AI from the
    *  Settings UI instead of editing .env. NEVER returned by /api/settings —
@@ -300,6 +338,12 @@ const SETTING_DEFAULTS: AppSettings = {
   away_max_replies_per_session: 50,
   away_persona: '',
   away_send_delay_enabled: 1,
+  summon_enabled: 1,
+  summon_trigger_phrase: 'GALT!!',
+  summon_end_phrase: 'go away galt',
+  summon_persona: '',
+  summon_max_replies_per_session: 30,
+  summon_idle_timeout_min: 30,
   openai_api_key: '',
   openai_model: '',
 };
@@ -308,6 +352,8 @@ export const SETTING_BOUNDS = {
   ai_context_count: { min: 1, max: 100 },
   voice_profile_sample_count: { min: 50, max: 2000 },
   away_max_replies_per_session: { min: 1, max: 200 },
+  summon_max_replies_per_session: { min: 1, max: 200 },
+  summon_idle_timeout_min: { min: 1, max: 720 },
 } as const;
 
 function parseIntOr(v: string | null, fallback: number): number {
@@ -346,6 +392,23 @@ export function getSettings(): AppSettings {
     away_send_delay_enabled: parseIntOr(
       getState('away_send_delay_enabled'),
       SETTING_DEFAULTS.away_send_delay_enabled,
+    ),
+    summon_enabled: parseIntOr(
+      getState('summon_enabled'),
+      SETTING_DEFAULTS.summon_enabled,
+    ),
+    summon_trigger_phrase:
+      getState('summon_trigger_phrase') ?? SETTING_DEFAULTS.summon_trigger_phrase,
+    summon_end_phrase:
+      getState('summon_end_phrase') ?? SETTING_DEFAULTS.summon_end_phrase,
+    summon_persona: getState('summon_persona') ?? SETTING_DEFAULTS.summon_persona,
+    summon_max_replies_per_session: parseIntOr(
+      getState('summon_max_replies_per_session'),
+      SETTING_DEFAULTS.summon_max_replies_per_session,
+    ),
+    summon_idle_timeout_min: parseIntOr(
+      getState('summon_idle_timeout_min'),
+      SETTING_DEFAULTS.summon_idle_timeout_min,
     ),
     openai_api_key: getState('openai_api_key') ?? SETTING_DEFAULTS.openai_api_key,
     openai_model: getState('openai_model') ?? SETTING_DEFAULTS.openai_model,
@@ -391,6 +454,34 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.away_send_delay_enabled !== undefined) {
     setState('away_send_delay_enabled', String(patch.away_send_delay_enabled ? 1 : 0));
+  }
+  if (patch.summon_enabled !== undefined) {
+    setState('summon_enabled', String(patch.summon_enabled ? 1 : 0));
+  }
+  if (patch.summon_trigger_phrase !== undefined) {
+    const v = String(patch.summon_trigger_phrase).trim();
+    if (!v) throw new Error('summon_trigger_phrase cannot be empty');
+    setState('summon_trigger_phrase', v);
+  }
+  if (patch.summon_end_phrase !== undefined) {
+    const v = String(patch.summon_end_phrase).trim();
+    if (!v) throw new Error('summon_end_phrase cannot be empty');
+    setState('summon_end_phrase', v);
+  }
+  if (patch.summon_persona !== undefined) {
+    setState('summon_persona', String(patch.summon_persona));
+  }
+  if (patch.summon_max_replies_per_session !== undefined) {
+    const { min, max } = SETTING_BOUNDS.summon_max_replies_per_session;
+    const n = Math.max(min, Math.min(max, Math.floor(Number(patch.summon_max_replies_per_session))));
+    if (!Number.isFinite(n)) throw new Error('summon_max_replies_per_session must be an integer');
+    setState('summon_max_replies_per_session', String(n));
+  }
+  if (patch.summon_idle_timeout_min !== undefined) {
+    const { min, max } = SETTING_BOUNDS.summon_idle_timeout_min;
+    const n = Math.max(min, Math.min(max, Math.floor(Number(patch.summon_idle_timeout_min))));
+    if (!Number.isFinite(n)) throw new Error('summon_idle_timeout_min must be an integer');
+    setState('summon_idle_timeout_min', String(n));
   }
   if (patch.openai_api_key !== undefined) {
     // Trim whitespace; an empty string clears the key (falls back to env var).
@@ -1324,6 +1415,126 @@ export function countActiveAwaySessions(): number {
     .prepare("SELECT COUNT(*) as n FROM away_sessions WHERE status != 'ended'")
     .get() as { n: number } | undefined;
   return row?.n ?? 0;
+}
+
+/* ---------- summon sessions (Galt invoked into a live conversation) ---------- */
+
+export interface SummonSession {
+  id: number;
+  chat_id: number;
+  handle: string;
+  started_at: number;
+  last_activity_at: number;
+  last_ai_reply_at: number | null;
+  ai_reply_count: number;
+  status: 'active' | 'ended';
+  ended_at: number | null;
+  ended_reason: string | null;
+}
+
+const SUMMON_SESSION_COLS =
+  'id, chat_id, handle, started_at, last_activity_at, last_ai_reply_at, ai_reply_count, status, ended_at, ended_reason';
+
+/** Active summon session for a chat, or null. (One per chat at a time.) */
+export function getActiveSummonSession(chatId: number): SummonSession | null {
+  const db = getAppDb();
+  const row = db
+    .prepare(
+      `SELECT ${SUMMON_SESSION_COLS}
+       FROM summon_sessions
+       WHERE chat_id = ? AND status = 'active'
+       ORDER BY started_at DESC LIMIT 1`,
+    )
+    .get(chatId) as SummonSession | undefined;
+  return row ?? null;
+}
+
+/** Open a new summon session. Caller should ensure no active one exists first. */
+export function createSummonSession(chatId: number, handle: string): SummonSession {
+  const db = getAppDb();
+  const info = db
+    .prepare(
+      "INSERT INTO summon_sessions(chat_id, handle, status) VALUES (?, ?, 'active')",
+    )
+    .run(chatId, handle);
+  return db
+    .prepare(`SELECT ${SUMMON_SESSION_COLS} FROM summon_sessions WHERE id = ?`)
+    .get(info.lastInsertRowid) as SummonSession;
+}
+
+/** Bump activity timestamp without incrementing reply count (called on every
+ *  message in the session, AI or human, so idle-timeout works). */
+export function touchSummonSession(id: number): void {
+  const db = getAppDb();
+  db.prepare(
+    "UPDATE summon_sessions SET last_activity_at = strftime('%s','now')*1000 WHERE id = ?",
+  ).run(id);
+}
+
+/** Bump after Galt successfully sends a reply. */
+export function bumpSummonSession(id: number): SummonSession | null {
+  const db = getAppDb();
+  db.prepare(
+    "UPDATE summon_sessions SET ai_reply_count = ai_reply_count + 1, last_ai_reply_at = strftime('%s','now')*1000, last_activity_at = strftime('%s','now')*1000 WHERE id = ?",
+  ).run(id);
+  return db
+    .prepare(`SELECT ${SUMMON_SESSION_COLS} FROM summon_sessions WHERE id = ?`)
+    .get(id) as SummonSession | null;
+}
+
+export function endSummonSession(id: number, reason: string): SummonSession | null {
+  const db = getAppDb();
+  db.prepare(
+    "UPDATE summon_sessions SET status = 'ended', ended_at = strftime('%s','now')*1000, ended_reason = ? WHERE id = ?",
+  ).run(reason, id);
+  return db
+    .prepare(`SELECT ${SUMMON_SESSION_COLS} FROM summon_sessions WHERE id = ?`)
+    .get(id) as SummonSession | null;
+}
+
+export function endAllActiveSummonSessions(reason: string): number {
+  const db = getAppDb();
+  return db
+    .prepare(
+      "UPDATE summon_sessions SET status = 'ended', ended_at = strftime('%s','now')*1000, ended_reason = ? WHERE status = 'active'",
+    )
+    .run(reason).changes;
+}
+
+export function listSummonSessions(opts: { activeOnly?: boolean; limit?: number } = {}): SummonSession[] {
+  const db = getAppDb();
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 100));
+  if (opts.activeOnly) {
+    return db
+      .prepare(
+        `SELECT ${SUMMON_SESSION_COLS}
+         FROM summon_sessions
+         WHERE status = 'active'
+         ORDER BY started_at DESC
+         LIMIT ?`,
+      )
+      .all(limit) as SummonSession[];
+  }
+  return db
+    .prepare(`SELECT ${SUMMON_SESSION_COLS} FROM summon_sessions ORDER BY started_at DESC LIMIT ?`)
+    .all(limit) as SummonSession[];
+}
+
+export function countActiveSummonSessions(): number {
+  const db = getAppDb();
+  const row = db
+    .prepare("SELECT COUNT(*) as n FROM summon_sessions WHERE status = 'active'")
+    .get() as { n: number } | undefined;
+  return row?.n ?? 0;
+}
+
+/** All chat_ids with an active summon session — fast lookup for handler. */
+export function activeSummonChatIds(): Set<number> {
+  const db = getAppDb();
+  const rows = db
+    .prepare("SELECT DISTINCT chat_id FROM summon_sessions WHERE status = 'active'")
+    .all() as Array<{ chat_id: number }>;
+  return new Set(rows.map((r) => r.chat_id));
 }
 
 /* ---------- away notes (things to follow up on after coming back) ---------- */

@@ -95,6 +95,16 @@ import {
   markAllAwayNotesReviewed,
   removeAwayNote,
   countUnreviewedAwayNotes,
+  // summon mode
+  getActiveSummonSession,
+  createSummonSession,
+  bumpSummonSession,
+  touchSummonSession,
+  endSummonSession,
+  endAllActiveSummonSessions,
+  listSummonSessions,
+  countActiveSummonSessions,
+  activeSummonChatIds,
   type MonitorScopeType,
   type MonitorKind,
   type MonitorRule,
@@ -102,6 +112,7 @@ import {
   type RadarCategory,
   type CalendarProposalStatus,
   type AwaySession,
+  type SummonSession,
 } from './db/app.js';
 import { sendMessageViaAppleScript } from './send.js';
 import { messageWatcher } from './watcher.js';
@@ -183,6 +194,8 @@ app.get('/api/health', (_req, res) => {
     away_mode_enabled: !!getSettings().away_mode_enabled,
     away_active_sessions: countActiveAwaySessions(),
     away_unreviewed_notes: countUnreviewedAwayNotes(),
+    summon_enabled: !!getSettings().summon_enabled,
+    summon_active_sessions: countActiveSummonSessions(),
   });
 });
 
@@ -579,6 +592,15 @@ app.put('/api/settings', (req, res) => {
       if (ended > 0) {
         console.log(`[away] ended ${ended} session(s) due to away mode disabled`);
         sseBroadcast('away.mode_disabled', { ended_sessions: ended });
+      }
+    }
+    // Same safety for summon: turning the master switch off ends every
+    // active session (Galt was actively in conversations; user is taking back over).
+    if (before.summon_enabled && !settings.summon_enabled) {
+      const ended = endAllActiveSummonSessions('globally_disabled');
+      if (ended > 0) {
+        console.log(`[summon] ended ${ended} session(s) due to summon disabled globally`);
+        sseBroadcast('summon.globally_disabled', { ended_sessions: ended });
       }
     }
     res.json({ settings: redactSettingsForResponse(settings), bounds: SETTING_BOUNDS });
@@ -1255,6 +1277,11 @@ function enrichAway<T extends { handle: string }>(c: T): T & { contact_name: str
   return { ...c, contact_name: getContactNameForHandle(c.handle) };
 }
 
+/** Same shape as enrichAway — summon sessions also key by handle. */
+function enrichSummon<T extends { handle: string }>(s: T): T & { contact_name: string | null } {
+  return { ...s, contact_name: getContactNameForHandle(s.handle) };
+}
+
 app.get('/api/away/contacts', (_req, res) => {
   res.json({ contacts: listAwayContacts().map((c) => enrichAway(c)) });
 });
@@ -1355,18 +1382,41 @@ app.post(
   }),
 );
 
+/* ---------- routes: summon sessions ---------- */
+
+app.get('/api/summon/sessions', (req, res) => {
+  const activeOnly = req.query.active === 'true';
+  const limit = intParam(req.query.limit, 100, 1, 500);
+  res.json({
+    sessions: listSummonSessions({ activeOnly, limit }).map((s) => enrichSummon(s)),
+    active_count: countActiveSummonSessions(),
+  });
+});
+
+app.delete('/api/summon/sessions/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  const ended = endSummonSession(id, 'manually_ended');
+  if (!ended) return res.status(404).json({ error: 'not found' });
+  sseBroadcast('summon.session_ended', {
+    session: enrichSummon(ended),
+    reason: 'manually_ended',
+  });
+  res.json({ session: enrichSummon(ended) });
+});
+
 /* ---------- watcher → away-mode auto-responder ---------- */
 
 /**
- * In-memory ledger of message bodies the away pipeline just auto-sent, keyed
- * by recipient handle. The AppleScript-driven send writes to chat.db with
- * is_from_me=1, then the watcher re-emits that row. Without this ledger, the
- * AI's own reply would trip the "user replied → end session" branch and the
- * next inbound message would fire a fresh greeting. 60s TTL is generous —
- * Messages.app usually echoes within ~1s.
+ * In-memory ledger of message bodies WE just auto-sent (away mode + summon
+ * mode), keyed by recipient handle. The AppleScript-driven send writes to
+ * chat.db with is_from_me=1, then the watcher re-emits that row. Without
+ * this ledger, the AI's own reply would either trip the "user replied →
+ * end session" branch (away) or trigger a Galt-replies-to-Galt loop (summon).
+ * 60s TTL is generous — Messages.app usually echoes within ~1s.
  */
-const recentAwayAutoSends = new Map<string, Set<string>>();
-const AWAY_ECHO_TTL_MS = 60_000;
+const recentOurAutoSends = new Map<string, Set<string>>();
+const AUTO_ECHO_TTL_MS = 60_000;
 
 /**
  * Humanizing delay before each away-mode auto-send. Without this, replies
@@ -1392,24 +1442,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-function trackAwayAutoSend(handle: string, body: string): void {
-  let set = recentAwayAutoSends.get(handle);
+function trackOurAutoSend(handle: string, body: string): void {
+  let set = recentOurAutoSends.get(handle);
   if (!set) {
     set = new Set();
-    recentAwayAutoSends.set(handle, set);
+    recentOurAutoSends.set(handle, set);
   }
   set.add(body);
   setTimeout(() => {
-    recentAwayAutoSends.get(handle)?.delete(body);
-  }, AWAY_ECHO_TTL_MS).unref();
+    recentOurAutoSends.get(handle)?.delete(body);
+  }, AUTO_ECHO_TTL_MS).unref();
 }
 
-function isAwayEcho(handle: string, body: string | null | undefined): boolean {
+function isOurAutoSendEcho(handle: string, body: string | null | undefined): boolean {
   if (!body) return false;
-  const set = recentAwayAutoSends.get(handle);
+  const set = recentOurAutoSends.get(handle);
   // Membership-only — don't delete. The same body can echo multiple times
   // (e.g. messaging yourself: outgoing + incoming for the same text).
-  // The TTL set in trackAwayAutoSend cleans the entry eventually.
+  // The TTL set in trackOurAutoSend cleans the entry eventually.
   return !!set && set.has(body);
 }
 
@@ -1451,6 +1501,62 @@ function buildAwayContextNote(persona: string, recipientName: string): string {
   }
 
   sections.push('Output only the reply text. No quotes, no preamble, no explanation.');
+
+  return sections.join('\n\n');
+}
+
+/**
+ * Builds the system-prompt section for SUMMON mode.
+ *
+ * Summon is fundamentally different from away: in away the AI is COVERING
+ * for the user (talks AS them). In summon the AI is JOINING the conversation
+ * AS ITSELF — Galt is a third voice the user pulled in to help. Galt
+ * identifies on its first reply, then participates naturally for the rest
+ * of the session. Galt may reply to either party (user or contact) and is
+ * EXPECTED to skip when there's nothing useful to add — the model returning
+ * SKIP is the correct behavior, not a failure.
+ */
+function buildSummonContextNote(opts: {
+  persona: string;
+  userName: string;
+  recipientName: string;
+  isFirstReply: boolean;
+}): string {
+  const sections: string[] = [];
+
+  sections.push(
+    `IMPORTANT — IDENTITY SHIFT: You are GALT, an AI assistant the user (${opts.userName}) has SUMMONED into this iMessage conversation. You are NOT pretending to be ${opts.userName}. You are a third voice they pulled in to help. The voice profile attached above is ${opts.userName}'s — use it for STYLE (tone, vocabulary, casualness) so you sound like ${opts.userName}'s AI rather than corporate-bot, but never claim to BE ${opts.userName}. When the user asks you something, you respond as Galt. When the contact asks something, you respond as Galt. When the contact and user are sorting something out themselves and there's nothing useful to add, return SKIP.`,
+  );
+
+  sections.push(
+    `WHO ELSE IS HERE: ${opts.userName} (the user who summoned you, "me:" in the thread above) and ${opts.recipientName} (the contact, "them:" in the thread above). Reply to whichever turn was most recent if there's something useful to say.`,
+  );
+
+  if (opts.isFirstReply) {
+    sections.push(
+      `THIS IS YOUR FIRST REPLY in this summon session — identify yourself clearly so ${opts.recipientName} knows it's not ${opts.userName} typing. Something natural like "Hey ${opts.recipientName}, this is Galt — ${opts.userName}'s AI, they pulled me in." Then go ahead and answer/contribute. Don't re-introduce yourself in subsequent replies.`,
+    );
+  } else {
+    sections.push(
+      `You've already introduced yourself earlier in this session — ${opts.recipientName} knows who you are. Just respond naturally as Galt; don't re-announce yourself every turn.`,
+    );
+  }
+
+  sections.push(
+    `WHEN TO STAY QUIET: if the most recent turn doesn't actually need you — small talk between ${opts.userName} and ${opts.recipientName}, them sorting out a logistic, an emoji-only message, a "lol" — return SKIP. You are NOT here to fill silence. The user pulled you in to help; help when help is needed, vanish when it's not. Better to skip 5 turns and contribute meaningfully on the 6th than to comment on every line.`,
+  );
+
+  sections.push(
+    `WHEN TO SPEAK: real questions, things to explain, info to provide, drafting help, decisions to weigh in on, gentle clarifications/corrections of factual errors. Match iMessage register — concise, conversational, not essay-length. When you genuinely don't know something, say so. Don't invent.`,
+  );
+
+  if (opts.persona && opts.persona.trim()) {
+    sections.push(
+      `EXTRA PERSONA GUIDANCE FROM ${opts.userName} for HOW YOU SHOULD BEHAVE AS GALT (apply on top of the above):\n"""\n${opts.persona.trim()}\n"""`,
+    );
+  }
+
+  sections.push('Output only the reply text. No quotes, no preamble, no explanation. Return SKIP if there is nothing useful to add right now.');
 
   return sections.join('\n\n');
 }
@@ -1515,7 +1621,7 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
   // your own handle, 1× incoming (is_from_me=0) too. Either direction matching
   // a body we just sent is our own echo and must be ignored — otherwise the
   // incoming copy retriggers the AI continuation and we loop.
-  if (isAwayEcho(msg.handle, msg.text)) {
+  if (isOurAutoSendEcho(msg.handle, msg.text)) {
     return;
   }
 
@@ -1564,7 +1670,7 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
           return;
         }
       }
-      trackAwayAutoSend(msg.handle, greeting); // mark BEFORE send so the echo race doesn't end the session
+      trackOurAutoSend(msg.handle, greeting); // mark BEFORE send so the echo race doesn't end the session
       await sendMessageViaAppleScript(msg.handle, greeting);
       const newSession = createAwaySession(msg.handle);
       console.log(`[away] greeting sent to ${msg.handle}, session ${newSession.id} opened`);
@@ -1639,7 +1745,7 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       }
     }
 
-    trackAwayAutoSend(msg.handle, usable.body); // mark BEFORE send so the echo race doesn't end the session
+    trackOurAutoSend(msg.handle, usable.body); // mark BEFORE send so the echo race doesn't end the session
     await sendMessageViaAppleScript(msg.handle, usable.body);
     const updated = bumpAwaySession(session.id);
     console.log(
@@ -1656,6 +1762,178 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     void extractAwayNoteForMessage(session.id, msg);
   } catch (err) {
     console.error('[away] continuation failed:', (err as Error).message);
+  }
+}
+
+/* ---------- watcher → summon-mode handler ---------- */
+
+/** Lazy idle-timeout sweep on each handler call. Ends sessions whose
+ *  last_activity_at is older than summon_idle_timeout_min. */
+function expireIdleSummonSessions(timeoutMin: number): void {
+  const cutoff = Date.now() - timeoutMin * 60_000;
+  for (const s of listSummonSessions({ activeOnly: true, limit: 500 })) {
+    if (s.last_activity_at < cutoff) {
+      const ended = endSummonSession(s.id, 'idle_timeout');
+      if (ended) {
+        console.log(`[summon] session ${s.id} ended (idle ${timeoutMin}m)`);
+        sseBroadcast('summon.session_ended', {
+          session: enrichSummon(ended),
+          reason: 'idle_timeout',
+        });
+      }
+    }
+  }
+}
+
+async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
+  const settings = getSettings();
+  if (!settings.summon_enabled) return;
+  if (!msg.handle || msg.chat_id == null) return;
+
+  // ECHO GUARD shared with away — same shape: AppleScript send writes to
+  // chat.db with is_from_me=1, watcher re-emits, and we'd reply to our own
+  // reply. Skip messages whose body matches one we just auto-sent.
+  if (isOurAutoSendEcho(msg.handle, msg.text)) return;
+
+  // Lazy idle expiry so sessions don't dangle forever between watcher events.
+  expireIdleSummonSessions(settings.summon_idle_timeout_min);
+
+  const text = msg.text || '';
+  const trigger = settings.summon_trigger_phrase;
+  const endPhrase = settings.summon_end_phrase.toLowerCase();
+
+  // END PHRASE — only the user can dismiss Galt (case-insensitive substring).
+  // Checked BEFORE trigger so "go away galt" can never accidentally re-summon.
+  if (msg.is_from_me === 1 && text.toLowerCase().includes(endPhrase)) {
+    const active = getActiveSummonSession(msg.chat_id);
+    if (active) {
+      const ended = endSummonSession(active.id, 'end_phrase');
+      if (ended) {
+        console.log(`[summon] session ${active.id} ended (end phrase from user, chat ${msg.chat_id})`);
+        sseBroadcast('summon.session_ended', {
+          session: enrichSummon(ended),
+          reason: 'end_phrase',
+        });
+      }
+    }
+    return; // don't reply to the dismissal itself
+  }
+
+  // TRIGGER PHRASE — strict, case-sensitive substring match. User-only.
+  const isTrigger = msg.is_from_me === 1 && text.includes(trigger);
+
+  let session = getActiveSummonSession(msg.chat_id);
+
+  if (isTrigger && !session) {
+    session = createSummonSession(msg.chat_id, msg.handle);
+    console.log(`[summon] session ${session.id} opened (trigger from user, chat ${msg.chat_id} → ${msg.handle})`);
+    sseBroadcast('summon.session_started', { session: enrichSummon(session) });
+    // Fall through — Galt drafts a reply to the trigger message.
+  } else if (isTrigger && session) {
+    // Already active — treat as "weigh in on this message" re-summon.
+    console.log(`[summon] re-trigger in active session ${session.id}`);
+  }
+
+  // No active session → nothing to do. (Inbound messages from the contact
+  // when the user has NOT summoned Galt are not auto-replied to in summon
+  // mode — that's away mode's job.)
+  if (!session) return;
+
+  // Touch session activity (whether we end up replying or skipping).
+  touchSummonSession(session.id);
+
+  // Reply cap reached → close out gracefully.
+  if (session.ai_reply_count >= settings.summon_max_replies_per_session) {
+    const ended = endSummonSession(session.id, 'reply_cap_reached');
+    if (ended) {
+      sseBroadcast('summon.session_ended', {
+        session: enrichSummon(ended),
+        reason: 'reply_cap_reached',
+      });
+    }
+    return;
+  }
+
+  if (!isAIConfigured()) {
+    console.warn('[summon] cannot reply: OpenAI key not configured');
+    return;
+  }
+
+  // Don't reply to our own outbound (echo guard already handled the chat.db
+  // round-trip case, but a user-typed message that happens to MATCH something
+  // we said wouldn't be in the echo set — that path returns early via
+  // isOurAutoSendEcho above. We rely on the model's SKIP capability for
+  // judgment calls about whether to speak vs stay quiet.)
+
+  if (!text.trim()) return; // attachment-only or empty message → nothing to reply to
+
+  // Thread context, voice profile, contact context, and the summon system note.
+  try {
+    const messagesDesc = listMessagesForChat(msg.chat_id, 0, settings.ai_context_count);
+    const thread = buildThreadFromMessages(messagesDesc);
+    if (thread.length === 0) return;
+
+    const contactNotes = listNotesForHandle(msg.handle).map((n) => n.body);
+    const contactProfile = getContactProfile(msg.handle).profile;
+    const recipientName = msg.contact_name || msg.handle || 'them';
+    // The user's display name from contacts. Falls back to "the user" so
+    // Galt has SOMETHING to call them rather than going nameless.
+    const userName = (() => {
+      // First-party self-name isn't tracked anywhere structured. Use a
+      // generic "the user" — Galt's prompt can ask the model to use first
+      // names if voice profile has them.
+      return 'the user';
+    })();
+
+    const result = await draftReply({
+      thread,
+      voiceProfile: settings.voice_profile,
+      contactNotes,
+      contactProfile,
+      contextNote: buildSummonContextNote({
+        persona: settings.summon_persona,
+        userName,
+        recipientName,
+        isFirstReply: session.ai_reply_count === 0,
+      }),
+      temperament: 'normal',
+      count: 1,
+    });
+
+    const usable = result.variants.find((v) => !v.skipped && v.body.trim().length > 0);
+    if (!usable) {
+      console.log(`[summon] session ${session.id} — model returned SKIP for this turn (staying quiet)`);
+      return;
+    }
+
+    // Humanizing delay (shared with away). Re-check session state after the
+    // delay because Galt can be dismissed mid-typing.
+    if (settings.away_send_delay_enabled) {
+      const delay = naturalSendDelayMs(usable.body);
+      console.log(`[summon] session ${session.id} reply delayed ${delay}ms`);
+      await sleep(delay);
+      const current = getActiveSummonSession(msg.chat_id);
+      const stillEnabled = !!getSettings().summon_enabled;
+      if (!current || current.id !== session.id || !stillEnabled) {
+        console.log(`[summon] aborting reply for session ${session.id} — state changed during delay`);
+        return;
+      }
+    }
+
+    trackOurAutoSend(msg.handle, usable.body);
+    await sendMessageViaAppleScript(msg.handle, usable.body);
+    const updated = bumpSummonSession(session.id);
+    console.log(
+      `[summon] auto-replied in session ${session.id} (chat ${msg.chat_id}, reply ${updated?.ai_reply_count ?? '?'})`,
+    );
+    sseBroadcast('summon.replied', {
+      session: updated ? enrichSummon(updated) : null,
+      body: usable.body,
+      thread_turns: thread.length,
+      usage: result.usage ?? null,
+    });
+  } catch (err) {
+    console.error('[summon] reply failed:', (err as Error).message);
   }
 }
 
@@ -1808,6 +2086,9 @@ messageWatcher.onMessages((messages: MessageRow[]) => {
     void evaluateMessageForRadar(m);
     // away mode handles both incoming (auto-respond) and outgoing (user-replied → end session).
     void handleAwayModeMessage(m);
+    // summon mode: trigger phrase opens a session, end phrase closes it,
+    // active sessions get Galt-as-a-third-voice replies.
+    void handleSummonModeMessage(m);
   }
 });
 
