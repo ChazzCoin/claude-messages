@@ -1,6 +1,9 @@
-// Away mode view — opt-in auto-responder. Includes the canned greeting,
-// AI persona, safety cap, whitelisted-contacts list, sessions, and the
-// "notes while you were out" follow-up queue.
+// Away mode view — opt-in auto-responder.
+//
+// Layout philosophy: this page is read way more often than it's edited. The
+// daily flow is "did anything come in while I was out?" — so notes and
+// active sessions live at the top. Configuration (greeting / persona /
+// safety cap / contacts) lives in a collapsed <details> at the bottom.
 
 import { api } from '../api.js';
 import { setMainHeader } from '../shell.js';
@@ -10,6 +13,45 @@ import {
   awayUnreviewedNotes, setAwayUnreviewedNotes,
 } from '../state.js';
 
+/* ---------- compact session row (used in both active + past lists) ---------- */
+function renderSessionRow(s, { compact = false } = {}) {
+  const name = s.contact_name || s.handle;
+  const isActive = s.status !== 'ended';
+  const status = s.status === 'greeting_sent' ? 'greeting sent' : s.status;
+  const replyText = `${s.ai_reply_count} ${s.ai_reply_count === 1 ? 'reply' : 'replies'}`;
+  const lastReply = s.last_ai_reply_at ? `last ${relTime(s.last_ai_reply_at)}` : '';
+  const endedReason = s.ended_reason ? `ended: ${s.ended_reason}` : '';
+
+  if (compact) {
+    // One-line row for past sessions
+    return `
+      <div class="away-row ${isActive ? 'active' : 'ended'}" data-session-id="${s.id}">
+        <span class="away-row-dot"></span>
+        <span class="away-row-name">${escapeHtml(name)}</span>
+        <span class="away-row-meta">${escapeHtml(replyText)}${endedReason ? ' · ' + escapeHtml(endedReason) : ''}</span>
+        <span class="away-row-time">${escapeHtml(relTime(s.started_at))}</span>
+      </div>
+    `;
+  }
+  // Full card for active sessions
+  return `
+    <div class="away-session-card active" data-session-id="${s.id}">
+      <div class="session-pulse"></div>
+      <div class="session-card-body">
+        <div class="session-card-name">${escapeHtml(name)}</div>
+        <div class="session-card-meta">${escapeHtml(s.handle)} · started ${escapeHtml(relTime(s.started_at))}</div>
+        <div class="session-card-stats">
+          <span class="status-tag ${s.status}">${escapeHtml(status)}</span>
+          <span>${escapeHtml(replyText)}</span>
+          ${lastReply ? `<span>${escapeHtml(lastReply)}</span>` : ''}
+        </div>
+      </div>
+      <button class="btn ghost" data-action="end-away-session" data-id="${s.id}">End session</button>
+    </div>
+  `;
+}
+
+/* ---------- contact row in the configuration whitelist ---------- */
 function renderAwayContact(c) {
   const name = c.contact_name || c.label || c.handle;
   const av = avatarClass(c.handle);
@@ -18,33 +60,13 @@ function renderAwayContact(c) {
     <div class="contact-row" data-away-id="${c.id}" title="${escapeHtml(c.handle)}">
       <div class="avatar ${av}">${escapeHtml(init)}</div>
       <div class="contact-name">${escapeHtml(name)}</div>
-      <span style="font-family: var(--mono); font-size: 11px; color: ${c.enabled ? 'var(--green)' : 'var(--text-faint)'}; margin-left: auto; cursor: pointer;" data-action="toggle-away-contact" data-id="${c.id}" data-enabled="${c.enabled}" title="click to toggle">${c.enabled ? 'on' : 'off'}</span>
+      <span class="contact-toggle ${c.enabled ? 'on' : 'off'}" data-action="toggle-away-contact" data-id="${c.id}" data-enabled="${c.enabled}" title="click to toggle">${c.enabled ? 'on' : 'off'}</span>
       <span class="row-remove" data-action="remove-away-contact" data-id="${c.id}" title="remove">✕</span>
     </div>
   `;
 }
 
-function renderAwaySession(s) {
-  const name = s.contact_name || s.handle;
-  const isActive = s.status !== 'ended';
-  const status = s.status === 'greeting_sent' ? 'greeting sent' : s.status;
-  return `
-    <div class="away-session-item ${isActive ? '' : 'ended'}" data-session-id="${s.id}">
-      <div class="session-head">
-        <span class="session-name">${escapeHtml(name)}</span>
-        <span class="session-meta">${escapeHtml(s.handle)} · started ${escapeHtml(relTime(s.started_at))}</span>
-        ${isActive ? `<span class="session-end" data-action="end-away-session" data-id="${s.id}" title="end this session">end</span>` : ''}
-      </div>
-      <div class="session-stats">
-        <span>${escapeHtml(status)}</span>
-        <span>${s.ai_reply_count} AI ${s.ai_reply_count === 1 ? 'reply' : 'replies'}</span>
-        ${s.last_ai_reply_at ? `<span>last reply ${escapeHtml(relTime(s.last_ai_reply_at))}</span>` : ''}
-        ${s.ended_reason ? `<span>· ended: ${escapeHtml(s.ended_reason)}</span>` : ''}
-      </div>
-    </div>
-  `;
-}
-
+/* ---------- note card (the action-queue item) ---------- */
 function renderAwayNoteCard(n) {
   const sender = n.contact_name || n.handle;
   const reviewed = n.reviewed_at != null;
@@ -60,12 +82,196 @@ function renderAwayNoteCard(n) {
       </div>
       <div class="note-meta">${escapeHtml(time)}</div>
       <div class="note-actions">
-        ${!reviewed ? `<button class="btn" data-action="review-away-note" data-id="${n.id}">Mark reviewed</button>` : '<span style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);align-self:center;">reviewed</span>'}
+        ${!reviewed ? `<button class="btn" data-action="review-away-note" data-id="${n.id}">Mark reviewed</button>` : '<span class="reviewed-tag">reviewed</span>'}
         <button class="btn ghost" data-action="open-thread-by-handle" data-handle="${escapeHtml(n.handle)}">Open thread</button>
         <div class="spacer" style="flex:1;"></div>
         <button class="btn ghost" data-action="delete-away-note" data-id="${n.id}">Delete</button>
       </div>
     </div>
+  `;
+}
+
+/* ---------- top-of-page status banner ---------- */
+function renderStatusBanner(enabled, activeCount, unreviewedCount) {
+  const stats = [];
+  if (activeCount > 0) stats.push(`<span class="stat-active">${activeCount} active session${activeCount === 1 ? '' : 's'}</span>`);
+  if (unreviewedCount > 0) stats.push(`<span class="stat-unreviewed">${unreviewedCount} unreviewed note${unreviewedCount === 1 ? '' : 's'}</span>`);
+  const statsLine = stats.length > 0
+    ? `<span class="status-stats">${stats.join(' · ')}</span>`
+    : '<span class="status-stats muted">nothing happening right now</span>';
+
+  return `
+    <div class="away-status ${enabled ? 'on' : 'off'}">
+      <div class="away-status-text">
+        <div class="away-status-title">
+          ${enabled
+            ? '<span class="dot pulse"></span> Away mode is <strong>ON</strong>'
+            : '<span class="dot"></span> Away mode is <strong>off</strong>'}
+        </div>
+        <div class="away-status-sub">
+          ${enabled
+            ? 'Auto-responding for opted-in contacts'
+            : 'Toggle on when you want the AI to cover for you'}
+          · ${statsLine}
+        </div>
+      </div>
+      <div class="away-toggle-switch ${enabled ? 'on' : ''}" data-action="toggle-away-mode" title="${enabled ? 'turn off' : 'turn on'}"></div>
+    </div>
+  `;
+}
+
+/* ---------- active sessions panel (only renders when any are active) ---------- */
+function renderActiveSessionsPanel(active) {
+  if (active.length === 0) return '';
+  return `
+    <section class="away-section away-active-sessions">
+      <h3>
+        <span>Active sessions</span>
+        <span class="count">${active.length}</span>
+      </h3>
+      <div class="away-active-list">
+        ${active.map((s) => renderSessionRow(s)).join('')}
+      </div>
+    </section>
+  `;
+}
+
+/* ---------- notes panel (the action queue) ---------- */
+function renderNotesPanel(notes, unreviewedCount) {
+  if (notes.length === 0) {
+    return `
+      <section class="away-section away-notes">
+        <h3>Notes from while you were out</h3>
+        <div class="empty-row" style="padding:12px 0;">
+          The AI logs anything substantive that comes in during away mode —
+          meeting requests, things to discuss, time-sensitive items.
+          When you have unreviewed notes, they'll show up here as your follow-up queue.
+        </div>
+      </section>
+    `;
+  }
+
+  const unreviewed = notes.filter((n) => n.reviewed_at == null);
+  const reviewed = notes.filter((n) => n.reviewed_at != null);
+
+  const headerRight = unreviewedCount > 0
+    ? `<button class="btn ghost small review-all-btn" data-action="review-all-away-notes">Mark all reviewed</button>`
+    : '';
+
+  const reviewedSection = reviewed.length > 0
+    ? `
+      <details class="away-collapsible">
+        <summary><span>Reviewed</span><span class="count">${reviewed.length}</span></summary>
+        <div class="away-reviewed-list">${reviewed.map(renderAwayNoteCard).join('')}</div>
+      </details>
+    `
+    : '';
+
+  return `
+    <section class="away-section away-notes">
+      <h3>
+        <span>Notes from while you were out</span>
+        ${unreviewedCount > 0 ? `<span class="count unreviewed">${unreviewedCount} unreviewed</span>` : `<span class="count muted">all caught up</span>`}
+        ${headerRight}
+      </h3>
+      ${unreviewed.length > 0
+        ? `<div class="away-unreviewed-list">${unreviewed.map(renderAwayNoteCard).join('')}</div>`
+        : '<div class="empty-row" style="padding:8px 0;">no unreviewed notes — all caught up</div>'}
+      ${reviewedSection}
+    </section>
+  `;
+}
+
+/* ---------- past sessions (collapsed by default) ---------- */
+function renderPastSessionsPanel(past) {
+  if (past.length === 0) return '';
+  return `
+    <section class="away-section away-past-sessions">
+      <details class="away-collapsible">
+        <summary>
+          <span>Past sessions</span>
+          <span class="count">${past.length}</span>
+        </summary>
+        <div class="away-past-list">
+          ${past.map((s) => renderSessionRow(s, { compact: true })).join('')}
+        </div>
+      </details>
+    </section>
+  `;
+}
+
+/* ---------- configuration (collapsed by default) ---------- */
+function renderConfigPanel(contacts) {
+  const max = settingsBounds.away_max_replies_per_session?.max || 200;
+  const min = settingsBounds.away_max_replies_per_session?.min || 1;
+
+  const contactList = contacts.length === 0
+    ? '<div class="empty-row">no contacts opted in yet — only listed contacts get auto-responded</div>'
+    : contacts.map(renderAwayContact).join('');
+
+  return `
+    <section class="away-section">
+      <details class="away-collapsible">
+        <summary>
+          <span>Configuration</span>
+          <span class="config-summary-meta">greeting · persona · safety cap · ${contacts.length} contact${contacts.length === 1 ? '' : 's'}</span>
+        </summary>
+
+        <div class="away-config-grid">
+          <form class="away-config-form" data-form="away-config">
+            <div class="config-field">
+              <label class="config-label">
+                Greeting
+                <span class="desc">first canned reply when an opted-in contact messages</span>
+              </label>
+              <textarea name="away_message" rows="3">${escapeHtml(settingsCache.away_message || '')}</textarea>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">
+                Persona
+                <span class="desc">how the AI should behave while covering — banter, deflection, jokes (separate from voice profile, which captures HOW you write)</span>
+              </label>
+              <textarea name="away_persona" rows="5" placeholder="e.g. 'be casual and a little snarky — lean into the AI thing if anyone asks. crack small jokes. ask follow-ups when curious.'">${escapeHtml(settingsCache.away_persona || '')}</textarea>
+            </div>
+
+            <div class="config-field">
+              <label class="config-label">
+                Safety cap
+                <span class="desc">max AI replies per session before it auto-ends</span>
+              </label>
+              <div class="config-inline">
+                <input type="number" name="away_max_replies_per_session" min="${min}" max="${max}" value="${settingsCache.away_max_replies_per_session}" />
+                <span class="desc">replies per session</span>
+              </div>
+            </div>
+
+            <div class="config-actions">
+              <button type="submit" class="btn primary">Save changes</button>
+              <span class="settings-status" data-error></span>
+            </div>
+          </form>
+
+          <div class="away-contacts-block">
+            <div class="config-label">
+              Whitelisted contacts
+              <span class="desc">only these get auto-responded</span>
+            </div>
+            <div id="away-contacts-list" class="away-contacts-list">${contactList}</div>
+            <button class="add-btn" data-action="show-form" data-target="form-away-contact">+ add contact</button>
+            <form class="form" id="form-away-contact" data-form="away-contact">
+              <input type="text" name="handle" data-contact-autocomplete placeholder="search by name or paste handle" required autocomplete="off" />
+              <input type="text" name="label" placeholder="label (optional)" autocomplete="off" />
+              <div class="form-row">
+                <button type="submit" class="btn primary">Add</button>
+                <button type="button" class="btn ghost" data-action="hide-form" data-target="form-away-contact">Cancel</button>
+              </div>
+              <div class="form-error" data-error></div>
+            </form>
+          </div>
+        </div>
+      </details>
+    </section>
   `;
 }
 
@@ -100,90 +306,15 @@ export async function renderAwayView() {
     return;
   }
 
-  const max = settingsBounds.away_max_replies_per_session?.max || 200;
-  const min = settingsBounds.away_max_replies_per_session?.min || 1;
-
-  const contactList = contacts.length === 0
-    ? '<div class="empty-row">no contacts whitelisted yet — only opted-in contacts get auto-responded</div>'
-    : contacts.map(renderAwayContact).join('');
-
   const activeSessions = sessions.filter((s) => s.status !== 'ended');
   const pastSessions = sessions.filter((s) => s.status === 'ended').slice(0, 30);
-  const sessionList = sessions.length === 0
-    ? '<div class="empty-row" style="padding:8px 0;">no sessions yet</div>'
-    : [
-        ...activeSessions.map(renderAwaySession),
-        pastSessions.length > 0 ? `<div style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.6px;margin:14px 0 8px;">past · ${pastSessions.length}</div>` : '',
-        ...pastSessions.map(renderAwaySession),
-      ].join('');
 
   list.innerHTML = `
-    <div class="away-toggle-block ${enabled ? 'on' : ''}">
-      <div>
-        <div class="away-headline">${enabled ? 'Away mode is ON' : 'Away mode is off'}</div>
-        <div class="away-sub ${enabled ? 'on' : ''}">${enabled
-          ? 'Opted-in contacts will get auto-responded to — first by the canned greeting, then by AI in your voice. Toggling this off ends every active session.'
-          : 'Toggle on to start auto-responding. Only contacts in the whitelist below will be handled.'}</div>
-      </div>
-      <div class="away-toggle-switch ${enabled ? 'on' : ''}" data-action="toggle-away-mode" title="${enabled ? 'turn off' : 'turn on'}"></div>
-    </div>
-
-    <div class="away-grid">
-      <form class="away-config" data-form="away-config">
-        <h3>Greeting, persona &amp; safety</h3>
-
-        <div style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);margin-bottom:6px;">first canned reply when an opted-in contact messages</div>
-        <textarea name="away_message">${escapeHtml(settingsCache.away_message || '')}</textarea>
-
-        <div style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);margin: 10px 0 6px;">
-          personality &mdash; how the AI should BEHAVE while covering for you (separate from voice profile, which captures HOW you write)
-        </div>
-        <textarea name="away_persona" placeholder="e.g. 'be casual and a little snarky — lean into the AI thing if anyone asks, never apologize for it. crack small jokes. ask follow-up questions when curious. avoid being polite or formal. don't deflect every time — only when you actually don't know something.'" style="min-height: 110px;">${escapeHtml(settingsCache.away_persona || '')}</textarea>
-
-        <div class="num-row" style="margin-top: 10px;">
-          <span>max AI replies per session</span>
-          <input type="number" name="away_max_replies_per_session" min="${min}" max="${max}" value="${settingsCache.away_max_replies_per_session}" />
-          <span style="color:var(--text-faint);">safety cap; sessions auto-end at this count</span>
-        </div>
-        <div class="form-row">
-          <button type="submit" class="btn primary">Save</button>
-          <span class="settings-status" data-error></span>
-        </div>
-      </form>
-
-      <div>
-        <div class="away-config" style="margin-bottom: 12px;">
-          <h3>Whitelisted contacts</h3>
-          <div id="away-contacts-list">${contactList}</div>
-          <button class="add-btn" data-action="show-form" data-target="form-away-contact" style="width:auto;padding:6px 12px;margin-top:8px;">+ add contact</button>
-          <form class="form" id="form-away-contact" data-form="away-contact">
-            <input type="text" name="handle" data-contact-autocomplete placeholder="search by name or paste handle" required autocomplete="off" />
-            <input type="text" name="label" placeholder="label (optional)" autocomplete="off" />
-            <div class="form-row">
-              <button type="submit" class="btn primary">Add</button>
-              <button type="button" class="btn ghost" data-action="hide-form" data-target="form-away-contact">Cancel</button>
-            </div>
-            <div class="form-error" data-error></div>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <div class="away-sessions-block" style="margin-top:16px;">
-      <h3>Sessions ${activeSessions.length > 0 ? `· ${activeSessions.length} active` : ''}</h3>
-      ${sessionList}
-    </div>
-
-    <div class="away-notes-block">
-      <h3>
-        <span>Notes while you were out</span>
-        ${notesData.unreviewed > 0 ? `<span class="count unreviewed">· ${notesData.unreviewed} unreviewed</span>` : `<span style="color:var(--text-faint);text-transform:none;letter-spacing:0;">· ${notesData.notes.length} total</span>`}
-        ${notesData.unreviewed > 0 ? '<span class="review-all" data-action="review-all-away-notes">mark all reviewed</span>' : ''}
-      </h3>
-      ${notesData.notes.length === 0
-        ? '<div class="empty-row" style="padding:8px 0;">no follow-up items yet — the AI logs anything substantive that comes in during away mode (meeting requests, things to discuss, time-sensitive stuff)</div>'
-        : notesData.notes.map(renderAwayNoteCard).join('')}
-    </div>
+    ${renderStatusBanner(enabled, activeSessions.length, notesData.unreviewed)}
+    ${renderActiveSessionsPanel(activeSessions)}
+    ${renderNotesPanel(notesData.notes, notesData.unreviewed)}
+    ${renderPastSessionsPanel(pastSessions)}
+    ${renderConfigPanel(contacts)}
   `;
 }
 

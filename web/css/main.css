@@ -1188,26 +1188,62 @@ body::after {
 /* ============================================================
    Away mode view
    ============================================================ */
-.away-toggle-block {
+
+/* Status banner — compact, single row, anchors the page */
+.away-status {
   background: var(--bg-card);
-  border: 2px solid var(--border-strong);
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
-  padding: 18px 20px;
-  margin-bottom: 16px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 16px;
   align-items: center;
 }
-.away-toggle-block.on { border-color: var(--yellow); background: rgba(210, 153, 34, 0.05); }
-.away-toggle-block .away-headline {
-  font-size: 18px; font-weight: 600; color: var(--text);
+.away-status.on {
+  border-color: var(--yellow);
+  background: linear-gradient(180deg, rgba(210, 153, 34, 0.06), var(--bg-card));
+}
+.away-status-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  color: var(--text);
   margin-bottom: 4px;
 }
-.away-toggle-block .away-sub {
-  font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
+.away-status-title strong { color: var(--text); font-weight: 600; }
+.away-status.on .away-status-title strong { color: var(--yellow); }
+.away-status-title .dot {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex-shrink: 0;
 }
-.away-toggle-block .away-sub.on { color: var(--yellow); }
+.away-status.on .away-status-title .dot {
+  background: var(--yellow);
+  box-shadow: 0 0 6px var(--yellow);
+}
+.away-status-title .dot.pulse {
+  animation: away-pulse 1.6s ease-in-out infinite;
+}
+@keyframes away-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(210, 153, 34, 0.55); }
+  50%      { box-shadow: 0 0 0 6px rgba(210, 153, 34, 0); }
+}
+.away-status-sub {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.status-stats { color: var(--text-dim); }
+.status-stats.muted { color: var(--text-faint); }
+.stat-active { color: var(--green); }
+.stat-unreviewed { color: var(--orange); }
+
+/* Toggle switch (kept from before) */
 .away-toggle-switch {
   width: 56px; height: 30px;
   border-radius: 999px;
@@ -1216,6 +1252,7 @@ body::after {
   cursor: pointer;
   position: relative;
   transition: background 0.15s, border-color 0.15s;
+  flex-shrink: 0;
 }
 .away-toggle-switch::after {
   content: '';
@@ -1230,100 +1267,300 @@ body::after {
 .away-toggle-switch.on::after { transform: translateX(26px); background: #0a0c10; }
 .away-toggle-switch:hover { border-color: var(--cyan); }
 
-.away-grid {
+/* Sections — uniform container for each panel */
+.away-section {
+  margin-bottom: 16px;
+}
+.away-section h3 {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.away-section h3 .count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+.away-section h3 .count.unreviewed {
+  color: var(--orange);
+  border-color: var(--orange);
+}
+.away-section h3 .count.muted {
+  color: var(--text-faint);
+}
+.review-all-btn {
+  margin-left: auto;
+  padding: 4px 10px !important;
+  font-size: 11px !important;
+}
+
+/* Active sessions — full cards with pulsing indicator */
+.away-active-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.away-session-card {
   display: grid;
-  grid-template-columns: 1fr 320px;
-  gap: 16px;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--green);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(126, 231, 135, 0.04), var(--bg-card));
+}
+.session-pulse {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: away-pulse-green 1.6s ease-in-out infinite;
+}
+@keyframes away-pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(126, 231, 135, 0.5); }
+  50%      { box-shadow: 0 0 0 8px rgba(126, 231, 135, 0); }
+}
+.session-card-name { font-size: 14px; font-weight: 500; color: var(--text); }
+.session-card-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+.session-card-stats {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+.status-tag {
+  padding: 1px 7px;
+  border-radius: 3px;
+  background: var(--bg-elev);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.status-tag.greeting_sent { color: var(--cyan); }
+.status-tag.replying { color: var(--green); }
+
+/* Compact one-line row used for past sessions inside the collapsible */
+.away-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 4px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+}
+.away-row:last-child { border-bottom: none; }
+.away-row-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.away-row.active .away-row-dot { background: var(--green); }
+.away-row-name { color: var(--text-dim); }
+.away-row.active .away-row-name { color: var(--text); }
+.away-row-meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.away-row-time {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* Note lists */
+.away-unreviewed-list,
+.away-reviewed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.reviewed-tag {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  align-self: center;
+}
+
+/* Past sessions list inside the <details> */
+.away-past-list {
+  margin-top: 8px;
+  padding: 4px 0;
+}
+
+/* Collapsible <details> sections */
+.away-collapsible {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.away-collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  user-select: none;
+}
+.away-collapsible > summary::-webkit-details-marker { display: none; }
+.away-collapsible > summary::before {
+  content: '▸';
+  display: inline-block;
+  color: var(--text-faint);
+  font-size: 10px;
+  transition: transform 0.15s;
+  width: 10px;
+}
+.away-collapsible[open] > summary::before { transform: rotate(90deg); }
+.away-collapsible > summary:hover { color: var(--text); }
+.away-collapsible > summary .count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+.config-summary-meta {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.away-collapsible > *:not(summary) {
+  padding: 0 14px 14px;
+}
+
+/* Configuration grid (inside the collapsed config section) */
+.away-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 20px;
   align-items: start;
 }
-@media (max-width: 1100px) { .away-grid { grid-template-columns: 1fr; } }
-
-.away-config {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px 18px;
+@media (max-width: 1100px) { .away-config-grid { grid-template-columns: 1fr; } }
+.config-field { margin-bottom: 14px; }
+.config-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 6px;
 }
-.away-config h3, .away-sessions-block h3 {
-  font-family: var(--mono); font-size: 11px; color: var(--text-faint);
-  text-transform: uppercase; letter-spacing: 0.6px; margin: 0 0 12px;
+.config-label .desc {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-top: 3px;
+  line-height: 1.45;
 }
-.away-config textarea {
-  width: 100%; min-height: 90px;
-  padding: 10px 12px;
-  background: var(--bg-elev); color: var(--text);
-  border: 1px solid var(--border); border-radius: 8px;
-  font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.55;
-  resize: vertical; box-sizing: border-box; margin-bottom: 12px;
-}
-.away-config textarea:focus { outline: none; border-color: var(--cyan); }
-.away-config .num-row {
-  display: flex; align-items: center; gap: 10px;
-  font-family: var(--mono); font-size: 12px; color: var(--text-dim);
-  margin-bottom: 12px;
-}
-.away-config .num-row input[type="number"] {
-  width: 80px; padding: 6px 10px;
-  background: var(--bg-elev); color: var(--text);
-  border: 1px solid var(--border); border-radius: 6px;
-  font-family: var(--mono); font-size: 13px; text-align: right;
-}
-.away-sessions-block {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px 16px;
-  max-height: 600px;
-  overflow-y: auto;
-}
-.away-session-item {
+.away-config-form textarea {
+  width: 100%;
   padding: 10px 12px;
   background: var(--bg-elev);
-  border-left: 3px solid var(--green);
-  border-radius: 0 6px 6px 0;
-  margin-bottom: 6px;
-  font-size: 12.5px; line-height: 1.5;
-}
-.away-session-item.ended { border-left-color: var(--text-faint); opacity: 0.6; }
-.away-session-item .session-head {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
-}
-.away-session-item .session-name { color: var(--text); font-weight: 500; }
-.away-session-item .session-meta {
-  margin-left: auto;
-  font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
-}
-.away-session-item .session-stats {
-  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
-  display: flex; gap: 10px; flex-wrap: wrap;
-}
-.away-session-item .session-end {
-  cursor: pointer; color: var(--text-faint); font-family: var(--mono);
-  font-size: 11px; padding: 0 4px;
-}
-.away-session-item .session-end:hover { color: var(--red); }
-
-/* Away notes (follow-up items extracted while away) */
-.away-notes-block {
-  background: var(--bg-card);
+  color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 14px 16px;
-  margin-top: 16px;
+  border-radius: 8px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13.5px;
+  line-height: 1.55;
+  resize: vertical;
+  box-sizing: border-box;
 }
-.away-notes-block h3 {
-  font-family: var(--mono); font-size: 11px; color: var(--text-faint);
-  text-transform: uppercase; letter-spacing: 0.6px; margin: 0 0 12px;
-  display: flex; align-items: center; gap: 8px;
+.away-config-form textarea:focus { outline: none; border-color: var(--cyan); }
+.config-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.away-notes-block h3 .count.unreviewed { color: var(--orange); }
-.away-notes-block h3 .review-all {
-  margin-left: auto; cursor: pointer; padding: 2px 8px;
-  background: var(--bg-elev); border: 1px solid var(--border-strong);
-  border-radius: 4px; font-size: 10.5px; color: var(--text-dim);
-  text-transform: none; letter-spacing: 0;
+.config-inline input[type="number"] {
+  width: 80px;
+  padding: 6px 10px;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  text-align: right;
 }
-.away-notes-block h3 .review-all:hover { color: var(--text); border-color: var(--cyan); }
+.config-inline .desc {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.config-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* Whitelisted contacts inside the configuration section */
+.away-contacts-block {
+  background: var(--bg-elev);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.away-contacts-list { margin: 6px 0 8px; }
+.away-contacts-block .add-btn {
+  width: auto;
+  padding: 6px 12px;
+  margin-top: 4px;
+}
+.contact-toggle {
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-left: auto;
+  cursor: pointer;
+}
+.contact-toggle.on { color: var(--green); }
+.contact-toggle.off { color: var(--text-faint); }
 .away-note-card {
   padding: 10px 12px;
   background: var(--bg-elev);
