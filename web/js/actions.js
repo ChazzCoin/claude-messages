@@ -20,7 +20,7 @@ import {
 import { refreshDrafts } from './views/drafts.js';
 import { renderThreadToolbar, renderVariantCards } from './views/thread.js';
 import { loadAndRenderNotes, loadAndRenderProfile } from './views/inbox.js';
-import { renderSettingsView } from './views/settings.js';
+import { renderGaltView } from './views/galt.js';
 import { refreshFlagsList, renderFlagsView } from './views/flags.js';
 import {
   refreshScheduledList, refreshScheduledCount,
@@ -71,13 +71,13 @@ async function onClick(e) {
   if (action === 'show-form')      { openForm(btn.dataset.target); return; }
   if (action === 'hide-form')      { closeForm(btn.dataset.target); return; }
 
-  // Settings: reset to defaults
+  // Galt: reset AI context window to default
   if (action === 'reset-settings') {
     if (!confirm('Reset all settings to defaults?')) return;
     try {
       const r = await api('/api/settings', { method: 'PUT', body: { ai_context_count: 20 } });
       if (r.settings) setSettingsCache(r.settings);
-      await renderSettingsView();
+      await renderGaltView();
     } catch (err) { alert(`reset failed: ${err.message}`); }
     return;
   }
@@ -696,7 +696,7 @@ async function onClick(e) {
         body: { openai_api_key: '' },
       });
       if (r.settings) setSettingsCache(r.settings);
-      await renderSettingsView();
+      await renderGaltView();
     } catch (err) { alert(`clear failed: ${err.message}`); }
     return;
   }
@@ -719,7 +719,7 @@ async function onClick(e) {
         body: { sample_count: sample, user_context: userContext },
       });
       if (r.settings) setSettingsCache(r.settings);
-      await renderSettingsView();
+      await renderGaltView();
       const newErr = document.querySelector('form[data-form="voice-profile"] [data-error]');
       if (newErr) {
         newErr.classList.add('ok');
@@ -1024,7 +1024,7 @@ async function onSubmit(e) {
         const r = await api('/api/settings', { method: 'PUT', body });
         if (r.settings) setSettingsCache(r.settings);
         // Re-render so masked-state + last4 + Clear button reflect the save.
-        await renderSettingsView();
+        await renderGaltView();
         const newErr = document.querySelector('form[data-form="openai"] [data-error]');
         if (newErr) {
           newErr.classList.add('ok');
