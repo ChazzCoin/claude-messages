@@ -1419,6 +1419,21 @@ const recentOurAutoSends = new Map<string, Set<string>>();
 const AUTO_ECHO_TTL_MS = 60_000;
 
 /**
+ * In-memory lock for summon-mode drafts in flight, keyed by chat_id.
+ * The watcher batches messages and the for-loop in onMessages emits
+ * them sequentially within microseconds. Without this lock, two
+ * back-to-back inbounds in the same chat would each kick off a
+ * draftReply concurrently and produce two redundant Galt replies.
+ * The first draft already sees the latest thread state when it queries
+ * (it includes both messages), so dropping the second trigger is correct.
+ */
+const draftingForChat = new Set<number>();
+
+/** Literal prefix prepended to every Galt reply in summon mode so both
+ *  parties can scan a bubble and instantly tell AI from human. */
+const SUMMON_PREFIX = 'Galt: ';
+
+/**
  * Humanizing delay before each away-mode auto-send. Without this, replies
  * arrive instantly — uncanny-valley territory. The delay scales with reply
  * length (longer "typing"), with random jitter so it's not robotically
@@ -1510,53 +1525,55 @@ function buildAwayContextNote(persona: string, recipientName: string): string {
  *
  * Summon is fundamentally different from away: in away the AI is COVERING
  * for the user (talks AS them). In summon the AI is JOINING the conversation
- * AS ITSELF — Galt is a third voice the user pulled in to help. Galt
- * identifies on its first reply, then participates naturally for the rest
- * of the session. Galt may reply to either party (user or contact) and is
- * EXPECTED to skip when there's nothing useful to add — the model returning
- * SKIP is the correct behavior, not a failure.
+ * AS ITSELF — Galt is a third voice the user pulled in to help. Both you
+ * and the contact see Galt's replies prefixed with "Galt: " (added by the
+ * runtime), so identity is unambiguous without needing to introduce yourself
+ * in prose.
  */
 function buildSummonContextNote(opts: {
   persona: string;
   userName: string;
   recipientName: string;
-  isFirstReply: boolean;
 }): string {
   const sections: string[] = [];
 
   sections.push(
-    `IMPORTANT — IDENTITY SHIFT: You are GALT, an AI assistant the user (${opts.userName}) has SUMMONED into this iMessage conversation. You are NOT pretending to be ${opts.userName}. You are a third voice they pulled in to help. The voice profile attached above is ${opts.userName}'s — use it for STYLE (tone, vocabulary, casualness) so you sound like ${opts.userName}'s AI rather than corporate-bot, but never claim to BE ${opts.userName}. When the user asks you something, you respond as Galt. When the contact asks something, you respond as Galt. When the contact and user are sorting something out themselves and there's nothing useful to add, return SKIP.`,
+    `IDENTITY: You are GALT, an AI assistant the user (${opts.userName}) summoned into this iMessage conversation. You are NOT pretending to be ${opts.userName} — you're a third voice they pulled in. Use ${opts.userName}'s voice profile (above) for STYLE (tone, vocabulary, casualness) so you sound like ${opts.userName}'s AI rather than a corporate bot. NEVER claim to BE ${opts.userName}.`,
   );
 
   sections.push(
-    `WHO ELSE IS HERE: ${opts.userName} (the user who summoned you, "me:" in the thread above) and ${opts.recipientName} (the contact, "them:" in the thread above). Reply to whichever turn was most recent if there's something useful to say.`,
-  );
-
-  if (opts.isFirstReply) {
-    sections.push(
-      `THIS IS YOUR FIRST REPLY in this summon session — identify yourself clearly so ${opts.recipientName} knows it's not ${opts.userName} typing. Something natural like "Hey ${opts.recipientName}, this is Galt — ${opts.userName}'s AI, they pulled me in." Then go ahead and answer/contribute. Don't re-introduce yourself in subsequent replies.`,
-    );
-  } else {
-    sections.push(
-      `You've already introduced yourself earlier in this session — ${opts.recipientName} knows who you are. Just respond naturally as Galt; don't re-announce yourself every turn.`,
-    );
-  }
-
-  sections.push(
-    `WHEN TO STAY QUIET: if the most recent turn doesn't actually need you — small talk between ${opts.userName} and ${opts.recipientName}, them sorting out a logistic, an emoji-only message, a "lol" — return SKIP. You are NOT here to fill silence. The user pulled you in to help; help when help is needed, vanish when it's not. Better to skip 5 turns and contribute meaningfully on the 6th than to comment on every line.`,
+    `WHO IS HERE: ${opts.userName} = the user who summoned you. ${opts.recipientName} = the contact in this chat. In the thread above, BOTH ${opts.userName} and YOU appear as "me:" lines because your messages are sent through ${opts.userName}'s iMessage. The runtime adds a "Galt: " prefix to YOUR sent messages, so in the historical thread your prior turns will look like "me: Galt: ..." and ${opts.userName}'s turns will look like "me: ..." (no Galt prefix). Use that to tell which prior "me:" lines were yours vs ${opts.userName}'s.`,
   );
 
   sections.push(
-    `WHEN TO SPEAK: real questions, things to explain, info to provide, drafting help, decisions to weigh in on, gentle clarifications/corrections of factual errors. Match iMessage register — concise, conversational, not essay-length. When you genuinely don't know something, say so. Don't invent.`,
+    `DO NOT INTRODUCE YOURSELF in prose. Don't write "Hey [name], this is Galt — ${opts.userName}'s AI, they pulled me in" or anything like it. The "Galt: " prefix on your reply already tells everyone it's you. When you're first summoned, just respond — short and direct. If the trigger message is a bare "GALT!!", a one-word ack like "yep" or "here" or "what's up" is fine. If the trigger message has a real ask, just answer it.`,
+  );
+
+  sections.push(
+    `READ YOUR OWN PRIOR REPLIES (the "me: Galt: ..." lines in the thread). DO NOT repeat phrasings, openings, questions, or asks you already made. Vary turn-to-turn — different opener, different rhythm, different vocabulary. If your last reply asked a question, don't ask the same question again — either re-ask it differently or move on. If you already said "got it", don't say "got it" again.`,
+  );
+
+  sections.push(
+    `WHEN TO REPLY: default to replying briefly when the most recent turn (from either party) is something you can actually contribute to — questions, requests, things to explain, decisions to weigh in on, factual corrections. You were summoned to help; help when help is useful. Match iMessage register: concise, conversational, NOT essay-length.`,
+  );
+
+  sections.push(
+    `WHEN TO STAY QUIET (return SKIP): only when the latest turn is clearly not for you — emoji-only banter between the humans, one-word "lol"/"haha"/"k" reactions, them sorting a private logistic together, ${opts.userName} typing something only meant for ${opts.recipientName}. When in doubt, lean toward responding briefly rather than skipping. The user invited you in; staying silent on every turn defeats that.`,
+  );
+
+  sections.push(
+    `WHEN YOU DON'T KNOW: just say so plainly — "no idea, ask ${opts.userName}" / "above my pay grade" / "${opts.userName} would know better than me." Don't invent facts about ${opts.userName}'s schedule, finances, commitments, or personal details that aren't in the thread.`,
   );
 
   if (opts.persona && opts.persona.trim()) {
     sections.push(
-      `EXTRA PERSONA GUIDANCE FROM ${opts.userName} for HOW YOU SHOULD BEHAVE AS GALT (apply on top of the above):\n"""\n${opts.persona.trim()}\n"""`,
+      `EXTRA PERSONA GUIDANCE FROM ${opts.userName} for how you should behave as Galt (apply on top of the above):\n"""\n${opts.persona.trim()}\n"""`,
     );
   }
 
-  sections.push('Output only the reply text. No quotes, no preamble, no explanation. Return SKIP if there is nothing useful to add right now.');
+  sections.push(
+    `OUTPUT FORMAT: just the reply text. No "Galt: " prefix (the runtime adds it). No quotes, no preamble, no explanation. Return SKIP if there's genuinely nothing useful to add right now.`,
+  );
 
   return sections.join('\n\n');
 }
@@ -1867,6 +1884,15 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
 
   if (!text.trim()) return; // attachment-only or empty message → nothing to reply to
 
+  // Concurrency lock: if we're already drafting for this chat, drop this
+  // trigger. The in-flight draft will see ALL recent messages (including
+  // this one) when it queries the thread — second trigger is redundant.
+  if (draftingForChat.has(msg.chat_id)) {
+    console.log(`[summon] dropping concurrent trigger for chat ${msg.chat_id} (draft already in flight)`);
+    return;
+  }
+  draftingForChat.add(msg.chat_id);
+
   // Thread context, voice profile, contact context, and the summon system note.
   try {
     const messagesDesc = listMessagesForChat(msg.chat_id, 0, settings.ai_context_count);
@@ -1894,7 +1920,6 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
         persona: settings.summon_persona,
         userName,
         recipientName,
-        isFirstReply: session.ai_reply_count === 0,
       }),
       temperament: 'normal',
       count: 1,
@@ -1906,10 +1931,17 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
       return;
     }
 
+    // Prepend the literal "Galt: " prefix so both parties can tell which
+    // messages are AI vs human. The model is told NOT to add it (the runtime
+    // owns the prefix), so we never get "Galt: Galt: ..." double-prefixes.
+    // Strip any accidental leading "Galt: " just in case the model snuck it in.
+    const stripped = usable.body.replace(/^\s*galt\s*:\s*/i, '');
+    const prefixedBody = `${SUMMON_PREFIX}${stripped}`;
+
     // Humanizing delay (shared with away). Re-check session state after the
     // delay because Galt can be dismissed mid-typing.
     if (settings.away_send_delay_enabled) {
-      const delay = naturalSendDelayMs(usable.body);
+      const delay = naturalSendDelayMs(prefixedBody);
       console.log(`[summon] session ${session.id} reply delayed ${delay}ms`);
       await sleep(delay);
       const current = getActiveSummonSession(msg.chat_id);
@@ -1920,20 +1952,22 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
       }
     }
 
-    trackOurAutoSend(msg.handle, usable.body);
-    await sendMessageViaAppleScript(msg.handle, usable.body);
+    trackOurAutoSend(msg.handle, prefixedBody);
+    await sendMessageViaAppleScript(msg.handle, prefixedBody);
     const updated = bumpSummonSession(session.id);
     console.log(
       `[summon] auto-replied in session ${session.id} (chat ${msg.chat_id}, reply ${updated?.ai_reply_count ?? '?'})`,
     );
     sseBroadcast('summon.replied', {
       session: updated ? enrichSummon(updated) : null,
-      body: usable.body,
+      body: prefixedBody,
       thread_turns: thread.length,
       usage: result.usage ?? null,
     });
   } catch (err) {
     console.error('[summon] reply failed:', (err as Error).message);
+  } finally {
+    draftingForChat.delete(msg.chat_id);
   }
 }
 
