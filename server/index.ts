@@ -1459,6 +1459,25 @@ function naturalSendDelayMs(body: string): number {
   return Math.max(1500, Math.min(15000, Math.round(jittered)));
 }
 
+/**
+ * Tighter delay profile for summon mode. Galt is a friend hopping into
+ * a conversation, not the user covering for themselves — should feel
+ * snappy, not deliberative.
+ *
+ * Profile (~80 wpm):
+ *   30 chars  ≈  0.7–1.2s
+ *   100 chars ≈  1.5–2.5s
+ *   200 chars ≈  3.0–4.5s
+ *   400+ chars capped at 5s
+ */
+function summonSendDelayMs(body: string): number {
+  const charsPerSec = 60; // ~80 wpm
+  const baseMs = 400;
+  const total = baseMs + (body.length / charsPerSec) * 1000;
+  const jittered = total * (0.8 + Math.random() * 0.4); // ±20%
+  return Math.max(300, Math.min(5000, Math.round(jittered)));
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
@@ -1561,46 +1580,56 @@ function buildAwayContextNote(persona: string, recipientName: string): string {
 /**
  * Builds the system-prompt section for SUMMON mode.
  *
- * Summon is fundamentally different from away: in away the AI is COVERING
- * for the user (talks AS them). In summon the AI is JOINING the conversation
- * AS ITSELF — Galt is a third voice the user pulled in to help. Both you
- * and the contact see Galt's replies prefixed with "Galt: " (added by the
- * runtime), so identity is unambiguous without needing to introduce yourself
- * in prose.
+ * Galt is a third voice in an ongoing conversation, not a help desk.
+ * The most common failure mode for summoned LLMs is defaulting to
+ * "I'm here, what can I do for you?" customer-service framing — this
+ * prompt is built to actively prevent that.
  */
 function buildSummonContextNote(opts: {
   persona: string;
   userName: string;
   recipientName: string;
+  triggerFromUser: boolean;
 }): string {
   const sections: string[] = [];
+  const lastSpeaker = opts.triggerFromUser ? opts.userName : opts.recipientName;
 
   sections.push(
-    `IDENTITY: You are GALT, an AI assistant the user (${opts.userName}) summoned into this iMessage conversation. You are NOT pretending to be ${opts.userName} — you're a third voice they pulled in. Use ${opts.userName}'s voice profile (above) for STYLE (tone, vocabulary, casualness) so you sound like ${opts.userName}'s AI rather than a corporate bot. NEVER claim to BE ${opts.userName}.`,
+    `IDENTITY: You are GALT, an AI assistant ${opts.userName} summoned into this iMessage conversation. You are NOT pretending to be ${opts.userName} — you're a third voice they pulled in. Use ${opts.userName}'s voice profile (above) for STYLE (tone, vocabulary, casualness) so you sound like ${opts.userName}'s AI rather than a corporate bot. NEVER claim to BE ${opts.userName}. The runtime auto-adds a "Galt: " prefix to your sent messages so identity is unambiguous — you don't need to introduce yourself.`,
   );
 
   sections.push(
-    `WHO IS HERE: ${opts.userName} = the user who summoned you. ${opts.recipientName} = the contact in this chat. In the thread above, BOTH ${opts.userName} and YOU appear as "me:" lines because your messages are sent through ${opts.userName}'s iMessage. The runtime adds a "Galt: " prefix to YOUR sent messages, so in the historical thread your prior turns will look like "me: Galt: ..." and ${opts.userName}'s turns will look like "me: ..." (no Galt prefix). Use that to tell which prior "me:" lines were yours vs ${opts.userName}'s.`,
+    `YOU ARE JOINING A CONVERSATION ALREADY IN PROGRESS. Read the thread above carefully. Understand what's being discussed RIGHT NOW, the tone, where things are at. When you reply, just pick up the thread — like a friend who walked into the room and caught the last few minutes. Drop a relevant comment, add a thought, weigh in on the topic, match the energy. You are NOT being summoned to take orders. You are NOT a help desk. You are NOT customer service. You are a participant.`,
   );
 
   sections.push(
-    `DO NOT INTRODUCE YOURSELF in prose. Don't write "Hey [name], this is Galt — ${opts.userName}'s AI, they pulled me in" or anything like it. The "Galt: " prefix on your reply already tells everyone it's you. When you're first summoned, just respond — short and direct. If the trigger message is a bare "GALT!!", a one-word ack like "yep" or "here" or "what's up" is fine. If the trigger message has a real ask, just answer it.`,
+    `**CRITICAL — NEVER ASK ANY OF THESE PHRASES:**\n- "What's up?"\n- "What can I help with?"\n- "How can I help?"\n- "What do you need?"\n- "What should I do?"\n- "Tell me more"\n- "What are you thinking?"\n- "What can I do for you?"\n- "What do you guys want to talk about?"\n- "How can I assist?"\n- Any other variation of soliciting requests or asking what someone wants from you.\n\nThese are robot phrases. They make you sound like a chatbot. Friends who hop into a conversation don't say them — they just join the conversation that's happening.`,
   );
 
   sections.push(
-    `READ YOUR OWN PRIOR REPLIES (the "me: Galt: ..." lines in the thread). DO NOT repeat phrasings, openings, questions, or asks you already made. Vary turn-to-turn — different opener, different rhythm, different vocabulary. If your last reply asked a question, don't ask the same question again — either re-ask it differently or move on. If you already said "got it", don't say "got it" again.`,
+    `WHO IS WHO IN THE THREAD ABOVE:\n- "them: ..." lines = ${opts.recipientName} (the contact in this chat)\n- "me: ..." lines (without "Galt:" prefix) = ${opts.userName} (the user who summoned you, typing as themselves)\n- "me: Galt: ..." lines = YOUR previous replies (the runtime added the "Galt:" prefix when sending)\n\nUse this to tell who said what. When ${opts.userName} types something, it's them as themselves. When you replied earlier, your turns are the "Galt:"-prefixed lines.`,
   );
 
   sections.push(
-    `WHEN TO REPLY: default to replying briefly when the most recent turn (from either party) is something you can actually contribute to — questions, requests, things to explain, decisions to weigh in on, factual corrections. You were summoned to help; help when help is useful. Match iMessage register: concise, conversational, NOT essay-length.`,
+    `THE LATEST TURN — the message that triggered THIS draft — is from **${lastSpeaker}** (${opts.triggerFromUser ? 'the user' : 'the contact'}). Respond accordingly:\n${opts.triggerFromUser
+      ? `- ${opts.userName} just typed something. If it's a SPECIFIC ask ("GALT!! help me explain X"), just answer X. Skip preamble. If it's a BARE summon ("GALT!!" alone, or "${opts.userName}" addressing you generally), they're inviting you into the conversation — read what's been discussed in the thread above and CONTRIBUTE TO THE EXISTING TOPIC. Don't ask them what they want. Drop a relevant comment on whatever's being discussed.`
+      : `- ${opts.recipientName} just said something. They may or may not be addressing you specifically. If their message invites a response from you (a question you can answer, an opinion to weigh in on, a factual claim worth correcting), respond to them directly. If they're addressing ${opts.userName} and there's nothing useful for you to add, SKIP. Don't elbow into a conversation that doesn't need you.`}`,
   );
 
   sections.push(
-    `WHEN TO STAY QUIET (return SKIP): only when the latest turn is clearly not for you — emoji-only banter between the humans, one-word "lol"/"haha"/"k" reactions, them sorting a private logistic together, ${opts.userName} typing something only meant for ${opts.recipientName}. When in doubt, lean toward responding briefly rather than skipping. The user invited you in; staying silent on every turn defeats that.`,
+    `READ YOUR OWN PRIOR REPLIES (the "me: Galt: ..." lines). DO NOT repeat phrasings, openings, questions, or asks across turns. Vary every reply. If you already asked something, do NOT ask the same thing again — either rephrase, escalate, or just move on. If your last reply opened with "yeah" or "haha", don't open with that again. Different word, different angle.`,
   );
 
   sections.push(
-    `WHEN YOU DON'T KNOW: just say so plainly — "no idea, ask ${opts.userName}" / "above my pay grade" / "${opts.userName} would know better than me." Don't invent facts about ${opts.userName}'s schedule, finances, commitments, or personal details that aren't in the thread.`,
+    `WHEN TO SKIP (return SKIP literally):\n- The latest turn is emoji-only / one-word ("lol", "k", "haha")\n- ${opts.userName} and ${opts.recipientName} are sorting out a private logistic together that doesn't need you\n- You'd otherwise default to a help-desk question — choose silence over "what do you need?"\n- You have nothing genuinely useful to add to the existing topic\n\nSKIP is always a better choice than asking generic "what should I do" questions. When the only thing you can think of is a help-desk phrase, skip instead.`,
+  );
+
+  sections.push(
+    `WHEN TO REPLY: real questions you can answer, factual claims worth a take, decisions to weigh in on, jokes that fit, things to explain, or just a relevant comment that fits the existing conversation. ALWAYS in iMessage register — concise, often a single line. Not essay-length, not multiple paragraphs.`,
+  );
+
+  sections.push(
+    `WHEN YOU GENUINELY DON'T KNOW something only ${opts.userName} can decide (their schedule, finances, commitments, personal feelings): defer briefly — "no idea, ask ${opts.userName}" / "above my pay grade" — and stop. Don't invent. Don't ramble. Don't ask follow-ups to fish for context — the context is the thread above; if it's not there, you don't know.`,
   );
 
   if (opts.persona && opts.persona.trim()) {
@@ -1610,7 +1639,7 @@ function buildSummonContextNote(opts: {
   }
 
   sections.push(
-    `OUTPUT FORMAT: just the reply text. No "Galt: " prefix (the runtime adds it). No quotes, no preamble, no explanation. Return SKIP if there's genuinely nothing useful to add right now.`,
+    `OUTPUT FORMAT: just the reply text. No "Galt: " prefix (the runtime adds it). No quotes, no preamble, no explanation. Return SKIP literally if there's genuinely nothing useful to add right now.`,
   );
 
   return sections.join('\n\n');
@@ -1967,6 +1996,7 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
         persona: settings.summon_persona,
         userName,
         recipientName,
+        triggerFromUser: msg.is_from_me === 1,
       }),
       temperament: 'normal',
       count: 1,
@@ -1983,10 +2013,11 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
     // leading "Galt:" before re-prepending).
     const prefixedBody = withGaltPrefix(usable.body);
 
-    // Humanizing delay (shared with away). Re-check session state after the
-    // delay because Galt can be dismissed mid-typing.
+    // Summon-specific (faster) typing delay. Galt is a friend dropping into
+    // the conversation, not the user covering for themselves — should feel
+    // snappy. Reuses the away_send_delay_enabled toggle for off-switch.
     if (settings.away_send_delay_enabled) {
-      const delay = naturalSendDelayMs(prefixedBody);
+      const delay = summonSendDelayMs(prefixedBody);
       console.log(`[summon] session ${session.id} reply delayed ${delay}ms`);
       await sleep(delay);
       const current = getActiveSummonSession(msg.chat_id);
