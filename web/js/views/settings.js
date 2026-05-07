@@ -1,31 +1,75 @@
-// Settings — read-only system status: chat.db, app.db, OpenAI reachability,
-// watcher, server. Everything Galt-specific (API key, model, AI context,
-// voice profile, prompts) moved to #/galt — that's about the AI persona,
-// this page is about infrastructure.
+// Settings — system + account configuration. Holds OpenAI API key/model,
+// AI behavior knobs (context window), and the user's voice profile (used
+// when Galt impersonates the user in away mode / manual draft). Also
+// renders read-only system status (chat.db, app.db, watcher).
 //
-// `refreshSettings` (the helper that pulls /api/settings into state cache)
-// now lives in views/galt.js since Galt is the primary consumer; main.js
-// imports it from there.
+// Galt-specific stuff (every editable PROMPT — away/summon/universal/
+// wrappers) lives on #/galt. This split: this page is about YOU and the
+// system; #/galt is about the AI persona and how it talks.
 
-import { api } from '../api.js';
+import { api, fetchSettings } from '../api.js';
 import { setMainHeader } from '../shell.js';
 import { escapeHtml } from '../utils.js';
+import {
+  settingsCache, settingsBounds,
+  setSettingsCache, setSettingsBounds, setPromptDefaults,
+} from '../state.js';
+
+/** Pull settings + bounds + prompt defaults from the server, merge into state.
+ *  Called at boot from main.js and after settings-mutating actions. Lives
+ *  here because Settings is the primary surface for the user/account
+ *  fields; Galt re-imports it for the prompts page. */
+export async function refreshSettings() {
+  try {
+    const r = await fetchSettings();
+    if (r.settings) setSettingsCache(r.settings);
+    if (r.bounds) setSettingsBounds(r.bounds);
+    if (r.prompt_defaults) setPromptDefaults(r.prompt_defaults);
+  } catch { /* keep prior cache */ }
+}
+
+const SECTION_HEADER_STYLE =
+  'padding: 8px 0 14px 0; font-weight: 600; color: var(--text); ' +
+  'letter-spacing: 0.06em; text-transform: uppercase; font-size: 11px;';
 
 export async function renderSettingsView() {
   setMainHeader({
     title: 'Settings',
-    subHTML: '<span class="accent">system status</span> · chat.db, app.db, OpenAI, watcher, server · Galt config lives on <a href="#/galt">#/galt</a>',
+    subHTML: '<span class="accent">system &amp; account</span> · OpenAI · AI behavior · voice profile · system status · prompts on <a href="#/galt">Galt</a>',
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;
 
-  const health = await api('/api/health').catch(() => null);
+  // Pull fresh settings (for the API-key + voice-profile sections) and
+  // current health (for the model-effective hint and the system-status block).
+  const [, health] = await Promise.all([
+    refreshSettings(),
+    api('/api/health').catch(() => null),
+  ]);
 
+  // ----- AI section data -----
+  const cc = settingsCache.ai_context_count;
+  const ccBounds = settingsBounds.ai_context_count || { min: 1, max: 100 };
+
+  // ----- OpenAI section data (key is masked, never sent down) -----
+  const oaSet = !!settingsCache.openai_api_key_set;
+  const oaLast4 = settingsCache.openai_api_key_last4 || '';
+  const oaSource = settingsCache.openai_api_key_source || 'none';
+  const oaModel = settingsCache.openai_model || '';
+  const oaModelEffective = (health && health.openai_model) || 'gpt-4o-mini';
+
+  // ----- Voice profile section data -----
+  const vpUpdated = settingsCache.voice_profile_updated_at;
+  const vpUpdatedLabel = vpUpdated > 0
+    ? new Date(vpUpdated).toLocaleString()
+    : 'never';
+  const vpSampleBounds = settingsBounds.voice_profile_sample_count || { min: 50, max: 2000 };
+
+  // ----- System status data -----
   const fmtBool = (b, okLabel, warnLabel) =>
     b
       ? `<span class="ok">✓ ${escapeHtml(okLabel)}</span>`
       : `<span class="warn">✗ ${escapeHtml(warnLabel)}</span>`;
-
   const sysRows = !health
     ? '<div class="empty-row">/api/health unreachable</div>'
     : `
@@ -38,11 +82,7 @@ export async function renderSettingsView() {
         <div class="field-readonly">${escapeHtml(health.app_db?.path || '')}</div>
       </div>
       <div class="settings-row">
-        <label class="field-label">OpenAI<span class="desc">required for /api/ai/* endpoints · key + model managed on <a href="#/galt">#/galt</a></span></label>
-        <div class="field-readonly">model: ${escapeHtml(health.openai_model || '?')} · ${fmtBool(health.openai_configured, 'key configured', 'OPENAI_API_KEY not set')}</div>
-      </div>
-      <div class="settings-row">
-        <label class="field-label">Watcher<span class="desc">fs.watch on chat.db-wal, idle until Phase 2</span></label>
+        <label class="field-label">Watcher<span class="desc">fs.watch on chat.db-wal</span></label>
         <div class="field-readonly">${health.watcher_running ? '<span class="ok">✓ running</span>' : '<span class="warn">⚠ not running</span>'}</div>
       </div>
       <div class="settings-row">
@@ -52,8 +92,115 @@ export async function renderSettingsView() {
     `;
 
   list.innerHTML = `
+    <div class="desc" style="padding: 4px 0 18px 0; max-width: 720px;">
+      System and account settings. Galt's per-mode prompts and persona
+      content live on <a href="#/galt">Galt</a>.
+    </div>
+
+    <div style="${SECTION_HEADER_STYLE}">OpenAI</div>
+    <form class="settings-section" data-form="openai">
+      <h3>API key &amp; model</h3>
+      <div class="settings-row">
+        <label class="field-label">
+          Status
+          <span class="desc">Where the active API key is coming from. A key set here (in app.db) overrides whatever's in .env.</span>
+        </label>
+        <div class="field-readonly">
+          ${oaSet
+            ? `<span class="ok">✓ key configured</span> · last 4: <code>${escapeHtml(oaLast4)}</code> · source: <code>${escapeHtml(oaSource)}</code>`
+            : '<span class="warn">✗ no key configured</span> · AI features will return 503 until you add one'}
+        </div>
+      </div>
+      <div class="settings-row">
+        <label class="field-label" for="oa-key">
+          API key
+          <span class="desc">Paste your OpenAI API key. Stored in app.db, never sent anywhere except api.openai.com. Get one at platform.openai.com/api-keys.</span>
+        </label>
+        <div class="field-input">
+          <input id="oa-key" type="password" name="openai_api_key" placeholder="${oaSet ? '•••• ' + escapeHtml(oaLast4) + ' (paste a new key to replace)' : 'sk-...'}" autocomplete="off" />
+        </div>
+      </div>
+      <div class="settings-row">
+        <label class="field-label" for="oa-model">
+          Model override
+          <span class="desc">Optional. Leave blank to use the .env value (currently: <code>${escapeHtml(oaModelEffective)}</code>). Common values: <code>gpt-4o-mini</code>, <code>gpt-4o</code>.</span>
+        </label>
+        <div class="field-input">
+          <input id="oa-model" type="text" name="openai_model" placeholder="(use .env default)" value="${escapeHtml(oaModel)}" />
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button type="submit" class="btn primary">Save</button>
+        ${oaSet && oaSource === 'settings'
+          ? '<button type="button" class="btn ghost" data-action="oa-clear-key">Clear key</button>'
+          : ''}
+        <span class="settings-status" data-error></span>
+      </div>
+    </form>
+
+    <div style="${SECTION_HEADER_STYLE}">AI behavior</div>
+    <form class="settings-section" data-form="settings">
+      <h3>Context window</h3>
+      <div class="settings-row">
+        <label class="field-label" for="set-ctx">
+          Recent messages
+          <span class="desc">How many recent messages get attached to the AI prompt as context. Used by the row sparkle button and "Draft with context". Per-thread overrides still work via the slider in the thread toolbar.</span>
+        </label>
+        <div class="field-input">
+          <input id="set-ctx" type="number" name="ai_context_count" min="${ccBounds.min}" max="${ccBounds.max}" value="${cc}" required />
+          <span class="unit">messages · range ${ccBounds.min}–${ccBounds.max}</span>
+        </div>
+      </div>
+      <div class="settings-actions">
+        <button type="submit" class="btn primary">Save</button>
+        <button type="button" class="btn ghost" data-action="reset-settings">Reset to defaults</button>
+        <span class="settings-status" data-error></span>
+      </div>
+    </form>
+
+    <div style="${SECTION_HEADER_STYLE}">Voice</div>
+    <form class="settings-section" data-form="voice-profile">
+      <h3>Voice profile</h3>
+
+      <div class="settings-row">
+        <label class="field-label" for="vp-sample">
+          Sample size
+          <span class="desc">How many of your most recent sent messages to read when (re)generating. Larger = more evidence, more tokens. Range ${vpSampleBounds.min}–${vpSampleBounds.max}.</span>
+        </label>
+        <div class="field-input">
+          <input id="vp-sample" type="number" name="voice_profile_sample_count" min="${vpSampleBounds.min}" max="${vpSampleBounds.max}" value="${settingsCache.voice_profile_sample_count}" />
+          <span class="unit">messages</span>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <label class="field-label" for="vp-context">
+          Your context
+          <span class="desc">Optional guidance the model should know when profiling you (e.g. "I'm 30, work in tech, southern, casual"). Persists across regenerations. Leave blank to skip.</span>
+        </label>
+        <textarea id="vp-context" name="voice_profile_user_context" rows="3" placeholder="Optional…">${escapeHtml(settingsCache.voice_profile_user_context || '')}</textarea>
+      </div>
+
+      <div class="settings-row" style="grid-template-columns: 1fr;">
+        <div>
+          <div class="voice-meta">Voice profile <span class="accent">// fed into every AI draft prompt</span> · last updated: ${escapeHtml(vpUpdatedLabel)}</div>
+          <textarea name="voice_profile" class="mono" rows="14" placeholder="Empty. Click 'Regenerate from chat.db' to produce one, or paste/edit your own.">${escapeHtml(settingsCache.voice_profile || '')}</textarea>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <button type="submit" class="btn primary">Save edits</button>
+        <button type="button" class="btn" data-action="vp-regenerate">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
+          Regenerate from chat.db
+        </button>
+        <span class="settings-status" data-error></span>
+      </div>
+    </form>
+
+    <div style="${SECTION_HEADER_STYLE}">System</div>
     <div class="settings-section">
-      <h3>System</h3>
+      <h3>Status</h3>
       ${sysRows}
     </div>
   `;

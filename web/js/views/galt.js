@@ -1,47 +1,22 @@
-// Galt — the master config page for the AI persona itself. Galt is the
-// single voice that interacts across every mode (away, summon, future
-// modes); this page is where you configure who Galt is and how Galt
-// behaves. Per-feature pages (Away, Summon, …) own activation + safety
-// caps and link out here for any persona / prompt content edits.
+// Galt — the master prompts page for the AI persona. Galt is the single
+// voice that interacts across every mode (away, summon, future modes);
+// this page is where you control HOW Galt is told to behave at every
+// prompt slot the AI layer assembles.
 //
-// Sections:
-//   1. OpenAI         — API key + model override (drives all of Galt's AI)
-//   2. AI behavior    — context window (how much thread history Galt sees)
-//   3. Voice profile  — distilled prose describing how YOU write; Galt uses
-//                       it when impersonating you (away mode, drafts).
-//   4. Prompts        — every user-editable prompt (away greeting/persona,
-//                       summon persona, summon full-prompt override). The
-//                       prompts section is registry-driven (PROMPT_REGISTRY) —
-//                       adding a prompt = appending an entry, no other
-//                       changes here or in actions.js.
+// What's here: the registry of every user-editable prompt — away/summon
+// per-mode prompts, the universal draft system prompt, and the data-
+// injection wrappers. Each field shows a "Show built-in default" pane
+// so the actual fallback text is visible; an empty textarea means the
+// fallback runs.
 //
-// System status (chat.db / app.db / watcher / server / OpenAI reachability)
-// stays on #/settings — that's about infrastructure, not about Galt.
-//
-// Out of scope (intentional): hard-coded built-in prompts in server/ai.ts
-// (CLASSIFY_SYSTEM, DRAFT_SYSTEM, AUTO_NOTE_SYSTEM, …). Exposing those is a
-// separate decision, not "consolidation" of what's already user-editable.
+// What's NOT here: OpenAI API key, model override, AI context window,
+// the user's voice profile, system status. All of that is account- /
+// system-level configuration and lives on #/settings.
 
-import { api, fetchSettings } from '../api.js';
-import { setMainHeader } from '../shell.js';
 import { escapeHtml } from '../utils.js';
-import {
-  settingsCache, settingsBounds, promptDefaults,
-  setSettingsCache, setSettingsBounds, setPromptDefaults,
-} from '../state.js';
-
-/** Pull settings + bounds + prompt defaults from the server, merge into state.
- *  Exported because main.js calls it at boot, and other views (Settings,
- *  Home) may want fresh values. Lives here because Galt is the primary
- *  surface that consumes them. */
-export async function refreshSettings() {
-  try {
-    const r = await fetchSettings();
-    if (r.settings) setSettingsCache(r.settings);
-    if (r.bounds) setSettingsBounds(r.bounds);
-    if (r.prompt_defaults) setPromptDefaults(r.prompt_defaults);
-  } catch { /* keep prior cache */ }
-}
+import { setMainHeader } from '../shell.js';
+import { settingsCache, promptDefaults } from '../state.js';
+import { refreshSettings } from './settings.js';
 
 /* ---------- prompts registry ---------- */
 //
@@ -289,155 +264,30 @@ function renderPromptSection(sectionKey) {
 
 /* ---------- top-level render ---------- */
 
-const SECTION_HEADER_STYLE =
-  'padding: 8px 0 14px 0; font-weight: 600; color: var(--text); ' +
-  'letter-spacing: 0.06em; text-transform: uppercase; font-size: 11px;';
-
 export async function renderGaltView() {
   setMainHeader({
     title: 'Galt',
-    subHTML: '<span class="accent">the AI persona</span> · master config for who Galt is and how Galt behaves across every mode',
+    subHTML: '<span class="accent">prompts</span> · every user-editable prompt that the AI layer assembles · system / account config on <a href="#/settings">Settings</a>',
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;
 
-  // Load fresh settings + the effective model from /api/health (the model
-  // shown in the "currently using" hint comes from the live server, not
-  // the saved override). Both are best-effort.
-  const [, health] = await Promise.all([
-    refreshSettings(),
-    api('/api/health').catch(() => null),
-  ]);
-
-  // ----- AI section data -----
-  const cc = settingsCache.ai_context_count;
-  const ccBounds = settingsBounds.ai_context_count || { min: 1, max: 100 };
-
-  // ----- OpenAI section data (key is masked, never sent down) -----
-  const oaSet = !!settingsCache.openai_api_key_set;
-  const oaLast4 = settingsCache.openai_api_key_last4 || '';
-  const oaSource = settingsCache.openai_api_key_source || 'none';
-  const oaModel = settingsCache.openai_model || '';
-  const oaModelEffective = (health && health.openai_model) || 'gpt-4o-mini';
-
-  // ----- Voice profile section data -----
-  const vpUpdated = settingsCache.voice_profile_updated_at;
-  const vpUpdatedLabel = vpUpdated > 0
-    ? new Date(vpUpdated).toLocaleString()
-    : 'never';
-  const vpSampleBounds = settingsBounds.voice_profile_sample_count || { min: 50, max: 2000 };
+  // Pull fresh settings + prompt defaults so each field renders with its
+  // current value AND the read-only built-in default below it.
+  await refreshSettings();
 
   list.innerHTML = `
     <div class="desc" style="padding: 4px 0 18px 0; max-width: 720px;">
-      Galt is the AI persona that interacts across the system — covering for you in away mode,
-      joining you in summon mode, and (over time) any other surface where the assistant talks.
-      This page is Galt's home: API key, model, behavior, voice, and every user-editable prompt.
-      System status (chat.db, app.db, watcher) lives on
-      <a href="#/settings">Settings</a>.
+      Every prompt fragment the AI layer ships with is exposed below. An
+      empty textarea means the built-in default (collapsible under each
+      field) is what runs. Type anything and your text replaces the
+      default — with <code>{placeholder}</code> substitution where applicable.
+      Mode-level settings (toggle, trigger phrase, contact whitelist, etc.)
+      live on <a href="#/away">Away</a> and <a href="#/summon">Summon</a>.
+      OpenAI key, model, AI context window, and your voice profile live
+      on <a href="#/settings">Settings</a>.
     </div>
 
-    <div style="${SECTION_HEADER_STYLE}">OpenAI</div>
-    <form class="settings-section" data-form="openai">
-      <h3>API key &amp; model</h3>
-      <div class="settings-row">
-        <label class="field-label">
-          Status
-          <span class="desc">Where the active API key is coming from. A key set here (in app.db) overrides whatever's in .env.</span>
-        </label>
-        <div class="field-readonly">
-          ${oaSet
-            ? `<span class="ok">✓ key configured</span> · last 4: <code>${escapeHtml(oaLast4)}</code> · source: <code>${escapeHtml(oaSource)}</code>`
-            : '<span class="warn">✗ no key configured</span> · AI features will return 503 until you add one'}
-        </div>
-      </div>
-      <div class="settings-row">
-        <label class="field-label" for="oa-key">
-          API key
-          <span class="desc">Paste your OpenAI API key. Stored in app.db, never sent anywhere except api.openai.com. Get one at platform.openai.com/api-keys.</span>
-        </label>
-        <div class="field-input">
-          <input id="oa-key" type="password" name="openai_api_key" placeholder="${oaSet ? '•••• ' + escapeHtml(oaLast4) + ' (paste a new key to replace)' : 'sk-...'}" autocomplete="off" />
-        </div>
-      </div>
-      <div class="settings-row">
-        <label class="field-label" for="oa-model">
-          Model override
-          <span class="desc">Optional. Leave blank to use the .env value (currently: <code>${escapeHtml(oaModelEffective)}</code>). Common values: <code>gpt-4o-mini</code>, <code>gpt-4o</code>.</span>
-        </label>
-        <div class="field-input">
-          <input id="oa-model" type="text" name="openai_model" placeholder="(use .env default)" value="${escapeHtml(oaModel)}" />
-        </div>
-      </div>
-      <div class="settings-actions">
-        <button type="submit" class="btn primary">Save</button>
-        ${oaSet && oaSource === 'settings'
-          ? '<button type="button" class="btn ghost" data-action="oa-clear-key">Clear key</button>'
-          : ''}
-        <span class="settings-status" data-error></span>
-      </div>
-    </form>
-
-    <div style="${SECTION_HEADER_STYLE}">AI behavior</div>
-    <form class="settings-section" data-form="settings">
-      <h3>Context window</h3>
-      <div class="settings-row">
-        <label class="field-label" for="set-ctx">
-          Recent messages
-          <span class="desc">How many recent messages get attached to the AI prompt as context. Used by the row sparkle button and "Draft with context". Per-thread overrides still work via the slider in the thread toolbar.</span>
-        </label>
-        <div class="field-input">
-          <input id="set-ctx" type="number" name="ai_context_count" min="${ccBounds.min}" max="${ccBounds.max}" value="${cc}" required />
-          <span class="unit">messages · range ${ccBounds.min}–${ccBounds.max}</span>
-        </div>
-      </div>
-      <div class="settings-actions">
-        <button type="submit" class="btn primary">Save</button>
-        <button type="button" class="btn ghost" data-action="reset-settings">Reset to defaults</button>
-        <span class="settings-status" data-error></span>
-      </div>
-    </form>
-
-    <div style="${SECTION_HEADER_STYLE}">Voice</div>
-    <form class="settings-section" data-form="voice-profile">
-      <h3>Voice profile</h3>
-
-      <div class="settings-row">
-        <label class="field-label" for="vp-sample">
-          Sample size
-          <span class="desc">How many of your most recent sent messages to read when (re)generating. Larger = more evidence, more tokens. Range ${vpSampleBounds.min}–${vpSampleBounds.max}.</span>
-        </label>
-        <div class="field-input">
-          <input id="vp-sample" type="number" name="voice_profile_sample_count" min="${vpSampleBounds.min}" max="${vpSampleBounds.max}" value="${settingsCache.voice_profile_sample_count}" />
-          <span class="unit">messages</span>
-        </div>
-      </div>
-
-      <div class="settings-row">
-        <label class="field-label" for="vp-context">
-          Your context
-          <span class="desc">Optional guidance the model should know when profiling you (e.g. "I'm 30, work in tech, southern, casual"). Persists across regenerations. Leave blank to skip.</span>
-        </label>
-        <textarea id="vp-context" name="voice_profile_user_context" rows="3" placeholder="Optional…">${escapeHtml(settingsCache.voice_profile_user_context || '')}</textarea>
-      </div>
-
-      <div class="settings-row" style="grid-template-columns: 1fr;">
-        <div>
-          <div class="voice-meta">Voice profile <span class="accent">// fed into every AI draft prompt</span> · last updated: ${escapeHtml(vpUpdatedLabel)}</div>
-          <textarea name="voice_profile" class="mono" rows="14" placeholder="Empty. Click 'Regenerate from chat.db' to produce one, or paste/edit your own.">${escapeHtml(settingsCache.voice_profile || '')}</textarea>
-        </div>
-      </div>
-
-      <div class="settings-actions">
-        <button type="submit" class="btn primary">Save edits</button>
-        <button type="button" class="btn" data-action="vp-regenerate">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
-          Regenerate from chat.db
-        </button>
-        <span class="settings-status" data-error></span>
-      </div>
-    </form>
-
-    <div style="${SECTION_HEADER_STYLE}">Prompts</div>
     ${renderPromptSection('away')}
     ${renderPromptSection('summon')}
     ${renderPromptSection('universal')}
