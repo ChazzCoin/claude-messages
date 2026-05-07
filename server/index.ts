@@ -460,6 +460,51 @@ app.post(
   }),
 );
 
+/**
+ * Direct send — for user-typed messages where no draft exists. Bypasses the
+ * approval queue (the user typed it themselves and clicked Send; no second
+ * confirmation needed). Records as a draft with status='sent' immediately so
+ * it shows up in stats/history exactly like an approved AI draft.
+ *
+ * Body: { chat_id: number, body: string, handle?: string, reasoning?: string }
+ * Returns: { draft }   (the sent record)
+ */
+app.post(
+  '/api/send',
+  asyncHandler(async (req, res) => {
+    const chatId = parseInt(req.body?.chat_id, 10);
+    const body = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+    if (!Number.isFinite(chatId) || !body) {
+      return res.status(400).json({ error: 'chat_id and body required' });
+    }
+    let handle = normalizeHandle(req.body?.handle);
+    if (!handle) {
+      try {
+        const db = getChatDb();
+        const row = db.prepare('SELECT chat_identifier FROM chat WHERE ROWID = ?').get(chatId) as
+          | { chat_identifier: string }
+          | undefined;
+        if (!row) return res.status(404).json({ error: `chat ${chatId} not found` });
+        handle = row.chat_identifier;
+      } catch (err) {
+        return res.status(500).json({ error: `chat lookup failed: ${(err as Error).message}` });
+      }
+    }
+
+    // AppleScript first — if it throws, no draft is created (no fake history).
+    await sendMessageViaAppleScript(handle, body);
+
+    const sourceGuid = `direct-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const reasoning =
+      typeof req.body?.reasoning === 'string' && req.body.reasoning.length > 0
+        ? req.body.reasoning
+        : 'direct send (user-typed, no AI)';
+    const draft = createDraft({ source_msg_guid: sourceGuid, chat_id: chatId, handle, body, reasoning });
+    const sent = updateDraftStatus(draft.id, 'sent');
+    return res.json({ draft: enrichDraft(sent) });
+  }),
+);
+
 /* ---------- SSE: live message stream ---------- */
 
 type SSEClient = Response;
