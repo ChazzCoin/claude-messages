@@ -246,6 +246,17 @@ function renderConfigPanel(contacts) {
               </div>
             </div>
 
+            <div class="config-field">
+              <label class="config-label">
+                Realistic send delay
+                <span class="desc">insert a humanizing pause (a few seconds, scaled by reply length) before each auto-send so it doesn't feel robotically instant. Aborts if you reply yourself during the delay.</span>
+              </label>
+              <label class="config-inline" style="cursor:pointer;">
+                <input type="checkbox" name="away_send_delay_enabled" ${settingsCache.away_send_delay_enabled ? 'checked' : ''} />
+                <span class="desc">on (recommended)</span>
+              </label>
+            </div>
+
             <div class="config-actions">
               <button type="submit" class="btn primary">Save changes</button>
               <span class="settings-status" data-error></span>

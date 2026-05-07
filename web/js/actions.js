@@ -794,12 +794,15 @@ async function onSubmit(e) {
         setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
       }
     } else if (kind === 'away-config') {
+      // Checkbox: missing key in form data = unchecked. Coerce to bool.
+      const delayEnabled = data.away_send_delay_enabled === 'on' ? 1 : 0;
       const r = await api('/api/settings', {
         method: 'PUT',
         body: {
           away_message: data.away_message || '',
           away_persona: data.away_persona || '',
           away_max_replies_per_session: parseInt(data.away_max_replies_per_session, 10),
+          away_send_delay_enabled: delayEnabled,
         },
       });
       if (r.settings) setSettingsCache(r.settings);

@@ -1368,6 +1368,30 @@ app.post(
 const recentAwayAutoSends = new Map<string, Set<string>>();
 const AWAY_ECHO_TTL_MS = 60_000;
 
+/**
+ * Humanizing delay before each away-mode auto-send. Without this, replies
+ * arrive instantly — uncanny-valley territory. The delay scales with reply
+ * length (longer "typing"), with random jitter so it's not robotically
+ * uniform, and is clamped so very long replies don't take forever.
+ *
+ * Profile (50 wpm-ish):
+ *   30 chars  ≈  2.0–3.5s
+ *   100 chars ≈  3.5–6.5s
+ *   200 chars ≈  5.5–10s
+ *   500+ chars capped at 15s
+ */
+function naturalSendDelayMs(body: string): number {
+  const charsPerSec = 33; // ~50 wpm
+  const baseMs = 2000;
+  const total = baseMs + (body.length / charsPerSec) * 1000;
+  const jittered = total * (0.75 + Math.random() * 0.5); // ±25%
+  return Math.max(1500, Math.min(15000, Math.round(jittered)));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
 function trackAwayAutoSend(handle: string, body: string): void {
   let set = recentAwayAutoSends.get(handle);
   if (!set) {
@@ -1526,6 +1550,20 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       return;
     }
     try {
+      // Humanizing delay before send. If the user replies (or away mode is
+      // toggled off, or another inbound creates a session for this handle)
+      // during the delay, abort to avoid the queued greeting landing late.
+      if (settings.away_send_delay_enabled) {
+        const delay = naturalSendDelayMs(greeting);
+        console.log(`[away] greeting to ${msg.handle} delayed ${delay}ms`);
+        await sleep(delay);
+        const stillNoSession = !getActiveAwaySession(msg.handle);
+        const stillEnabled = !!getSettings().away_mode_enabled;
+        if (!stillNoSession || !stillEnabled) {
+          console.log(`[away] aborting queued greeting for ${msg.handle} (state changed during delay)`);
+          return;
+        }
+      }
       trackAwayAutoSend(msg.handle, greeting); // mark BEFORE send so the echo race doesn't end the session
       await sendMessageViaAppleScript(msg.handle, greeting);
       const newSession = createAwaySession(msg.handle);
@@ -1581,6 +1619,24 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     if (!usable) {
       console.log('[away] model returned SKIP for continuation — staying silent');
       return;
+    }
+
+    // Humanizing delay before send. If the user replies during the delay
+    // (or away mode is toggled off, or session ends for any reason), abort
+    // — the queued AI reply landing AFTER the user's typed reply would be
+    // confusing and contradictory.
+    if (settings.away_send_delay_enabled) {
+      const delay = naturalSendDelayMs(usable.body);
+      console.log(`[away] continuation to ${msg.handle} (session ${session.id}) delayed ${delay}ms`);
+      await sleep(delay);
+      const current = getActiveAwaySession(msg.handle);
+      const stillEnabled = !!getSettings().away_mode_enabled;
+      if (!current || current.id !== session.id || current.status === 'ended' || !stillEnabled) {
+        console.log(
+          `[away] aborting queued continuation for session ${session.id} (state changed during delay)`,
+        );
+        return;
+      }
     }
 
     trackAwayAutoSend(msg.handle, usable.body); // mark BEFORE send so the echo race doesn't end the session

@@ -276,6 +276,9 @@ export interface AppSettings {
    *  This shapes how the AI BEHAVES while covering — banter level, deflection
    *  style, jokes, how to handle "are you really an AI?" etc. */
   away_persona: string;
+  /** Insert a humanizing pause before each away-mode auto-send so replies
+   *  don't feel robotically instant. 0/1 (treated as bool). Default 1. */
+  away_send_delay_enabled: number;
   /** OpenAI API key. When set, takes precedence over the OPENAI_API_KEY env
    *  var. Stored locally in app.db so users can configure AI from the
    *  Settings UI instead of editing .env. NEVER returned by /api/settings —
@@ -296,6 +299,7 @@ const SETTING_DEFAULTS: AppSettings = {
     "I'm currently away. — this is Chazz's AI, designed to mimic him while he's not here. Feel free to keep chatting and I'll do my best to keep things going in his voice. He'll catch up when he's back.",
   away_max_replies_per_session: 50,
   away_persona: '',
+  away_send_delay_enabled: 1,
   openai_api_key: '',
   openai_model: '',
 };
@@ -339,6 +343,10 @@ export function getSettings(): AppSettings {
       SETTING_DEFAULTS.away_max_replies_per_session,
     ),
     away_persona: getState('away_persona') ?? SETTING_DEFAULTS.away_persona,
+    away_send_delay_enabled: parseIntOr(
+      getState('away_send_delay_enabled'),
+      SETTING_DEFAULTS.away_send_delay_enabled,
+    ),
     openai_api_key: getState('openai_api_key') ?? SETTING_DEFAULTS.openai_api_key,
     openai_model: getState('openai_model') ?? SETTING_DEFAULTS.openai_model,
   };
@@ -380,6 +388,9 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.away_persona !== undefined) {
     setState('away_persona', String(patch.away_persona));
+  }
+  if (patch.away_send_delay_enabled !== undefined) {
+    setState('away_send_delay_enabled', String(patch.away_send_delay_enabled ? 1 : 0));
   }
   if (patch.openai_api_key !== undefined) {
     // Trim whitespace; an empty string clears the key (falls back to env var).
