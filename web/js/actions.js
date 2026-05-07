@@ -234,6 +234,21 @@ async function onClick(e) {
     } catch (err) { alert(`end failed: ${err.message}`); }
     return;
   }
+  if (action === 'end-summon-session') {
+    const id = parseInt(btn.dataset.id, 10);
+    if (!Number.isFinite(id)) return;
+    if (!confirm('Dismiss Galt from this conversation?')) return;
+    try {
+      await api(`/api/summon/sessions/${id}`, { method: 'DELETE' });
+      // Re-render whichever view is up — could be away page or home.
+      if (currentView === 'away') await renderAwayView();
+      else if (currentView === 'home') {
+        const { renderHomeView } = await import('./views/home.js');
+        await renderHomeView();
+      }
+    } catch (err) { alert(`dismiss failed: ${err.message}`); }
+    return;
+  }
   if (action === 'review-away-note') {
     const id = parseInt(btn.dataset.id, 10);
     if (!Number.isFinite(id)) return;
@@ -786,6 +801,30 @@ async function onSubmit(e) {
       const r = await api('/api/settings', {
         method: 'PUT',
         body: { away_message: data.away_message || '' },
+      });
+      if (r.settings) setSettingsCache(r.settings);
+      if (errEl) {
+        errEl.classList.add('ok');
+        errEl.textContent = '✓ saved';
+        setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+      }
+    } else if (kind === 'summon-config') {
+      // Checkbox: missing key in form data = unchecked. Coerce to bool.
+      const summonOn = data.summon_enabled === 'on' ? 1 : 0;
+      const trigger = (data.summon_trigger_phrase || '').trim();
+      const endP = (data.summon_end_phrase || '').trim();
+      if (!trigger) throw new Error('Trigger phrase cannot be empty');
+      if (!endP) throw new Error('End phrase cannot be empty');
+      const r = await api('/api/settings', {
+        method: 'PUT',
+        body: {
+          summon_enabled: summonOn,
+          summon_trigger_phrase: trigger,
+          summon_end_phrase: endP,
+          summon_persona: data.summon_persona || '',
+          summon_max_replies_per_session: parseInt(data.summon_max_replies_per_session, 10),
+          summon_idle_timeout_min: parseInt(data.summon_idle_timeout_min, 10),
+        },
       });
       if (r.settings) setSettingsCache(r.settings);
       if (errEl) {

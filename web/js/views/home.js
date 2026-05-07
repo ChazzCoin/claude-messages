@@ -67,6 +67,41 @@ function awayPanel() {
   `;
 }
 
+function summonPanel(activeSessions) {
+  const enabled = !!settingsCache.summon_enabled;
+  const trigger = settingsCache.summon_trigger_phrase || 'GALT!!';
+  const endP = settingsCache.summon_end_phrase || 'go away galt';
+  const activeBlock = activeSessions.length === 0
+    ? `<div class="empty-row" style="padding:6px 0;">no active summon sessions — type <code>${escapeHtml(trigger)}</code> in any chat to invoke Galt</div>`
+    : activeSessions.map((s) => `
+        <div class="home-summon-row">
+          <span class="session-pulse"></span>
+          <div class="home-summon-text">
+            <div class="home-summon-name">${escapeHtml(s.contact_name || s.handle)}</div>
+            <div class="home-summon-meta">${s.ai_reply_count} ${s.ai_reply_count === 1 ? 'reply' : 'replies'} · started ${escapeHtml(/* relTime */ ((Date.now() - s.started_at) / 60000).toFixed(0) + 'm ago')}</div>
+          </div>
+          <button class="btn ghost small" data-action="end-summon-session" data-id="${s.id}">Dismiss</button>
+        </div>
+      `).join('');
+  return `
+    <div class="home-panel summon-panel ${activeSessions.length > 0 ? 'on' : ''}">
+      <div class="home-panel-head">
+        <h3>Summon mode</h3>
+        <span class="home-panel-link" style="cursor:default;">${enabled ? 'enabled' : 'disabled'}</span>
+      </div>
+      <div class="home-panel-sub">
+        ${activeSessions.length > 0
+          ? `<span class="ok">● ${activeSessions.length} active</span> · Galt is in conversation`
+          : `Type <code>${escapeHtml(trigger)}</code> in any chat to invoke Galt · <code>${escapeHtml(endP)}</code> to dismiss`}
+      </div>
+      ${activeBlock}
+      <div class="home-panel-actions">
+        <a class="btn ghost" data-action="open-away">Configure summon →</a>
+      </div>
+    </div>
+  `;
+}
+
 function awayNoteCard(n) {
   const sender = n.contact_name || n.handle;
   const time = relTime(n.created_at);
@@ -114,19 +149,22 @@ export async function renderHomeView() {
   if (!list) return;
   list.innerHTML = '<div class="empty"><div class="empty-title">loading…</div></div>';
 
-  // Pull everything in parallel — page paints once when all four resolve.
+  // Pull everything in parallel — page paints once when all five resolve.
   let chats = [];
   let notes = [];
   let proposals = [];
+  let activeSummon = [];
   try {
-    const [c, n, cal] = await Promise.all([
+    const [c, n, cal, summ] = await Promise.all([
       api('/api/chats?limit=6'),
       api('/api/away/notes?reviewed=false&limit=5'),
       api('/api/calendar/proposals?status=pending&limit=5'),
+      api('/api/summon/sessions?active=true&limit=20'),
     ]);
     chats = c.chats || [];
     notes = n.notes || [];
     proposals = cal.proposals || [];
+    activeSummon = summ.sessions || [];
     // Cache chats so 'open-thread' actions can resolve handle→id from anywhere.
     if (chats.length) setChatsCache(chats);
   } catch (err) {
@@ -157,6 +195,8 @@ export async function renderHomeView() {
       </div>
 
       ${awayPanel()}
+
+      ${summonPanel(activeSummon)}
 
       <div class="home-panel">
         <div class="home-panel-head">

@@ -122,6 +122,36 @@ export function connectSSE() {
       console.log(`[away:note] ${cat} from ${sender}: ${data?.note?.summary}`);
     });
 
+    /* ---------- summon mode ---------- */
+    const refreshOnSummonChange = async () => {
+      if (currentView === 'away') await renderAwayView();
+      else if (currentView === 'home') {
+        const { renderHomeView } = await import('./views/home.js');
+        await renderHomeView();
+      }
+    };
+    sse.addEventListener('summon.session_started', async (e) => {
+      let data;
+      try { data = JSON.parse(e.data); } catch { return; }
+      console.log(`[summon] session ${data?.session?.id} opened with ${data?.session?.contact_name || data?.session?.handle}`);
+      await refreshOnSummonChange();
+    });
+    sse.addEventListener('summon.replied', async (e) => {
+      let data;
+      try { data = JSON.parse(e.data); } catch { return; }
+      console.log(`[summon] reply ${data?.session?.ai_reply_count} sent in session ${data?.session?.id}`);
+      await refreshOnSummonChange();
+    });
+    sse.addEventListener('summon.session_ended', async (e) => {
+      let data;
+      try { data = JSON.parse(e.data); } catch { return; }
+      console.log(`[summon] session ${data?.session?.id} ended (${data?.reason})`);
+      await refreshOnSummonChange();
+    });
+    sse.addEventListener('summon.globally_disabled', async () => {
+      await refreshOnSummonChange();
+    });
+
     sse.onerror = () => {
       console.warn('[sse] disconnected, reconnecting…');
     };

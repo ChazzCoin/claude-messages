@@ -213,7 +213,7 @@ function renderConfigPanel(contacts) {
     <section class="away-section">
       <details class="away-collapsible">
         <summary>
-          <span>Configuration</span>
+          <span>Away mode configuration</span>
           <span class="config-summary-meta">greeting · persona · safety cap · ${contacts.length} contact${contacts.length === 1 ? '' : 's'}</span>
         </summary>
 
@@ -286,13 +286,156 @@ function renderConfigPanel(contacts) {
   `;
 }
 
+/* ---------- summon mode block (config + active + past) ---------- */
+
+function renderSummonSessionRow(s, { compact = false } = {}) {
+  const name = s.contact_name || s.handle;
+  const isActive = s.status === 'active';
+  if (compact) {
+    return `
+      <div class="away-row ${isActive ? 'active' : 'ended'}" data-summon-id="${s.id}">
+        <span class="away-row-dot"></span>
+        <span class="away-row-name">${escapeHtml(name)}</span>
+        <span class="away-row-meta">${s.ai_reply_count} ${s.ai_reply_count === 1 ? 'reply' : 'replies'}${s.ended_reason ? ' · ended: ' + escapeHtml(s.ended_reason) : ''}</span>
+        <span class="away-row-time">${escapeHtml(relTime(s.started_at))}</span>
+      </div>
+    `;
+  }
+  return `
+    <div class="away-session-card active" data-summon-id="${s.id}">
+      <div class="session-pulse"></div>
+      <div class="session-card-body">
+        <div class="session-card-name">${escapeHtml(name)}</div>
+        <div class="session-card-meta">${escapeHtml(s.handle)} · summoned ${escapeHtml(relTime(s.started_at))}</div>
+        <div class="session-card-stats">
+          <span class="status-tag replying">summoned</span>
+          <span>${s.ai_reply_count} ${s.ai_reply_count === 1 ? 'reply' : 'replies'}</span>
+          ${s.last_ai_reply_at ? `<span>last ${escapeHtml(relTime(s.last_ai_reply_at))}</span>` : ''}
+        </div>
+      </div>
+      <button class="btn ghost" data-action="end-summon-session" data-id="${s.id}">Dismiss Galt</button>
+    </div>
+  `;
+}
+
+function renderSummonBlock(activeSessions, pastSessions) {
+  const enabled = !!settingsCache.summon_enabled;
+  const max = settingsBounds.summon_max_replies_per_session?.max || 200;
+  const min = settingsBounds.summon_max_replies_per_session?.min || 1;
+  const idleMax = settingsBounds.summon_idle_timeout_min?.max || 720;
+  const idleMin = settingsBounds.summon_idle_timeout_min?.min || 1;
+
+  const activeBlock = activeSessions.length === 0
+    ? ''
+    : `
+      <div class="away-active-list" style="margin-bottom: 12px;">
+        ${activeSessions.map((s) => renderSummonSessionRow(s)).join('')}
+      </div>
+    `;
+
+  const pastBlock = pastSessions.length === 0
+    ? ''
+    : `
+      <details class="away-collapsible" style="margin-top: 10px;">
+        <summary>
+          <span>Past summon sessions</span>
+          <span class="count">${pastSessions.length}</span>
+        </summary>
+        <div class="away-past-list">
+          ${pastSessions.map((s) => renderSummonSessionRow(s, { compact: true })).join('')}
+        </div>
+      </details>
+    `;
+
+  const summary = `${enabled ? 'on' : 'off'} · trigger "${escapeHtml(settingsCache.summon_trigger_phrase || '')}" · ${activeSessions.length} active`;
+
+  return `
+    <section class="away-section">
+      <details class="away-collapsible" ${activeSessions.length > 0 ? 'open' : ''}>
+        <summary>
+          <span>Summon mode</span>
+          <span class="config-summary-meta">${summary}</span>
+        </summary>
+
+        ${activeBlock}
+
+        <form class="away-config-form" data-form="summon-config">
+          <div class="config-field">
+            <label class="config-label">
+              Master switch
+              <span class="desc">when off, the trigger phrase does nothing. Disabling globally ends every active summon session.</span>
+            </label>
+            <label class="config-inline" style="cursor:pointer;">
+              <input type="checkbox" name="summon_enabled" ${enabled ? 'checked' : ''} />
+              <span class="desc">${enabled ? 'on' : 'off'}</span>
+            </label>
+          </div>
+
+          <div class="config-field">
+            <label class="config-label">
+              Trigger phrase
+              <span class="desc">type this anywhere in a message to summon Galt into the chat. Strict, case-sensitive substring match. Default <code>GALT!!</code></span>
+            </label>
+            <input type="text" name="summon_trigger_phrase" value="${escapeHtml(settingsCache.summon_trigger_phrase || '')}" autocomplete="off" />
+          </div>
+
+          <div class="config-field">
+            <label class="config-label">
+              End phrase
+              <span class="desc">type this to dismiss Galt. Case-insensitive substring. Default <code>go away galt</code></span>
+            </label>
+            <input type="text" name="summon_end_phrase" value="${escapeHtml(settingsCache.summon_end_phrase || '')}" autocomplete="off" />
+          </div>
+
+          <div class="config-field">
+            <label class="config-label">
+              Persona
+              <span class="desc">how Galt should behave AS THEMSELVES while summoned. Distinct from away persona — here Galt is a third voice you pulled in, not pretending to be you.</span>
+            </label>
+            <textarea name="summon_persona" rows="4" placeholder="e.g. 'be helpful but not stiff. crack a joke when it fits. keep replies short — iMessage register, not essay-length. push back if i'm being dumb.'">${escapeHtml(settingsCache.summon_persona || '')}</textarea>
+          </div>
+
+          <div class="config-field">
+            <label class="config-label">
+              Safety cap
+              <span class="desc">Galt auto-ends a session after this many replies in it</span>
+            </label>
+            <div class="config-inline">
+              <input type="number" name="summon_max_replies_per_session" min="${min}" max="${max}" value="${settingsCache.summon_max_replies_per_session}" />
+              <span class="desc">replies per session</span>
+            </div>
+          </div>
+
+          <div class="config-field">
+            <label class="config-label">
+              Idle timeout
+              <span class="desc">if no messages flow in the chat for this long, the session auto-ends</span>
+            </label>
+            <div class="config-inline">
+              <input type="number" name="summon_idle_timeout_min" min="${idleMin}" max="${idleMax}" value="${settingsCache.summon_idle_timeout_min}" />
+              <span class="desc">minutes</span>
+            </div>
+          </div>
+
+          <div class="config-actions">
+            <button type="submit" class="btn primary">Save changes</button>
+            <span class="settings-status" data-error></span>
+          </div>
+        </form>
+
+        ${pastBlock}
+      </details>
+    </section>
+  `;
+}
+
 export async function renderAwayView() {
   const enabled = !!settingsCache.away_mode_enabled;
   setMainHeader({
-    title: 'Away mode',
+    title: 'Galt',
     subHTML: enabled
-      ? '<span class="accent" style="color: var(--yellow);">● ACTIVE</span> · the AI is auto-responding for opted-in contacts'
-      : '<span class="accent">off</span> · auto-responder is disabled',
+      ? '<span class="accent" style="color: var(--yellow);">● AWAY ACTIVE</span> · the AI is auto-responding for opted-in contacts'
+      : '<span class="accent">away off</span> · summon to invoke Galt mid-conversation, or toggle away mode to auto-cover',
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;
@@ -300,15 +443,18 @@ export async function renderAwayView() {
   let contacts = [];
   let sessions = [];
   let notesData = { notes: [], unreviewed: 0 };
+  let summonSessions = [];
   try {
-    const [c, s, n] = await Promise.all([
+    const [c, s, n, ss] = await Promise.all([
       api('/api/away/contacts'),
       api('/api/away/sessions?limit=100'),
       api('/api/away/notes?limit=200'),
+      api('/api/summon/sessions?limit=50'),
     ]);
     contacts = c.contacts || [];
     sessions = s.sessions || [];
     notesData = { notes: n.notes || [], unreviewed: n.unreviewed ?? 0 };
+    summonSessions = ss.sessions || [];
     setAwayUnreviewedNotes(notesData.unreviewed);
     updateAwayNavBadge();
   } catch (err) {
@@ -318,12 +464,15 @@ export async function renderAwayView() {
 
   const activeSessions = sessions.filter((s) => s.status !== 'ended');
   const pastSessions = sessions.filter((s) => s.status === 'ended').slice(0, 30);
+  const activeSummon = summonSessions.filter((s) => s.status === 'active');
+  const pastSummon = summonSessions.filter((s) => s.status === 'ended').slice(0, 30);
 
   list.innerHTML = `
     ${renderStatusBanner(enabled, activeSessions.length, notesData.unreviewed)}
     ${renderActiveSessionsPanel(activeSessions)}
     ${renderNotesPanel(notesData.notes, notesData.unreviewed)}
     ${renderPastSessionsPanel(pastSessions)}
+    ${renderSummonBlock(activeSummon, pastSummon)}
     ${renderConfigPanel(contacts)}
   `;
 }
