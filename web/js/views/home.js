@@ -90,7 +90,7 @@ function summonPanel(activeSessions) {
     <div class="home-panel summon-panel ${activeSessions.length > 0 ? 'on' : ''}">
       <div class="home-panel-head">
         <h3>Summon mode</h3>
-        <span class="home-panel-link" style="cursor:default;">${enabled ? 'enabled' : 'disabled'}</span>
+        <div class="away-toggle-switch ${enabled ? 'on' : ''}" data-action="toggle-summon-mode" title="${enabled ? 'turn off' : 'turn on'}"></div>
       </div>
       <div class="home-panel-sub">
         ${activeSessions.length > 0

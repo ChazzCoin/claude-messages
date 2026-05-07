@@ -34,7 +34,7 @@ function renderStatusBanner(activeCount) {
   }
 
   return `
-    <div class="away-status ${activeCount > 0 ? 'on' : ''}">
+    <div class="away-status ${enabled ? 'on' : ''}">
       <div class="away-status-text">
         <div class="away-status-title">
           ${activeCount > 0
@@ -45,6 +45,7 @@ function renderStatusBanner(activeCount) {
         </div>
         <div class="away-status-sub">${statusLine}</div>
       </div>
+      <div class="away-toggle-switch ${enabled ? 'on' : ''}" data-action="toggle-summon-mode" title="${enabled ? 'turn off' : 'turn on'}"></div>
     </div>
   `;
 }
@@ -88,7 +89,6 @@ function renderPastSessionsPanel(past) {
 /* ---------- configuration form ---------- */
 
 function renderConfigPanel() {
-  const enabled = !!settingsCache.summon_enabled;
   const max = settingsBounds.summon_max_replies_per_session?.max || 200;
   const min = settingsBounds.summon_max_replies_per_session?.min || 1;
   const idleMax = settingsBounds.summon_idle_timeout_min?.max || 720;
@@ -103,17 +103,6 @@ function renderConfigPanel() {
         </summary>
 
         <form class="away-config-form" data-form="summon-config">
-          <div class="config-field">
-            <label class="config-label">
-              Master switch
-              <span class="desc">when off, the trigger phrase does nothing. Disabling globally ends every active summon session.</span>
-            </label>
-            <label class="config-inline" style="cursor:pointer;">
-              <input type="checkbox" name="summon_enabled" ${enabled ? 'checked' : ''} />
-              <span class="desc">${enabled ? 'on' : 'off'}</span>
-            </label>
-          </div>
-
           <div class="config-field">
             <label class="config-label">
               Trigger phrase

@@ -246,6 +246,26 @@ async function onClick(e) {
     } catch (err) { alert(`toggle failed: ${err.message}`); }
     return;
   }
+
+  /* ---------- Summon mode ---------- */
+  if (action === 'toggle-summon-mode') {
+    const next = !settingsCache.summon_enabled;
+    if (settingsCache.summon_enabled && !next) {
+      if (!confirm('Turn off summon mode? Every active summon session will end immediately and the trigger phrase will stop working.')) return;
+    }
+    try {
+      const r = await api('/api/settings', { method: 'PUT', body: { summon_enabled: next ? 1 : 0 } });
+      if (r.settings) setSettingsCache(r.settings);
+      if (currentView === 'summon') {
+        const { renderSummonView } = await import('./views/summon.js');
+        await renderSummonView();
+      } else if (currentView === 'home') {
+        const { renderHomeView } = await import('./views/home.js');
+        await renderHomeView();
+      }
+    } catch (err) { alert(`toggle failed: ${err.message}`); }
+    return;
+  }
   if (action === 'toggle-away-contact') {
     const id = parseInt(btn.dataset.id, 10);
     const wasEnabled = btn.dataset.enabled === '1';
@@ -855,8 +875,8 @@ async function onSubmit(e) {
         setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
       }
     } else if (kind === 'summon-config') {
-      // Checkbox: missing key in form data = unchecked. Coerce to bool.
-      const summonOn = data.summon_enabled === 'on' ? 1 : 0;
+      // The on/off master switch lives in the page header (toggle-summon-mode)
+      // — this form only owns the configuration knobs.
       const trigger = (data.summon_trigger_phrase || '').trim();
       const endP = (data.summon_end_phrase || '').trim();
       if (!trigger) throw new Error('Trigger phrase cannot be empty');
@@ -864,7 +884,6 @@ async function onSubmit(e) {
       const r = await api('/api/settings', {
         method: 'PUT',
         body: {
-          summon_enabled: summonOn,
           summon_trigger_phrase: trigger,
           summon_end_phrase: endP,
           summon_persona: data.summon_persona || '',
