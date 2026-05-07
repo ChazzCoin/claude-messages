@@ -13,40 +13,9 @@
 
 import { api } from '../api.js';
 import { setMainHeader } from '../shell.js';
-import { escapeHtml, relTime } from '../utils.js';
+import { escapeHtml } from '../utils.js';
 import { settingsCache, settingsBounds, setSettingsCache } from '../state.js';
-
-/* ---------- session rendering ---------- */
-
-function renderSessionRow(s, { compact = false } = {}) {
-  const name = s.contact_name || s.handle;
-  const isActive = s.status === 'active';
-  if (compact) {
-    return `
-      <div class="away-row ${isActive ? 'active' : 'ended'}" data-summon-id="${s.id}">
-        <span class="away-row-dot"></span>
-        <span class="away-row-name">${escapeHtml(name)}</span>
-        <span class="away-row-meta">${s.ai_reply_count} ${s.ai_reply_count === 1 ? 'reply' : 'replies'}${s.ended_reason ? ' · ended: ' + escapeHtml(s.ended_reason) : ''}</span>
-        <span class="away-row-time">${escapeHtml(relTime(s.started_at))}</span>
-      </div>
-    `;
-  }
-  return `
-    <div class="away-session-card active" data-summon-id="${s.id}">
-      <div class="session-pulse"></div>
-      <div class="session-card-body">
-        <div class="session-card-name">${escapeHtml(name)}</div>
-        <div class="session-card-meta">${escapeHtml(s.handle)} · summoned ${escapeHtml(relTime(s.started_at))}</div>
-        <div class="session-card-stats">
-          <span class="status-tag replying">summoned</span>
-          <span>${s.ai_reply_count} ${s.ai_reply_count === 1 ? 'reply' : 'replies'}</span>
-          ${s.last_ai_reply_at ? `<span>last ${escapeHtml(relTime(s.last_ai_reply_at))}</span>` : ''}
-        </div>
-      </div>
-      <button class="btn ghost" data-action="end-summon-session" data-id="${s.id}">Dismiss Galt</button>
-    </div>
-  `;
-}
+import { renderSessionCard } from '../components/session-card.js';
 
 /* ---------- top status banner ---------- */
 
@@ -91,7 +60,7 @@ function renderActiveSessionsPanel(active) {
         <span class="count">${active.length}</span>
       </h3>
       <div class="away-active-list">
-        ${active.map((s) => renderSessionRow(s)).join('')}
+        ${active.map((s) => renderSessionCard(s, { kind: 'summon' })).join('')}
       </div>
     </section>
   `;
@@ -109,7 +78,7 @@ function renderPastSessionsPanel(past) {
           <span class="count">${past.length}</span>
         </summary>
         <div class="away-past-list">
-          ${past.map((s) => renderSessionRow(s, { compact: true })).join('')}
+          ${past.map((s) => renderSessionCard(s, { kind: 'summon', compact: true })).join('')}
         </div>
       </details>
     </section>

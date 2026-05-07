@@ -12,44 +12,9 @@ import {
   settingsCache, settingsBounds,
   awayUnreviewedNotes, setAwayUnreviewedNotes,
 } from '../state.js';
+import { renderSessionCard } from '../components/session-card.js';
 
-/* ---------- compact session row (used in both active + past lists) ---------- */
-function renderSessionRow(s, { compact = false } = {}) {
-  const name = s.contact_name || s.handle;
-  const isActive = s.status !== 'ended';
-  const status = s.status === 'greeting_sent' ? 'greeting sent' : s.status;
-  const replyText = `${s.ai_reply_count} ${s.ai_reply_count === 1 ? 'reply' : 'replies'}`;
-  const lastReply = s.last_ai_reply_at ? `last ${relTime(s.last_ai_reply_at)}` : '';
-  const endedReason = s.ended_reason ? `ended: ${s.ended_reason}` : '';
-
-  if (compact) {
-    // One-line row for past sessions
-    return `
-      <div class="away-row ${isActive ? 'active' : 'ended'}" data-session-id="${s.id}">
-        <span class="away-row-dot"></span>
-        <span class="away-row-name">${escapeHtml(name)}</span>
-        <span class="away-row-meta">${escapeHtml(replyText)}${endedReason ? ' · ' + escapeHtml(endedReason) : ''}</span>
-        <span class="away-row-time">${escapeHtml(relTime(s.started_at))}</span>
-      </div>
-    `;
-  }
-  // Full card for active sessions
-  return `
-    <div class="away-session-card active" data-session-id="${s.id}">
-      <div class="session-pulse"></div>
-      <div class="session-card-body">
-        <div class="session-card-name">${escapeHtml(name)}</div>
-        <div class="session-card-meta">${escapeHtml(s.handle)} · started ${escapeHtml(relTime(s.started_at))}</div>
-        <div class="session-card-stats">
-          <span class="status-tag ${s.status}">${escapeHtml(status)}</span>
-          <span>${escapeHtml(replyText)}</span>
-          ${lastReply ? `<span>${escapeHtml(lastReply)}</span>` : ''}
-        </div>
-      </div>
-      <button class="btn ghost" data-action="end-away-session" data-id="${s.id}">End session</button>
-    </div>
-  `;
-}
+/* renderSessionRow lives in components/session-card.js — pass kind: 'away'. */
 
 /* ---------- contact row in the configuration whitelist ---------- */
 function renderAwayContact(c) {
@@ -130,7 +95,7 @@ function renderActiveSessionsPanel(active) {
         <span class="count">${active.length}</span>
       </h3>
       <div class="away-active-list">
-        ${active.map((s) => renderSessionRow(s)).join('')}
+        ${active.map((s) => renderSessionCard(s, { kind: 'away' })).join('')}
       </div>
     </section>
   `;
@@ -193,7 +158,7 @@ function renderPastSessionsPanel(past) {
           <span class="count">${past.length}</span>
         </summary>
         <div class="away-past-list">
-          ${past.map((s) => renderSessionRow(s, { compact: true })).join('')}
+          ${past.map((s) => renderSessionCard(s, { kind: 'away', compact: true })).join('')}
         </div>
       </details>
     </section>
