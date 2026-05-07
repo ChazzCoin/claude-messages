@@ -400,3 +400,28 @@ export function listSentMessages(limit = 200): MessageRow[] {
   const rows = db.prepare(SENT_MESSAGES_SQL).all(limit) as RawMessageRow[];
   return rows.map(toMessageRow).filter((r) => r.text !== null);
 }
+
+/**
+ * Resolve which Messages.app service to use when sending to `handle`.
+ * Reads the most recent message exchanged with this handle and returns the
+ * service Apple actually used. AppleScript's Messages dialect only knows
+ * `iMessage` and `SMS` service types — RCS chats ride the SMS slot, so
+ * anything that isn't `iMessage` collapses to `SMS`.
+ *
+ * Returns null when the handle has no message history in chat.db; callers
+ * should fall back to a sensible default (iMessage for unknown).
+ */
+export function getServiceForHandle(handle: string): 'iMessage' | 'SMS' | null {
+  if (!handle) return null;
+  const db = getChatDb();
+  const row = db.prepare(`
+    SELECT m.service AS service
+    FROM message m
+    JOIN handle h ON h.ROWID = m.handle_id
+    WHERE h.id = ?
+    ORDER BY m.date DESC
+    LIMIT 1
+  `).get(handle) as { service: string | null } | undefined;
+  if (!row || !row.service) return null;
+  return row.service === 'iMessage' ? 'iMessage' : 'SMS';
+}

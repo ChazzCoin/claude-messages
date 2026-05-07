@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { getServiceForHandle } from './db/messages.js';
 
 const execFileP = promisify(execFile);
 
@@ -13,6 +14,10 @@ const execFileP = promisify(execFile);
  * iMessage (blue-bubble) is reliable. SMS fallback (green-bubble) works
  * when iMessage is unavailable for the recipient but is flakier.
  *
+ * When `service` is not passed, looks up the recipient's most-recent
+ * message in chat.db and uses whatever service Apple actually used —
+ * so Android/RCS contacts go out as SMS instead of failing as iMessage.
+ *
  * Never call this without explicit user approval — drafts go through
  * the approval queue first.
  */
@@ -21,7 +26,7 @@ export async function sendMessageViaAppleScript(
   body: string,
   opts: { service?: 'iMessage' | 'SMS' } = {},
 ): Promise<void> {
-  const service = opts.service ?? 'iMessage';
+  const service = opts.service ?? getServiceForHandle(recipient) ?? 'iMessage';
   const safeRecipient = escapeAppleScriptString(recipient);
   const safeBody = escapeAppleScriptString(body);
 
