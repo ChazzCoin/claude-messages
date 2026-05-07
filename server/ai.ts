@@ -531,10 +531,11 @@ export async function extractCalendarEvent(input: {
 }
 
 /* ------------------------------------------------------------------ */
-/* away notes — extract follow-up items from inbound during away mode  */
+/* auto notes — extract follow-up items from every inbound message     */
+/* (24/7, mode-agnostic; previously coupled to away mode)              */
 /* ------------------------------------------------------------------ */
 
-const AWAY_NOTE_SYSTEM = `You are reviewing an inbound iMessage and deciding whether the user should personally follow up on it. The user reviews the resulting notes later — this is a triage queue.
+const AUTO_NOTE_SYSTEM = `You are reviewing an inbound iMessage and deciding whether the user should personally follow up on it. The user reviews the resulting notes later — this is a triage queue.
 
 Things that ARE worth a note:
 - Meeting / hangout requests (specific or vague)
@@ -568,27 +569,27 @@ Output ONLY JSON:
   "reasoning": "one short sentence explaining why this needs follow-up"
 }`;
 
-export type AwayNoteCategoryAI = 'urgent' | 'business' | 'personal';
+export type AutoNoteCategoryAI = 'urgent' | 'business' | 'personal';
 
-export interface AwayNoteExtract {
+export interface AutoNoteExtract {
   shouldNote: boolean;
   summary: string;
-  category: AwayNoteCategoryAI;
+  category: AutoNoteCategoryAI;
   reasoning: string;
   model: string;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
-export async function extractAwayNote(input: {
+export async function extractAutoNote(input: {
   sender: string;
   messageText: string;
-}): Promise<AwayNoteExtract> {
+}): Promise<AutoNoteExtract> {
   const client = getOpenAI();
   const resp = await client.chat.completions.create({
     model: effectiveModel(),
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: AWAY_NOTE_SYSTEM },
+      { role: 'system', content: AUTO_NOTE_SYSTEM },
       {
         role: 'user',
         content: `Sender: ${input.sender}\nMessage: "${input.messageText}"`,
@@ -604,9 +605,9 @@ export async function extractAwayNote(input: {
   } catch {
     parsed = {};
   }
-  const validCats: AwayNoteCategoryAI[] = ['urgent', 'business', 'personal'];
+  const validCats: AutoNoteCategoryAI[] = ['urgent', 'business', 'personal'];
   const cat = (typeof parsed.category === 'string' && (validCats as string[]).includes(parsed.category))
-    ? (parsed.category as AwayNoteCategoryAI)
+    ? (parsed.category as AutoNoteCategoryAI)
     : 'personal';
   return {
     shouldNote: parsed.should_note === true,

@@ -1597,7 +1597,7 @@ body::after {
 }
 .contact-toggle.on { color: var(--green); }
 .contact-toggle.off { color: var(--text-faint); }
-.away-note-card {
+.auto-note-card {
   padding: 10px 12px;
   background: var(--bg-elev);
   border-radius: 6px;
@@ -1608,46 +1608,46 @@ body::after {
   gap: 8px 12px;
   align-items: start;
 }
-.away-note-card.reviewed { opacity: 0.5; border-left-color: var(--text-faint); }
-.away-note-card .note-cat {
+.auto-note-card.reviewed { opacity: 0.5; border-left-color: var(--text-faint); }
+.auto-note-card .note-cat {
   font-family: var(--mono); font-size: 10px; color: var(--cyan);
   text-transform: uppercase; letter-spacing: 0.6px;
   padding: 2px 6px; border: 1px solid var(--cyan); border-radius: 4px;
   text-align: center; align-self: start;
 }
-.away-note-card .note-cat.urgent { color: var(--red); border-color: var(--red); }
-.away-note-card .note-cat.business { color: var(--yellow); border-color: var(--yellow); }
-.away-note-card .note-cat.personal { color: var(--purple); border-color: var(--purple); }
+.auto-note-card .note-cat.urgent { color: var(--red); border-color: var(--red); }
+.auto-note-card .note-cat.business { color: var(--yellow); border-color: var(--yellow); }
+.auto-note-card .note-cat.personal { color: var(--purple); border-color: var(--purple); }
 /* Legacy categories retained as fallback styling for any pre-migration rows. */
-.away-note-card .note-cat.meet { color: var(--purple); border-color: var(--purple); }
-.away-note-card .note-cat.discuss { color: var(--cyan); border-color: var(--cyan); }
-.away-note-card .note-cat.request { color: var(--yellow); border-color: var(--yellow); }
-.away-note-card .note-cat.other { color: var(--text-faint); border-color: var(--border-strong); }
-.away-note-card .note-body { font-size: 13.5px; line-height: 1.5; color: var(--text); }
-.away-note-card .note-from { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
-.away-note-card .note-from .name { color: var(--text); font-weight: 500; }
-.away-note-card .note-quote {
+.auto-note-card .note-cat.meet { color: var(--purple); border-color: var(--purple); }
+.auto-note-card .note-cat.discuss { color: var(--cyan); border-color: var(--cyan); }
+.auto-note-card .note-cat.request { color: var(--yellow); border-color: var(--yellow); }
+.auto-note-card .note-cat.other { color: var(--text-faint); border-color: var(--border-strong); }
+.auto-note-card .note-body { font-size: 13.5px; line-height: 1.5; color: var(--text); }
+.auto-note-card .note-from { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.auto-note-card .note-from .name { color: var(--text); font-weight: 500; }
+.auto-note-card .note-quote {
   font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
   margin-top: 6px; padding: 6px 8px;
   background: rgba(255, 255, 255, 0.02);
   border-left: 2px solid var(--border-strong);
   border-radius: 0 4px 4px 0;
 }
-.away-note-card .note-reasoning {
+.auto-note-card .note-reasoning {
   font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
   margin-top: 4px;
 }
-.away-note-card .note-meta {
+.auto-note-card .note-meta {
   font-family: var(--mono); font-size: 10px; color: var(--text-faint);
   text-align: right; align-self: start;
 }
-.away-note-card .note-actions {
+.auto-note-card .note-actions {
   grid-column: 1 / -1;
   display: flex; gap: 6px; padding-top: 6px;
   border-top: 1px dashed var(--border);
   margin-top: 4px;
 }
-.away-note-card .note-actions .btn { padding: 3px 10px; font-size: 11px; }
+.auto-note-card .note-actions .btn { padding: 3px 10px; font-size: 11px; }
 
 /* ============================================================
    Visual date+time picker

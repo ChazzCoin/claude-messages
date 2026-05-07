@@ -34,6 +34,7 @@ import { renderScheduledView } from './views/scheduled.js';
 import { renderRadarView, renderRadarDetail } from './views/radar.js';
 import { renderCalendarView } from './views/calendar.js';
 import { renderAwayView } from './views/away.js';
+import { renderAutoNotesView } from './views/auto-notes.js';
 import { renderSummonView } from './views/summon.js';
 
 /**
@@ -67,6 +68,7 @@ export async function setView(view, arg = null) {
     case 'radar-detail':  setCurrentRadarHandle(arg); await renderRadarDetail(arg); break;
     case 'calendar':      await renderCalendarView(); break;
     case 'away':          await renderAwayView(); break;
+    case 'auto-notes':    await renderAutoNotesView(); break;
     case 'summon':        await renderSummonView(); break;
     default:              await renderHomeView();
   }

@@ -14,7 +14,8 @@ import { refreshFlagsBadgeOnly } from './views/flags.js';
 import { refreshScheduledCountOnly } from './views/scheduled.js';
 import { refreshRadarHandlesCache } from './views/radar.js';
 import { refreshCalendarBadgeOnly } from './views/calendar.js';
-import { refreshAwayNotesBadge, updateAwayPill } from './views/away.js';
+import { updateAwayPill } from './views/away.js';
+import { refreshAutoNotesBadge } from './views/auto-notes.js';
 
 async function refreshContactsCache() {
   try {
@@ -43,7 +44,7 @@ async function init() {
     refreshRadarHandlesCache(),
     refreshCalendarBadgeOnly(),
     refreshContactsCache(),
-    refreshAwayNotesBadge(),
+    refreshAutoNotesBadge(),
   ]);
 
   // Land on whatever the URL hash says (defaults to inbox).

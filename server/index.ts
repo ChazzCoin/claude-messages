@@ -87,14 +87,14 @@ import {
   endAllActiveAwaySessions,
   listAwaySessions,
   countActiveAwaySessions,
-  // away notes
-  listAwayNotes,
-  insertAwayNote,
-  awayNoteAlreadyExists,
-  markAwayNoteReviewed,
-  markAllAwayNotesReviewed,
-  removeAwayNote,
-  countUnreviewedAwayNotes,
+  // auto notes (24/7 inbound triage)
+  listAutoNotes,
+  insertAutoNote,
+  autoNoteAlreadyExists,
+  markAutoNoteReviewed,
+  markAllAutoNotesReviewed,
+  removeAutoNote,
+  countUnreviewedAutoNotes,
   // summon mode
   getActiveSummonSession,
   createSummonSession,
@@ -156,7 +156,7 @@ import {
   extractRadarSignals,
   distillRadarProfile,
   extractCalendarEvent,
-  extractAwayNote,
+  extractAutoNote,
   TEMPERAMENTS,
   type Temperament,
 } from './ai.js';
@@ -227,7 +227,7 @@ app.get('/api/health', (_req, res) => {
     watcher_running: messageWatcher.isRunning(),
     away_mode_enabled: !!getSettings().away_mode_enabled,
     away_active_sessions: countActiveAwaySessions(),
-    away_unreviewed_notes: countUnreviewedAwayNotes(),
+    auto_unreviewed_notes: countUnreviewedAutoNotes(),
     summon_enabled: !!getSettings().summon_enabled,
     summon_active_sessions: countActiveSummonSessions(),
   });
@@ -1516,38 +1516,38 @@ app.delete('/api/away/sessions/:id', (req, res) => {
   res.json({ session: enrichAway(ended) });
 });
 
-/* ---------- routes: away notes ---------- */
+/* ---------- routes: auto notes (24/7 inbound triage queue) ---------- */
 
-app.get('/api/away/notes', (req, res) => {
+app.get('/api/auto-notes', (req, res) => {
   const reviewedRaw = req.query.reviewed;
   let reviewed: boolean | undefined;
   if (reviewedRaw === 'true') reviewed = true;
   else if (reviewedRaw === 'false') reviewed = false;
   const limit = intParam(req.query.limit, 200, 1, 500);
-  const notes = listAwayNotes({ reviewed, limit }).map((n) => ({
+  const notes = listAutoNotes({ reviewed, limit }).map((n) => ({
     ...n,
     contact_name: getContactNameForHandle(n.handle),
   }));
-  res.json({ notes, unreviewed: countUnreviewedAwayNotes() });
+  res.json({ notes, unreviewed: countUnreviewedAutoNotes() });
 });
 
-app.post('/api/away/notes/:id/review', (req, res) => {
+app.post('/api/auto-notes/:id/review', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
-  const note = markAwayNoteReviewed(id);
+  const note = markAutoNoteReviewed(id);
   if (!note) return res.status(404).json({ error: 'not found' });
   res.json({ note: { ...note, contact_name: getContactNameForHandle(note.handle) } });
 });
 
-app.post('/api/away/notes/review-all', (_req, res) => {
-  const n = markAllAwayNotesReviewed();
+app.post('/api/auto-notes/review-all', (_req, res) => {
+  const n = markAllAutoNotesReviewed();
   res.json({ marked_reviewed: n });
 });
 
-app.delete('/api/away/notes/:id', (req, res) => {
+app.delete('/api/auto-notes/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
-  const ok = removeAwayNote(id);
+  const ok = removeAutoNote(id);
   return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
 });
 
@@ -1556,17 +1556,17 @@ app.delete('/api/away/notes/:id', (req, res) => {
  * for prompt iteration — does the extractor flag what we'd expect? Returns
  * the model's raw decision without writing to the DB.
  *
- * POST /api/away/notes/test
+ * POST /api/auto-notes/test
  * Body: { sender: string, message: string }
  */
 app.post(
-  '/api/away/notes/test',
+  '/api/auto-notes/test',
   asyncHandler(async (req, res) => {
     if (!requireAI(req, res)) return;
     const sender = typeof req.body?.sender === 'string' ? req.body.sender : 'them';
     const messageText = typeof req.body?.message === 'string' ? req.body.message : '';
     if (!messageText) return res.status(400).json({ error: 'message required' });
-    const result = await extractAwayNote({ sender, messageText });
+    const result = await extractAutoNote({ sender, messageText });
     return res.json(result);
   }),
 );
@@ -1872,36 +1872,58 @@ function buildSummonContextNote(opts: {
 }
 
 /**
- * Fire-and-forget AI extraction: when an inbound message comes in during an
- * away session, ask the model whether it's something the user should follow
- * up on personally (meet request, discussion topic, etc.) and persist any
- * matches into away_notes. Idempotent on message_guid.
+ * Fire-and-forget AI extraction. Runs 24/7 on every inbound message (mode-
+ * agnostic): asks the model whether the message contains something the user
+ * should personally follow up on (meet request, time-sensitive coordination,
+ * decision request, etc.) and persists any matches into auto_notes.
+ * Idempotent on message_guid. session_id is non-null only when an away
+ * session is active for this handle — used purely for downstream linkage,
+ * doesn't affect extraction behavior.
  */
-async function extractAwayNoteForMessage(sessionId: number | null, msg: MessageRow): Promise<void> {
+async function extractAutoNoteForMessage(sessionId: number | null, msg: MessageRow): Promise<void> {
   if (!msg.text || !msg.handle || !msg.guid) {
-    console.log(`[away:note] skipped (missing text/handle/guid) msg=${msg.guid ?? '?'}`);
+    console.log(`[autonote] skipped (missing text/handle/guid) msg=${msg.guid ?? '?'}`);
+    return;
+  }
+  const settings = getSettings();
+  if (!settings.auto_notes_enabled) {
+    console.log('[autonote] skipped (auto_notes_enabled=0)');
     return;
   }
   if (!isAIConfigured()) {
-    console.log('[away:note] skipped (no openai key)');
+    console.log('[autonote] skipped (no openai key)');
     return;
   }
-  if (awayNoteAlreadyExists(msg.guid)) {
-    console.log(`[away:note] skipped (already exists) guid=${msg.guid}`);
+  if (autoNoteAlreadyExists(msg.guid)) {
+    console.log(`[autonote] skipped (already exists) guid=${msg.guid}`);
+    return;
+  }
+  // Per-contact opt-out. JSON shape is enforced at write-time in
+  // updateSettings, so a parse failure here is unexpected — fall back to
+  // empty list rather than crashing the watcher path.
+  let excluded: string[] = [];
+  try {
+    const parsed = JSON.parse(settings.auto_notes_excluded_handles);
+    if (Array.isArray(parsed)) excluded = parsed.filter((h) => typeof h === 'string');
+  } catch {
+    /* fall through with empty list */
+  }
+  if (excluded.includes(msg.handle)) {
+    console.log(`[autonote] skipped (handle excluded) handle=${msg.handle}`);
     return;
   }
 
   try {
     const sender = msg.contact_name || msg.handle || 'them';
-    const result = await extractAwayNote({ sender, messageText: msg.text });
+    const result = await extractAutoNote({ sender, messageText: msg.text });
     console.log(
-      `[away:note] decision shouldNote=${result.shouldNote} category=${result.category} ` +
+      `[autonote] decision shouldNote=${result.shouldNote} category=${result.category} ` +
       `summary=${JSON.stringify((result.summary || '').slice(0, 80))} ` +
       `from=${sender} text=${JSON.stringify(msg.text.slice(0, 80))}`,
     );
     if (!result.shouldNote || !result.summary) return;
 
-    const note = insertAwayNote({
+    const note = insertAutoNote({
       session_id: sessionId,
       handle: msg.handle,
       message_guid: msg.guid,
@@ -1913,11 +1935,11 @@ async function extractAwayNoteForMessage(sessionId: number | null, msg: MessageR
     });
     if (!note) return; // duplicate (race)
 
-    sseBroadcast('away.note_created', {
+    sseBroadcast('autonote.created', {
       note: { ...note, contact_name: getContactNameForHandle(msg.handle) },
     });
   } catch (err) {
-    console.error('[away:note] extraction failed:', (err as Error).message);
+    console.error('[autonote] extraction failed:', (err as Error).message);
   }
 }
 
@@ -1927,9 +1949,9 @@ async function extractAwayNoteForMessage(sessionId: number | null, msg: MessageR
  * trivia), so we don't need an external classifier in front of it.
  *
  * Skip when an active away session exists for this handle — the away path
- * (handleAwayModeMessage) already calls extractAwayNoteForMessage with the
+ * (handleAwayModeMessage) already calls extractAutoNoteForMessage with the
  * session_id, which is preferable to the null-session path here. The dedup
- * check inside extractAwayNoteForMessage means racing both paths is safe;
+ * check inside extractAutoNoteForMessage means racing both paths is safe;
  * this guard just prefers the session-aware insert when one is available.
  */
 async function triageInboundMessage(msg: MessageRow): Promise<void> {
@@ -1937,7 +1959,7 @@ async function triageInboundMessage(msg: MessageRow): Promise<void> {
   if (!msg.text || msg.text.trim().length === 0) return;
   if (!msg.handle) return;
   if (getActiveAwaySession(msg.handle)) return;
-  await extractAwayNoteForMessage(null, msg);
+  await extractAutoNoteForMessage(null, msg);
 }
 
 async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
@@ -2004,7 +2026,7 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
         message: result.prefixedBody,
       });
       // Even the FIRST message can carry a follow-up item — extract.
-      void extractAwayNoteForMessage(newSession.id, msg);
+      void extractAutoNoteForMessage(newSession.id, msg);
     } catch (err) {
       console.error('[away] greeting send failed:', (err as Error).message);
     }
@@ -2087,7 +2109,7 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     });
     // After replying, ask the model whether this inbound carried a follow-up
     // item the user should see when they're back.
-    void extractAwayNoteForMessage(session.id, msg);
+    void extractAutoNoteForMessage(session.id, msg);
   } catch (err) {
     console.error('[away] continuation failed:', (err as Error).message);
   }

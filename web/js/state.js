@@ -14,6 +14,9 @@ export let settingsCache = {
   away_message: '',
   away_max_replies_per_session: 50,
   away_persona: '',
+  auto_notes_enabled: 1,
+  auto_notes_min_confidence: 0,
+  auto_notes_excluded_handles: '[]',
 };
 export let settingsBounds = {
   ai_context_count: { min: 1, max: 100 },
@@ -35,7 +38,7 @@ export let flagsTab = 'unreviewed';
 // Transient state.
 export let pendingVariants = null; // { variants, chat_id, handle, source_msg_guid, model, usage, temperament, contextNote }
 export let scheduleFormPicker = null; // returned by mountDatePicker for the inline schedule form
-export let awayUnreviewedNotes = 0;
+export let autoUnreviewedNotes = 0;
 
 // Constants.
 export const TEMPERAMENTS = [
@@ -64,4 +67,4 @@ export function setFlagsTab(v) { flagsTab = v; }
 
 export function setPendingVariants(v) { pendingVariants = v; }
 export function setScheduleFormPicker(v) { scheduleFormPicker = v; }
-export function setAwayUnreviewedNotes(n) { awayUnreviewedNotes = n; }
+export function setAutoUnreviewedNotes(n) { autoUnreviewedNotes = n; }

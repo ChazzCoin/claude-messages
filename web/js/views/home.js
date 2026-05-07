@@ -1,16 +1,17 @@
-// Home — the dashboard landing page. Composes four panels of the most
-// time-sensitive information so the user can see the state of things at
-// a glance without clicking through every section.
+// Home — the dashboard landing page. Composes the most time-sensitive
+// panels so the user can see the state of things at a glance without
+// clicking through every section.
 //
 // Panels:
+//   - Latest auto notes   (5 most recent unreviewed — top-level priority)
 //   - Recent threads      (top 6 chats from inbox)
 //   - Away mode controls  (toggle + greeting edit)
-//   - Latest away notes   (5 most recent unreviewed)
+//   - Summon mode panel   (active sessions + trigger phrase)
 //   - Upcoming events     (5 most recent pending calendar proposals)
 //
 // Most actions on this page reuse existing data-action handlers — clicking a
 // thread row routes via 'open-thread', toggling away mode uses 'toggle-away-
-// mode', away note actions reuse the away-view handlers, etc.
+// mode', auto-note actions reuse the auto-notes-view handlers, etc.
 
 import { api } from '../api.js';
 import { setMainHeader } from '../shell.js';
@@ -102,7 +103,7 @@ function summonPanel(activeSessions) {
   `;
 }
 
-function awayNoteCard(n) {
+function autoNoteCard(n) {
   const sender = n.contact_name || n.handle;
   const time = relTime(n.created_at);
   return `
@@ -113,7 +114,7 @@ function awayNoteCard(n) {
         <div class="home-note-from">from <span class="name">${escapeHtml(sender)}</span> · ${escapeHtml(time)}</div>
       </div>
       <div class="home-note-actions">
-        <button class="btn ghost small" data-action="review-away-note" data-id="${n.id}">Mark reviewed</button>
+        <button class="btn ghost small" data-action="review-auto-note" data-id="${n.id}">Mark reviewed</button>
         <button class="btn ghost small" data-action="open-thread-by-handle" data-handle="${escapeHtml(n.handle)}">Open</button>
       </div>
     </div>
@@ -157,7 +158,7 @@ export async function renderHomeView() {
   try {
     const [c, n, cal, summ] = await Promise.all([
       api('/api/chats?limit=6'),
-      api('/api/away/notes?reviewed=false&limit=5'),
+      api('/api/auto-notes?reviewed=false&limit=5'),
       api('/api/calendar/proposals?status=pending&limit=5'),
       api('/api/summon/sessions?active=true&limit=20'),
     ]);
@@ -177,8 +178,8 @@ export async function renderHomeView() {
     : chats.map(recentThreadRow).join('');
 
   const notesBlock = notes.length === 0
-    ? '<div class="empty-row" style="padding:8px 0;">no unreviewed away notes</div>'
-    : notes.map(awayNoteCard).join('');
+    ? '<div class="empty-row" style="padding:8px 0;">no unreviewed auto notes — all caught up</div>'
+    : notes.map(autoNoteCard).join('');
 
   const calBlock = proposals.length === 0
     ? '<div class="empty-row" style="padding:8px 0;">no upcoming events</div>'
@@ -186,6 +187,14 @@ export async function renderHomeView() {
 
   list.innerHTML = `
     <div class="home-grid">
+      <div class="home-panel home-panel-priority">
+        <div class="home-panel-head">
+          <h3>Latest auto notes</h3>
+          <a class="home-panel-link" data-action="open-auto-notes">all notes →</a>
+        </div>
+        ${notesBlock}
+      </div>
+
       <div class="home-panel">
         <div class="home-panel-head">
           <h3>Recent threads</h3>
@@ -197,14 +206,6 @@ export async function renderHomeView() {
       ${awayPanel()}
 
       ${summonPanel(activeSummon)}
-
-      <div class="home-panel">
-        <div class="home-panel-head">
-          <h3>Latest away notes</h3>
-          <a class="home-panel-link" data-action="open-away">all notes →</a>
-        </div>
-        ${notesBlock}
-      </div>
 
       <div class="home-panel">
         <div class="home-panel-head">

@@ -22,8 +22,11 @@ import {
   renderRadarView, renderRadarDetail,
 } from './views/radar.js';
 import {
-  renderAwayView, updateAwayPill, refreshAwayNotesBadge,
+  renderAwayView, updateAwayPill,
 } from './views/away.js';
+import {
+  renderAutoNotesView, refreshAutoNotesBadge,
+} from './views/auto-notes.js';
 
 let sse = null;
 
@@ -112,14 +115,20 @@ export function connectSSE() {
       if (currentView === 'away') await renderAwayView();
     });
 
-    sse.addEventListener('away.note_created', async (e) => {
+    sse.addEventListener('autonote.created', async (e) => {
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
-      await refreshAwayNotesBadge();
-      if (currentView === 'away') await renderAwayView();
+      await refreshAutoNotesBadge();
+      // Re-render whichever view shows notes (auto-notes page itself, or
+      // the home dashboard with its 'Latest auto notes' panel).
+      if (currentView === 'auto-notes') await renderAutoNotesView();
+      else if (currentView === 'home') {
+        const { renderHomeView } = await import('./views/home.js');
+        await renderHomeView();
+      }
       const cat = data?.note?.category || 'note';
       const sender = data?.note?.contact_name || data?.note?.handle || 'someone';
-      console.log(`[away:note] ${cat} from ${sender}: ${data?.note?.summary}`);
+      console.log(`[autonote] ${cat} from ${sender}: ${data?.note?.summary}`);
     });
 
     /* ---------- summon mode ---------- */
