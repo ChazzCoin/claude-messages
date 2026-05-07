@@ -1644,18 +1644,18 @@ function naturalSendDelayMs(body: string): number {
  * a conversation, not the user covering for themselves — should feel
  * snappy, not deliberative.
  *
- * Profile (~95 wpm):
- *   30 chars  ≈  0.5–0.9s
- *   100 chars ≈  1.3–1.9s
- *   200 chars ≈  2.5–3.5s
- *   300+ chars capped at 3.5s
+ * Profile (~135 wpm):
+ *   30 chars  ≈  0.35–0.55s
+ *   100 chars ≈  0.9–1.4s
+ *   200 chars ≈  1.7–2.5s
+ *   250+ chars capped at 2.5s
  */
 function summonSendDelayMs(body: string): number {
-  const charsPerSec = 70;
-  const baseMs = 250;
+  const charsPerSec = 100;
+  const baseMs = 150;
   const total = baseMs + (body.length / charsPerSec) * 1000;
   const jittered = total * (0.8 + Math.random() * 0.4); // ±20%
-  return Math.max(250, Math.min(3500, Math.round(jittered)));
+  return Math.max(150, Math.min(2500, Math.round(jittered)));
 }
 
 function sleep(ms: number): Promise<void> {
