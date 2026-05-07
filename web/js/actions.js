@@ -481,38 +481,27 @@ async function onClick(e) {
     return;
   }
 
-  if (action === 'ai-draft-with-context') {
+  // Direct send — what the user typed, no AI involvement. Empty body is a no-op.
+  if (action === 'send-direct') {
     const chatId = parseInt(btn.dataset.chatId, 10);
     if (!Number.isFinite(chatId)) return;
     const ta = document.querySelector('[data-compose-input]');
-    const tempSel = document.querySelector('[data-temperament-input]');
     const status = document.querySelector('[data-compose-status]');
-    const note = (ta?.value || '').trim();
-    const temperament = tempSel?.value || 'normal';
-
+    const body = (ta?.value || '').trim();
+    if (!body) {
+      if (status) { status.className = 'compose-status err'; status.textContent = 'type something first'; }
+      return;
+    }
     btn.disabled = true;
     const originalLabel = btn.innerHTML;
-    btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Drafting…';
+    btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Sending…';
     if (status) { status.className = 'compose-status'; status.textContent = ''; }
-
     try {
-      const r = await api('/api/ai/draft', {
-        method: 'POST',
-        body: { chat_id: chatId, save: true, context_note: note, temperament },
-      });
-      if (r.skipped) {
-        if (status) { status.className = 'compose-status err'; status.textContent = 'model returned SKIP — no draft saved'; }
-      } else {
-        const tokens = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
-        const tempPart = temperament !== 'normal' ? ` · ${temperament}` : '';
-        const vpPart = r.voice_profile_applied ? ' + voice profile' : '';
-        if (status) {
-          status.className = 'compose-status ok';
-          status.textContent = `✓ saved · ${r.thread_turns} turns${vpPart}${tempPart}${note ? ' + custom prompt' : ''}${tokens}`;
-        }
-        if (ta) ta.value = '';
-        await refreshDrafts();
-      }
+      await api('/api/send', { method: 'POST', body: { chat_id: chatId, body } });
+      if (ta) ta.value = '';
+      if (status) { status.className = 'compose-status ok'; status.textContent = '✓ sent'; }
+      // Optimistic refresh — the watcher will also fire message.new SSE shortly.
+      await Promise.all([refreshDrafts(), refreshSentStats()]);
     } catch (err) {
       if (status) { status.className = 'compose-status err'; status.textContent = err.message; }
     } finally {
@@ -941,7 +930,7 @@ function onKeydown(e) {
 
   if (e.target.matches('[data-compose-input]')) {
     e.preventDefault();
-    const btn = document.querySelector('[data-action="ai-draft-with-context"]');
+    const btn = document.querySelector('[data-action="send-direct"]');
     if (btn && !btn.disabled) btn.click();
   } else if (e.target.matches('form.note-add textarea')) {
     e.preventDefault();

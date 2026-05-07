@@ -22,7 +22,7 @@ export function clearDraftsToolbar() {
 }
 
 export function clearThreadTools() {
-  for (const id of ['thread-toolbar', 'thread-compose', 'thread-notes']) {
+  for (const id of ['thread-toolbar', 'thread-compose-bar', 'thread-notes']) {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '';
   }

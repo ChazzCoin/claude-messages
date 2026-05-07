@@ -628,54 +628,81 @@ body::after {
 .note-add textarea:focus { outline: none; border-color: var(--cyan); }
 .note-add .btn { align-self: flex-end; }
 
-/* Thread compose-with-context block (bottom of thread view) */
-#thread-compose:not(:empty) {
-  margin-top: 16px; padding: 12px;
+/* Bottom-of-thread compose bar — sticky to the .main scroll container's
+   bottom so it stays visible while messages scroll. */
+#thread-compose-bar:not(:empty) {
+  position: sticky;
+  bottom: 0;
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, transparent 0%, var(--bg) 16px);
+  /* The gradient creates a soft "fade up into messages" feel; the actual
+     control surface (.compose-bar inside) has the solid card background. */
+}
+.compose-bar {
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
   border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.25);
 }
-.compose-label {
-  font-family: var(--mono); font-size: 11px; color: var(--text-faint);
-  text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 8px;
-  display: flex; align-items: center; gap: 8px;
-}
-.compose-label .accent { color: var(--cyan); text-transform: none; letter-spacing: 0; }
-#thread-compose textarea {
-  width: 100%; min-height: 60px; resize: vertical;
-  padding: 10px 12px; background: var(--bg-elev); color: var(--text);
-  border: 1px solid var(--border); border-radius: 8px;
-  font-family: 'Inter', sans-serif; font-size: 13.5px; line-height: 1.5;
+.compose-bar textarea {
+  width: 100%;
+  min-height: 56px;
+  max-height: 220px;
+  resize: vertical;
+  padding: 8px 10px;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
   box-sizing: border-box;
 }
-#thread-compose textarea:focus { outline: none; border-color: var(--cyan); }
-.compose-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.compose-actions .compose-status {
-  margin-left: auto; font-family: var(--mono); font-size: 11px;
-  color: var(--text-dim); min-height: 14px;
+.compose-bar textarea:focus { outline: none; border-color: var(--cyan); }
+.compose-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.compose-tone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.compose-tone span { color: var(--text-faint); }
+.compose-tone select {
+  padding: 4px 8px;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.compose-tone select:focus { outline: none; border-color: var(--cyan); }
+.compose-meta {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.compose-status {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  min-height: 14px;
 }
 .compose-status.ok { color: var(--green); }
 .compose-status.err { color: var(--red); }
-.compose-actions .ctx-hint {
-  font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
-  margin-right: auto;
-}
-.compose-row {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-top: 10px;
-}
-.compose-row select {
-  padding: 6px 10px;
-  background: var(--bg-elev); color: var(--text);
-  border: 1px solid var(--border); border-radius: 6px;
-  font-family: var(--mono); font-size: 12px;
-  cursor: pointer;
-}
-.compose-row select:focus { outline: none; border-color: var(--cyan); }
-.compose-row .compose-status {
-  margin-left: auto; font-family: var(--mono); font-size: 11px;
-  color: var(--text-dim); min-height: 14px;
-}
 
 /* AI thread toolbar (Draft AI / Summarize / Radar / ctx input) */
 .thread-toolbar {

@@ -105,29 +105,26 @@ export function renderThreadCompose(chatId) {
   ).join('');
   const vpApplied = (settingsCache.voice_profile || '').trim().length > 0;
   return `
-    <div class="compose-label">
-      <span>Custom prompt</span>
-      <span class="accent">// last ${settingsCache.ai_context_count} messages${vpApplied ? ' + voice profile' : ''} will be attached</span>
+    <div class="compose-bar">
+      <textarea data-compose-input placeholder="Type a message — or a hint for the AI (e.g. 'be warm but brief', 'ask for the address'). ⌘+Enter sends."></textarea>
+      <div class="compose-actions">
+        <button class="btn primary" data-action="send-direct" data-chat-id="${chatId}" title="Send what you typed directly. No AI.">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+          Send
+        </button>
+        <button class="btn" data-action="ai-draft-variants" data-chat-id="${chatId}" title="Generate 3 alternative AI drafts, pick one to save">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
+          3 AI options
+        </button>
+        <label class="compose-tone">
+          <span>tone</span>
+          <select data-temperament-input>${tempOpts}</select>
+        </label>
+        <span class="compose-meta">last ${settingsCache.ai_context_count} msgs${vpApplied ? ' + voice profile' : ''} as context</span>
+        <span class="compose-status" data-compose-status></span>
+      </div>
+      <div class="variants" data-variants></div>
     </div>
-    <textarea data-compose-input placeholder="Add guidance for the draft (e.g. 'tell them I'm running 15 min late', 'be warmer than my last reply', 'ask for the address')"></textarea>
-    <div class="compose-row">
-      <button class="btn primary" data-action="ai-draft-with-context" data-chat-id="${chatId}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
-        Draft reply
-      </button>
-      <button class="btn" data-action="ai-draft-variants" data-chat-id="${chatId}" title="Generate 3 alternative drafts; pick one to save">
-        3 options
-      </button>
-      <label style="display:inline-flex; align-items:center; gap:6px; font-family: var(--mono); font-size: 11px; color: var(--text-dim);">
-        tone:
-        <select data-temperament-input>
-          ${tempOpts}
-        </select>
-      </label>
-      <span class="ctx-hint" style="font-family:var(--mono);font-size:10.5px;color:var(--text-faint);">⌘+Enter = draft 1</span>
-      <span class="compose-status" data-compose-status></span>
-    </div>
-    <div class="variants" data-variants></div>
   `;
 }
 
@@ -167,7 +164,7 @@ export async function renderThreadView(chatId) {
   });
   const tb = document.getElementById('thread-toolbar');
   if (tb) tb.innerHTML = renderThreadToolbar(chatId);
-  const compose = document.getElementById('thread-compose');
+  const compose = document.getElementById('thread-compose-bar');
   if (compose) compose.innerHTML = renderThreadCompose(chatId);
   if (meta?.identifier) loadAndRenderNotes(meta.identifier);
 

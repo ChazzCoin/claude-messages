@@ -164,13 +164,15 @@
         <div class="empty-title">loading…</div>
       </div>
     </div>
+
+    <!-- Sticky compose bar. Filled by the thread view; empty otherwise. -->
+    <div id="thread-compose-bar"></div>
   </div>
 
   <!-- Right panel: collapses outside thread view; populated by JS for thread tools. -->
   <div class="rightpanel">
     <!-- Thread tools live here when currentView === 'thread'. -->
     <div id="thread-toolbar"></div>
-    <div id="thread-compose"></div>
     <div id="thread-notes"></div>
 
     <!-- Default content shown when in views other than thread. Today + Active Rules. -->
