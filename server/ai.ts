@@ -768,6 +768,14 @@ export interface DraftReplyInput {
    *  sensitivities, how to talk to them. Distinct from contactNotes (short
    *  bullets) — this is the "who you're talking to" identity block. */
   contactProfile?: string;
+  /** AddressBook record for this contact, formatted (role, birthday, notes
+   *  the user wrote in Contacts.app). Distinct from contactProfile — this is
+   *  *latent* identity context the user already stored elsewhere, surfaced
+   *  to the model so it doesn't need to ask "remind me what they do". */
+  addressBookContext?: string;
+  /** User's calendar context (events in a window around now), pre-formatted.
+   *  Lets the model answer "are you free Thursday" etc. without inventing. */
+  userAvailability?: string;
   /** Tone override for this draft. 'normal' = baseline. */
   temperament?: Temperament;
   /** How many variants to generate (1..5). Defaults to 1. */
@@ -789,6 +797,8 @@ function buildSystemPrompt(
   voiceProfile: string | undefined,
   contactNotes: string[] | undefined,
   contactProfile: string | undefined,
+  addressBookContext: string | undefined,
+  userAvailability: string | undefined,
   temperament: Temperament,
 ): string {
   const parts: string[] = [DRAFT_SYSTEM];
@@ -800,6 +810,16 @@ function buildSystemPrompt(
   if (contactProfile && contactProfile.trim()) {
     parts.push(
       `\nWHO YOU'RE TALKING TO — the user's own description of this contact: relationship, identity, sensitivities, and how they want you to interact with this person. This OVERRIDES generic defaults — match the tone and posture this profile implies, even when the voice profile would suggest otherwise:\n"""\n${contactProfile.trim()}\n"""`,
+    );
+  }
+  if (addressBookContext && addressBookContext.trim()) {
+    parts.push(
+      `\nADDRESS BOOK CONTEXT — what the user has saved about this contact in macOS Contacts.app (role, birthday, free-form notes). This is latent context the user already wrote down. Use it to ground the reply, but don't volunteer these facts unprompted — they're for YOUR situational awareness, not facts to recite back:\n"""\n${addressBookContext.trim()}\n"""`,
+    );
+  }
+  if (userAvailability && userAvailability.trim()) {
+    parts.push(
+      `\nUSER'S CALENDAR (from macOS Calendar.app — aggregates iCloud, Google, Exchange). Use ONLY when the thread asks about the user's availability or schedule (e.g. "are you free Thursday", "what time works"). Do NOT volunteer calendar contents; do NOT invent events not listed here. If the thread doesn't ask about scheduling, ignore this block:\n"""\n${userAvailability.trim()}\n"""`,
     );
   }
   if (contactNotes && contactNotes.length > 0) {
@@ -837,7 +857,14 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
     input.temperament && (TEMPERAMENTS as readonly string[]).includes(input.temperament)
       ? input.temperament
       : 'normal';
-  const systemPrompt = buildSystemPrompt(input.voiceProfile, input.contactNotes, input.contactProfile, temperament);
+  const systemPrompt = buildSystemPrompt(
+    input.voiceProfile,
+    input.contactNotes,
+    input.contactProfile,
+    input.addressBookContext,
+    input.userAvailability,
+    temperament,
+  );
   const requestedCount = Math.max(1, Math.min(5, Math.floor(input.count ?? 1)));
 
   const resp = await client.chat.completions.create({

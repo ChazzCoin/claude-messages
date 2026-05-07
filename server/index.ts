@@ -122,8 +122,19 @@ import {
   preloadContacts,
   reloadContacts,
   getContactNameForHandle,
+  getContactByHandle,
+  formatContactContext,
   normalizeHandle,
 } from './db/contacts.js';
+import {
+  getUpcomingEvents,
+  formatAvailabilityContext,
+  clearCalendarCache,
+  listCalendars,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+} from './integrations/calendar.js';
 import type { Draft } from './db/app.js';
 
 type EnrichedDraft = Draft & { contact_name: string | null };
@@ -167,6 +178,29 @@ function asyncHandler<T extends Request, U extends Response>(
   return (req: T, res: U, next: NextFunction) => {
     fn(req, res, next).catch(next);
   };
+}
+
+/**
+ * Resolve the two prompt-context blocks pulled from macOS data sources for a
+ * draft against `handle`. Both are best-effort: if Calendar.app's Automation
+ * grant isn't in place yet, or AddressBook isn't readable, we return empty
+ * strings so the draft path keeps working. Calendar fetches are 60s-cached
+ * inside the integration, so calling this on every draft is fine.
+ */
+async function resolveDraftContext(handle: string): Promise<{
+  addressBookContext: string;
+  userAvailability: string;
+}> {
+  const ab = getContactByHandle(handle);
+  const addressBookContext = formatContactContext(ab);
+  let userAvailability = '';
+  try {
+    const events = await getUpcomingEvents({ hoursBack: 2, hoursAhead: 168 });
+    userAvailability = formatAvailabilityContext(events);
+  } catch (err) {
+    console.warn(`[calendar] availability fetch failed: ${(err as Error).message}`);
+  }
+  return { addressBookContext, userAvailability };
 }
 
 /* ---------- routes: health ---------- */
@@ -512,6 +546,143 @@ app.post('/api/contacts/reload', (_req, res) => {
   res.json({ ok: true, ...reloadContacts() });
 });
 
+// Look up a single contact's full AddressBook record by handle. Used by the
+// dashboard to show what context (notes, role, birthday) gets injected into
+// drafts for this person.
+app.get('/api/contacts/lookup', (req, res) => {
+  const handle = typeof req.query.handle === 'string' ? normalizeHandle(req.query.handle) : '';
+  if (!handle) return res.status(400).json({ error: 'handle required' });
+  const info = getContactByHandle(handle);
+  if (!info) return res.json({ handle, contact: null, prompt_context: '' });
+  return res.json({ handle, contact: info, prompt_context: formatContactContext(info) });
+});
+
+/* ---------- routes: calendar (macOS Calendar.app → upcoming events) ---------- */
+// Reads everything Calendar.app aggregates: iCloud, every linked Google
+// account, Exchange, CalDAV. Requires Automation → Calendar grant for the
+// LaunchAgent's Node binary the first time. The fetch is 60s-cached to
+// keep the AI draft hot path tolerable.
+
+app.get(
+  '/api/calendar/upcoming',
+  asyncHandler(async (req, res) => {
+    const hoursAhead = intParam(req.query.hours, 24, 1, 720);
+    const hoursBack = intParam(req.query.hours_back, 0, 0, 168);
+    try {
+      const events = await getUpcomingEvents({ hoursAhead, hoursBack });
+      return res.json({
+        hours_ahead: hoursAhead,
+        hours_back: hoursBack,
+        count: events.length,
+        events,
+        prompt_context: formatAvailabilityContext(events),
+      });
+    } catch (err) {
+      return res.status(503).json({
+        error: 'calendar fetch failed',
+        detail: (err as Error).message,
+        hint: 'Grant Automation → Calendar to the LaunchAgent\'s Node binary in System Settings → Privacy & Security.',
+      });
+    }
+  }),
+);
+
+app.post('/api/calendar/cache/clear', (_req, res) => {
+  clearCalendarCache();
+  res.json({ ok: true });
+});
+
+// List calendars Calendar.app knows about. Each entry tells you whether it's
+// writable so the UI can disable read-only sources (e.g. holidays, birthdays)
+// in the "create event" picker.
+app.get(
+  '/api/calendar/calendars',
+  asyncHandler(async (_req, res) => {
+    try {
+      const calendars = await listCalendars();
+      return res.json({ count: calendars.length, calendars });
+    } catch (err) {
+      return res.status(503).json({ error: 'list calendars failed', detail: (err as Error).message });
+    }
+  }),
+);
+
+// Create an event. Body: { title, start_iso, end_iso, location?, notes?,
+// calendar?, all_day? }. When calendar is omitted, uses Calendar.app's
+// default. Returns the new event's UID for follow-up updates/deletes.
+app.post(
+  '/api/calendar/events',
+  asyncHandler(async (req, res) => {
+    const body = req.body ?? {};
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const start = typeof body.start_iso === 'string' ? body.start_iso : '';
+    const end = typeof body.end_iso === 'string' ? body.end_iso : '';
+    if (!title || !start || !end) {
+      return res.status(400).json({ error: 'title, start_iso, end_iso required' });
+    }
+    try {
+      const result = await createEvent({
+        title,
+        start_iso: start,
+        end_iso: end,
+        location: typeof body.location === 'string' ? body.location : null,
+        notes: typeof body.notes === 'string' ? body.notes : null,
+        calendar: typeof body.calendar === 'string' ? body.calendar : null,
+        all_day: !!body.all_day,
+      });
+      return res.status(201).json(result);
+    } catch (err) {
+      return res.status(500).json({ error: 'create failed', detail: (err as Error).message });
+    }
+  }),
+);
+
+// Update an event by UID. Body fields are all optional; only provided fields
+// are changed. Recurring events: behavior follows Calendar.app's default
+// (the series is modified). One-instance-only edits are not supported yet.
+app.patch(
+  '/api/calendar/events/:uid',
+  asyncHandler(async (req, res) => {
+    const uid = req.params.uid ?? '';
+    if (!uid) return res.status(400).json({ error: 'uid required' });
+    const body = req.body ?? {};
+    const patch: Parameters<typeof updateEvent>[1] = {};
+    if (typeof body.title === 'string') patch.title = body.title.trim();
+    if (typeof body.start_iso === 'string') patch.start_iso = body.start_iso;
+    if (typeof body.end_iso === 'string') patch.end_iso = body.end_iso;
+    if ('location' in body) patch.location = body.location ?? null;
+    if ('notes' in body) patch.notes = body.notes ?? null;
+    if ('all_day' in body) patch.all_day = !!body.all_day;
+    if (Object.keys(patch).length === 0) {
+      return res.status(400).json({ error: 'no editable fields in body' });
+    }
+    try {
+      const result = await updateEvent(uid, patch);
+      return res.json(result);
+    } catch (err) {
+      const msg = (err as Error).message;
+      const code = msg.includes('not found') ? 404 : 500;
+      return res.status(code).json({ error: 'update failed', detail: msg });
+    }
+  }),
+);
+
+app.delete(
+  '/api/calendar/events/:uid',
+  asyncHandler(async (req, res) => {
+    const uid = req.params.uid ?? '';
+    if (!uid) return res.status(400).json({ error: 'uid required' });
+    try {
+      await deleteEvent(uid);
+      return res.status(204).end();
+    } catch (err) {
+      const msg = (err as Error).message;
+      const code = msg.includes('not found') ? 404 : 500;
+      return res.status(code).json({ error: 'delete failed', detail: msg });
+    }
+  }),
+);
+
 /* ---------- routes: per-contact memory notes ---------- */
 // Use ?handle=<encoded> in the query string so we don't have to escape
 // + and @ characters in URL paths. Notes are 1:1 chat scoped — for
@@ -704,6 +875,9 @@ app.post(
 
     const contactNotes = listNotesForHandle(chatRow.chat_identifier).map((n) => n.body);
     const contactProfile = getContactProfile(chatRow.chat_identifier).profile;
+    const { addressBookContext, userAvailability } = await resolveDraftContext(
+      chatRow.chat_identifier,
+    );
 
     const result = await draftReply({
       thread,
@@ -711,6 +885,8 @@ app.post(
       voiceProfile: settings.voice_profile,
       contactNotes,
       contactProfile,
+      addressBookContext,
+      userAvailability,
       temperament,
       count: variantCount,
     });
@@ -737,12 +913,14 @@ app.post(
       const profileLine = settings.voice_profile ? ' · voice-profile: applied' : '';
       const memoryLine = contactNotes.length > 0 ? ` · contact-notes: ${contactNotes.length}` : '';
       const contactProfileLine = contactProfile ? ' · contact-profile: applied' : '';
+      const abLine = addressBookContext ? ' · addressbook: applied' : '';
+      const calLine = userAvailability ? ' · calendar: applied' : '';
       draftRecord = createDraft({
         source_msg_guid: sourceMsg.guid,
         chat_id: chatId,
         handle: chatRow.chat_identifier,
         body: usableVariants[0]!.body,
-        reasoning: `AI · model=${result.model} · context=${thread.length} turns · ${tokenLine}${profileLine}${contactProfileLine}${tempLine}${memoryLine}${noteLine} · galt-prefix: applied`,
+        reasoning: `AI · model=${result.model} · context=${thread.length} turns · ${tokenLine}${profileLine}${contactProfileLine}${abLine}${calLine}${tempLine}${memoryLine}${noteLine} · galt-prefix: applied`,
       });
     }
 
@@ -758,6 +936,8 @@ app.post(
       voice_profile_applied: !!settings.voice_profile,
       contact_notes_applied: contactNotes.length,
       contact_profile_applied: !!contactProfile,
+      addressbook_applied: !!addressBookContext,
+      calendar_applied: !!userAvailability,
       model: result.model,
       usage,
       draft: enrichDraft(draftRecord),
@@ -1802,11 +1982,14 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     const contactNotes = listNotesForHandle(msg.handle).map((n) => n.body);
     const contactProfile = getContactProfile(msg.handle).profile;
     const recipientName = msg.contact_name || msg.handle || 'them';
+    const { addressBookContext, userAvailability } = await resolveDraftContext(msg.handle);
     const result = await draftReply({
       thread,
       voiceProfile: settings.voice_profile,
       contactNotes,
       contactProfile,
+      addressBookContext,
+      userAvailability,
       contextNote: buildAwayContextNote(settings.away_persona, recipientName),
       temperament: 'normal',
       count: 1,

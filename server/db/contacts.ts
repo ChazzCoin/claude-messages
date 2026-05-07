@@ -18,6 +18,12 @@ export interface ContactInfo {
   first_name: string | null;
   last_name: string | null;
   organization: string | null;
+  job_title: string | null;
+  department: string | null;
+  /** Free-form notes the user has typed into Contacts.app. Long-form. */
+  notes: string | null;
+  /** Human-readable birthday like "March 12" (year unknown) or "March 12, 1985". */
+  birthday: string | null;
 }
 
 export interface ContactWithHandles extends ContactInfo {
@@ -96,7 +102,12 @@ export function normalizeHandle(raw: string | null | undefined): string {
   return `+${digits}`;
 }
 
-function makeFullName(c: Omit<ContactInfo, 'full_name'> & { nickname?: string | null }): string {
+function makeFullName(c: {
+  first_name: string | null;
+  last_name: string | null;
+  organization: string | null;
+  nickname?: string | null;
+}): string {
   const parts: string[] = [];
   if (c.first_name) parts.push(c.first_name);
   if (c.last_name) parts.push(c.last_name);
@@ -111,6 +122,41 @@ interface RawRecord {
   last_name: string | null;
   organization: string | null;
   nickname: string | null;
+  job_title: string | null;
+  department: string | null;
+  /** ZBIRTHDAY: Apple-epoch seconds (negative for pre-2001 dates). */
+  birthday_apple: number | null;
+  /** ZBIRTHDAYYEAR: explicit year override; null/1604 = "year unknown". */
+  birthday_year: number | null;
+  /** ZNOTE: foreign key into ZABCDNOTE.Z_PK. */
+  note_id: number | null;
+}
+
+/** Apple uses 1604 as a placeholder year when the user only entered month/day. */
+const BIRTHDAY_YEAR_UNKNOWN = 1604;
+const APPLE_EPOCH_OFFSET_S = 978307200;
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function formatBirthday(appleSeconds: number | null, explicitYear: number | null): string | null {
+  if (appleSeconds === null || !Number.isFinite(appleSeconds)) return null;
+  const ms = (appleSeconds + APPLE_EPOCH_OFFSET_S) * 1000;
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  const month = MONTH_NAMES[d.getUTCMonth()];
+  const day = d.getUTCDate();
+  const yearFromTimestamp = d.getUTCFullYear();
+  // Prefer explicit ZBIRTHDAYYEAR when set & not the placeholder; else use the
+  // year from ZBIRTHDAY unless that's also the placeholder (no year known).
+  const yearKnown =
+    (explicitYear !== null && explicitYear !== BIRTHDAY_YEAR_UNKNOWN) ||
+    (explicitYear === null && yearFromTimestamp !== BIRTHDAY_YEAR_UNKNOWN);
+  const displayYear = explicitYear && explicitYear !== BIRTHDAY_YEAR_UNKNOWN
+    ? explicitYear
+    : yearFromTimestamp;
+  return yearKnown ? `${month} ${day}, ${displayYear}` : `${month} ${day}`;
 }
 
 function readContactsFrom(dbPath: string): {
@@ -132,11 +178,30 @@ function readContactsFrom(dbPath: string): {
                ZFIRSTNAME     AS first_name,
                ZLASTNAME      AS last_name,
                ZORGANIZATION  AS organization,
-               ZNICKNAME      AS nickname
+               ZNICKNAME      AS nickname,
+               ZJOBTITLE      AS job_title,
+               ZDEPARTMENT    AS department,
+               ZBIRTHDAY      AS birthday_apple,
+               ZBIRTHDAYYEAR  AS birthday_year,
+               ZNOTE          AS note_id
         FROM ZABCDRECORD
         `,
       )
       .all() as RawRecord[];
+
+    // Pull all note bodies in one shot, keyed by note PK so we can attach
+    // them to records by ZNOTE FK without N+1 queries.
+    const notesByPk = new Map<number, string>();
+    try {
+      const noteRows = db
+        .prepare('SELECT Z_PK AS pk, ZTEXT AS text FROM ZABCDNOTE WHERE ZTEXT IS NOT NULL')
+        .all() as Array<{ pk: number; text: string | null }>;
+      for (const n of noteRows) {
+        if (n.text && n.text.trim()) notesByPk.set(n.pk, n.text.trim());
+      }
+    } catch (err) {
+      console.warn(`[contacts] note read failed for ${dbPath}: ${(err as Error).message}`);
+    }
 
     const recordById = new Map<number, ContactInfo>();
     for (const r of records) {
@@ -144,6 +209,10 @@ function readContactsFrom(dbPath: string): {
         first_name: r.first_name,
         last_name: r.last_name,
         organization: r.organization,
+        job_title: r.job_title,
+        department: r.department,
+        notes: r.note_id !== null ? notesByPk.get(r.note_id) ?? null : null,
+        birthday: formatBirthday(r.birthday_apple, r.birthday_year),
         full_name: makeFullName({
           first_name: r.first_name,
           last_name: r.last_name,
@@ -287,4 +356,26 @@ export function reloadContacts(): { count: number; handle_bindings: number } {
   _allContacts = null;
   ensureLoaded();
   return { count: _allContacts!.length, handle_bindings: _byHandle!.size };
+}
+
+/**
+ * Format a contact's AddressBook record as a multi-line block suitable for
+ * injection into an AI draft prompt. Returns empty string when no field is
+ * worth surfacing — caller can null-check and skip the section.
+ *
+ * Intentionally compact: the model already has the contact's name from the
+ * thread attribution. This block adds the *latent* context — what the user
+ * has stored about this person but hasn't said in the thread itself.
+ */
+export function formatContactContext(info: ContactInfo | null): string {
+  if (!info) return '';
+  const lines: string[] = [];
+  const role: string[] = [];
+  if (info.job_title) role.push(info.job_title);
+  if (info.department) role.push(info.department);
+  if (info.organization) role.push(`at ${info.organization}`);
+  if (role.length) lines.push(`Role: ${role.join(' ')}`);
+  if (info.birthday) lines.push(`Birthday: ${info.birthday}`);
+  if (info.notes) lines.push(`User's notes:\n${info.notes}`);
+  return lines.join('\n');
 }
