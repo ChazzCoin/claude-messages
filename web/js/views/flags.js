@@ -34,12 +34,19 @@ export function renderFlagCard(f) {
   `;
 }
 
-export async function renderFlagsView() {
-  setMainHeader({
-    title: 'Flags',
-    subHTML: '<span class="accent" id="flags-count">— unreviewed</span> · monitor-rule matches',
-  });
-  const list = document.getElementById('drafts-list');
+/**
+ * Render the Flags pane. When called standalone (no target arg), takes over
+ * the main column with its own header. When embedded inside the Queue view,
+ * pass the host element so the Queue's header/tab-strip stay intact.
+ */
+export async function renderFlagsView(targetEl) {
+  if (!targetEl) {
+    setMainHeader({
+      title: 'Flags',
+      subHTML: '<span class="accent" id="flags-count">— unreviewed</span> · monitor-rule matches',
+    });
+  }
+  const list = targetEl || document.getElementById('drafts-list');
   if (!list) return;
   list.innerHTML = `
     <div style="display:flex;gap:6px;margin-bottom:12px;">

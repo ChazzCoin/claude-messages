@@ -26,16 +26,13 @@ import {
 import { renderHomeView } from './views/home.js';
 import { renderInboxView } from './views/inbox.js';
 import { renderThreadView } from './views/thread.js';
-import { renderDraftsView } from './views/drafts.js';
 import { renderSettingsView } from './views/settings.js';
-import { renderSearchView } from './views/search.js';
-import { renderFlagsView } from './views/flags.js';
-import { renderScheduledView } from './views/scheduled.js';
 import { renderRadarView, renderRadarDetail } from './views/radar.js';
-import { renderCalendarView } from './views/calendar.js';
 import { renderAwayView } from './views/away.js';
 import { renderAutoNotesView } from './views/auto-notes.js';
 import { renderSummonView } from './views/summon.js';
+import { renderQueueView } from './views/queue.js';
+import { setQueueTab } from './state.js';
 
 /**
  * Apply a view immediately. Used internally by the hash listener and exposed
@@ -47,29 +44,38 @@ export async function setView(view, arg = null) {
   setCurrentChatId(view === 'thread' ? arg : null);
   if (view !== 'radar-detail') setCurrentRadarHandle(null);
 
-  // Sidebar highlight: thread inherits from inbox; radar-detail from radar.
+  // Sidebar highlight: thread inherits from inbox; radar-detail from radar;
+  // legacy routes (search → home, drafts → inbox, flags/calendar/scheduled
+  // → queue) inherit from the surface that subsumed them.
   const navKey = view === 'thread' ? 'inbox'
     : view === 'radar-detail' ? 'radar'
+    : view === 'drafts' ? 'inbox'
+    : view === 'search' ? 'home'
+    : (view === 'flags' || view === 'calendar' || view === 'scheduled') ? 'queue'
     : view;
   setActiveNav(navKey);
   setRightPanelMode(view === 'thread' ? 'thread' : 'collapsed');
-  if (view !== 'drafts') clearDraftsToolbar();
+  clearDraftsToolbar();
 
   switch (view) {
     case 'home':          await renderHomeView(); break;
     case 'inbox':         await renderInboxView(); break;
     case 'thread':        await renderThreadView(arg); break;
-    case 'drafts':        await renderDraftsView(); break;
     case 'settings':      await renderSettingsView(); break;
-    case 'search':        await renderSearchView(); break;
-    case 'flags':         await renderFlagsView(); break;
-    case 'scheduled':     await renderScheduledView(); break;
     case 'radar':         await renderRadarView(); break;
     case 'radar-detail':  setCurrentRadarHandle(arg); await renderRadarDetail(arg); break;
-    case 'calendar':      await renderCalendarView(); break;
     case 'away':          await renderAwayView(); break;
     case 'auto-notes':    await renderAutoNotesView(); break;
     case 'summon':        await renderSummonView(); break;
+    case 'queue':         await renderQueueView(); break;
+    // Legacy routes — these used to be standalone pages but folded into
+    // other surfaces during the sidebar cleanup. Old bookmarks and
+    // home-page links keep working by redirecting in place.
+    case 'drafts':        await renderInboxView(); break;          // drafts now sit at top of inbox
+    case 'search':        await renderHomeView(); break;           // search panel embedded on home
+    case 'flags':         setQueueTab('flags');     await renderQueueView(); break;
+    case 'calendar':      setQueueTab('calendar');  await renderQueueView(); break;
+    case 'scheduled':     setQueueTab('scheduled'); await renderQueueView(); break;
     default:              await renderHomeView();
   }
 }

@@ -1,10 +1,11 @@
-// Drafts queue — rendered list of pending drafts (the main column shows them
-// when the Drafts nav item is active). Also owns the small new-draft form.
+// Drafts queue rendering. The standalone Drafts view was removed during
+// the sidebar cleanup — drafts now live at the top of the Inbox view.
+// This module still owns the per-draft card markup, the "+ new draft"
+// toolbar, and the refresh-into-target helper that the inbox calls.
 
 import { api, setPill } from '../api.js';
-import { setMainHeader } from '../shell.js';
 import { escapeHtml, initials, avatarClass, relTime } from '../utils.js';
-import { chatsCache, setChatsCache } from '../state.js';
+import { chatsCache } from '../state.js';
 
 export function renderDraftCard(d) {
   const displayName = d.contact_name || d.handle;
@@ -57,18 +58,6 @@ export function renderDraftCard(d) {
   `;
 }
 
-export function renderEmptyDrafts() {
-  return `
-    <div class="empty">
-      <div class="empty-title">No drafts pending.</div>
-      <div class="empty-sub">
-        Drafts arrive once the watcher (Phase 2) and classifier (Phase 3) come online.<br/>
-        Until then, the queue stays honest: empty.
-      </div>
-    </div>
-  `;
-}
-
 export async function refreshDrafts() {
   let drafts = [];
   try {
@@ -80,13 +69,26 @@ export async function refreshDrafts() {
   setPill('pill-drafts', count > 0 ? 'warn' : 'ok',
     `${count} draft${count === 1 ? '' : 's'} pending`);
 
+  // Sidebar badge — show count when > 0, hide when empty.
   const badge = document.getElementById('nav-drafts-badge');
-  if (badge) badge.textContent = count;
-  const sub = document.getElementById('main-pending-count');
-  if (sub) sub.textContent = `${count} pending`;
+  if (badge) {
+    if (count > 0) {
+      badge.style.display = '';
+      badge.textContent = String(count);
+    } else {
+      badge.style.display = 'none';
+    }
+  }
 
-  const list = document.getElementById('drafts-list');
-  if (list) list.innerHTML = drafts.length ? drafts.map(renderDraftCard).join('') : renderEmptyDrafts();
+  // Render into the inbox-embedded drafts container. No-op when the inbox
+  // isn't the current view (the next inbox render will pull fresh data).
+  const list = document.getElementById('inbox-drafts-list');
+  if (!list) return;
+  if (drafts.length === 0) {
+    list.innerHTML = '<div class="empty-row" style="padding:6px 0;color:var(--text-faint);">no pending drafts</div>';
+  } else {
+    list.innerHTML = drafts.map(renderDraftCard).join('');
+  }
 }
 
 export function renderNewDraftToolbar() {
@@ -114,19 +116,3 @@ export function renderNewDraftToolbar() {
   `;
 }
 
-export async function renderDraftsView() {
-  setMainHeader({
-    title: 'Drafts queue',
-    subHTML: '<span class="accent" id="main-pending-count">— pending</span> · awaiting your approval before send',
-  });
-  // Make sure chatsCache is populated for the new-draft chat picker.
-  if (chatsCache.length === 0) {
-    try {
-      const { chats } = await api('/api/chats?limit=200');
-      setChatsCache(chats || []);
-    } catch { /* fine — picker just shows the fallback option */ }
-  }
-  const tb = document.getElementById('drafts-toolbar');
-  if (tb) tb.innerHTML = renderNewDraftToolbar();
-  await refreshDrafts();
-}

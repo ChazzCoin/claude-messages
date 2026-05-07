@@ -3,6 +3,8 @@
 // clicking through every section.
 //
 // Panels:
+//   - Search bar          (live LIKE search across chat.db — folded in
+//                          from the former Search nav item)
 //   - Latest auto notes   (5 most recent unreviewed — top-level priority)
 //   - Recent threads      (top 6 chats from inbox)
 //   - Away mode controls  (toggle + greeting edit)
@@ -187,6 +189,14 @@ export async function renderHomeView() {
 
   list.innerHTML = `
     <div class="home-grid">
+      <div class="home-panel home-panel-search">
+        <div class="search-view">
+          <input type="search" class="search-input" id="search-input" placeholder="Search all messages…" autocomplete="off" />
+          <div class="search-status" id="search-status">type 2+ characters to begin · LIKE search against chat.db</div>
+          <div class="search-results" id="search-results"></div>
+        </div>
+      </div>
+
       <div class="home-panel home-panel-priority">
         <div class="home-panel-head">
           <h3>Latest auto notes</h3>

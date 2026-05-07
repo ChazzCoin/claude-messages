@@ -34,6 +34,7 @@ export let currentRadarHandle = null;
 export let radarSignalsTab = 'all';
 export let calendarTab = 'pending';
 export let flagsTab = 'unreviewed';
+export let queueTab = 'calendar'; // which Queue sub-tab is active (calendar|flags|scheduled)
 
 // Transient state.
 export let pendingVariants = null; // { variants, chat_id, handle, source_msg_guid, model, usage, temperament, contextNote }
@@ -64,6 +65,7 @@ export function setCurrentRadarHandle(v) { currentRadarHandle = v; }
 export function setRadarSignalsTab(v) { radarSignalsTab = v; }
 export function setCalendarTab(v) { calendarTab = v; }
 export function setFlagsTab(v) { flagsTab = v; }
+export function setQueueTab(v) { queueTab = v; }
 
 export function setPendingVariants(v) { pendingVariants = v; }
 export function setScheduleFormPicker(v) { scheduleFormPicker = v; }

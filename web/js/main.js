@@ -9,13 +9,11 @@ import { installActionHandlers } from './actions.js';
 import { connectSSE } from './sse.js';
 
 import { refreshSettings } from './views/settings.js';
-import { refreshRules } from './views/rules.js';
-import { refreshFlagsBadgeOnly } from './views/flags.js';
-import { refreshScheduledCountOnly } from './views/scheduled.js';
 import { refreshRadarHandlesCache } from './views/radar.js';
-import { refreshCalendarBadgeOnly } from './views/calendar.js';
 import { updateAwayPill } from './views/away.js';
 import { refreshAutoNotesBadge } from './views/auto-notes.js';
+import { refreshQueueBadge } from './views/queue.js';
+import { refreshDrafts } from './views/drafts.js';
 
 async function refreshContactsCache() {
   try {
@@ -36,15 +34,16 @@ async function init() {
   installRouter();
 
   // Sidebar/badge data — same regardless of which main view is up.
+  // refreshQueueBadge sweeps calendar+flags+scheduled counts in one call;
+  // refreshDrafts sets the inbox-drafts badge (no list write since the
+  // inbox container isn't mounted yet).
   await Promise.all([
     refreshHealth(),
-    refreshRules(),
-    refreshFlagsBadgeOnly(),
-    refreshScheduledCountOnly(),
     refreshRadarHandlesCache(),
-    refreshCalendarBadgeOnly(),
     refreshContactsCache(),
     refreshAutoNotesBadge(),
+    refreshQueueBadge(),
+    refreshDrafts(),
   ]);
 
   // Land on whatever the URL hash says (defaults to inbox).

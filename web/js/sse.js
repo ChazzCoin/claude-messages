@@ -2,22 +2,17 @@
 // currently-visible view when the relevant event class arrives, and bumps
 // nav-bar badges/counts even when the view isn't open.
 
-import { api, refreshHealth } from './api.js';
+import { refreshHealth } from './api.js';
 import {
   currentView, currentChatId, currentRadarHandle,
-  settingsCache, setSettingsCache,
+  queueTab, settingsCache, setSettingsCache,
 } from './state.js';
 import { renderInboxView } from './views/inbox.js';
 import { renderThreadView } from './views/thread.js';
-import {
-  refreshFlagsList, updateFlagsBadge,
-} from './views/flags.js';
-import {
-  refreshScheduledList, refreshScheduledCount,
-} from './views/scheduled.js';
-import {
-  refreshCalendarBadgeOnly, refreshCalendarList,
-} from './views/calendar.js';
+import { refreshFlagsList } from './views/flags.js';
+import { refreshScheduledList } from './views/scheduled.js';
+import { refreshCalendarList } from './views/calendar.js';
+import { refreshQueueBadge } from './views/queue.js';
 import {
   renderRadarView, renderRadarDetail,
 } from './views/radar.js';
@@ -51,28 +46,26 @@ export function connectSSE() {
     sse.addEventListener('flag.new', async (e) => {
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
-      try {
-        const r = await api('/api/monitor/flags?reviewed=false&limit=1');
-        updateFlagsBadge(r.unreviewed);
-      } catch { /* badge stays */ }
-      if (currentView === 'flags') await refreshFlagsList();
+      await refreshQueueBadge();
+      if (currentView === 'queue' && queueTab === 'flags') await refreshFlagsList();
       const rule = data?.rule_name ? ` "${data.rule_name}"` : '';
       console.log(`[flag] new match${rule} (confidence ${data?.confidence ?? '?'})`);
     });
 
     sse.addEventListener('scheduled.sent', async () => {
-      if (currentView === 'scheduled') await refreshScheduledList();
-      else refreshScheduledCount();
+      await refreshQueueBadge();
+      if (currentView === 'queue' && queueTab === 'scheduled') await refreshScheduledList();
     });
     sse.addEventListener('scheduled.failed', async () => {
-      if (currentView === 'scheduled') await refreshScheduledList();
+      await refreshQueueBadge();
+      if (currentView === 'queue' && queueTab === 'scheduled') await refreshScheduledList();
     });
 
     sse.addEventListener('calendar.proposal', async (e) => {
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
-      await refreshCalendarBadgeOnly();
-      if (currentView === 'calendar') await refreshCalendarList();
+      await refreshQueueBadge();
+      if (currentView === 'queue' && queueTab === 'calendar') await refreshCalendarList();
       console.log('[calendar] new proposal:', data?.proposal?.title);
     });
 
