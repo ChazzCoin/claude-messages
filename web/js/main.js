@@ -9,8 +9,7 @@ import { installActionHandlers } from './actions.js';
 import { connectSSE } from './sse.js';
 
 import { refreshSettings } from './views/settings.js';
-import { refreshWatched, refreshRules } from './views/rules.js';
-import { refreshSentStats } from './views/drafts.js';
+import { refreshRules } from './views/rules.js';
 import { refreshFlagsBadgeOnly } from './views/flags.js';
 import { refreshScheduledCountOnly } from './views/scheduled.js';
 import { refreshRadarHandlesCache } from './views/radar.js';
@@ -35,12 +34,10 @@ async function init() {
   installActionHandlers();
   installRouter();
 
-  // Sidebar/right-panel data — same regardless of which main view is up.
+  // Sidebar/badge data — same regardless of which main view is up.
   await Promise.all([
     refreshHealth(),
-    refreshWatched(),
     refreshRules(),
-    refreshSentStats(),
     refreshFlagsBadgeOnly(),
     refreshScheduledCountOnly(),
     refreshRadarHandlesCache(),

@@ -17,7 +17,7 @@ import {
   setPendingVariants,
 } from './state.js';
 
-import { refreshDrafts, refreshSentStats } from './views/drafts.js';
+import { refreshDrafts } from './views/drafts.js';
 import { renderThreadToolbar, renderVariantCards } from './views/thread.js';
 import { loadAndRenderNotes } from './views/inbox.js';
 import { renderSettingsView } from './views/settings.js';
@@ -34,7 +34,7 @@ import {
 import {
   renderAwayView, updateAwayPill, refreshAwayNotesBadge,
 } from './views/away.js';
-import { refreshWatched, refreshRules } from './views/rules.js';
+import { refreshRules } from './views/rules.js';
 import { runSearch } from './views/search.js';
 
 let searchTimer = null;
@@ -130,21 +130,11 @@ async function onClick(e) {
     if (!Number.isFinite(id)) return;
     if (!confirm('Remove this rule?')) return;
     try {
-      await api(`/api/rules/${id}`, { method: 'DELETE' });
+      await api(`/api/monitor/rules/${id}`, { method: 'DELETE' });
       await refreshRules();
     } catch (err) { alert(`remove failed: ${err.message}`); }
     return;
   }
-  if (action === 'remove-watched') {
-    const id = parseInt(btn.dataset.id, 10);
-    if (!Number.isFinite(id)) return;
-    try {
-      await api(`/api/watched/${id}`, { method: 'DELETE' });
-      await refreshWatched();
-    } catch (err) { alert(`remove failed: ${err.message}`); }
-    return;
-  }
-
   /* ---------- Scheduled ---------- */
   if (action === 'cancel-sched') {
     const id = parseInt(btn.dataset.id, 10);
@@ -501,7 +491,7 @@ async function onClick(e) {
       if (ta) ta.value = '';
       if (status) { status.className = 'compose-status ok'; status.textContent = '✓ sent'; }
       // Optimistic refresh — the watcher will also fire message.new SSE shortly.
-      await Promise.all([refreshDrafts(), refreshSentStats()]);
+      await refreshDrafts();
     } catch (err) {
       if (status) { status.className = 'compose-status err'; status.textContent = err.message; }
     } finally {
@@ -598,7 +588,7 @@ async function onClick(e) {
       if (ta) ta.value = '';
       if (status) { status.className = 'compose-status ok'; status.textContent = '✓ saved to drafts'; }
       setPendingVariants(null);
-      await Promise.all([refreshDrafts(), refreshSentStats()]);
+      await refreshDrafts();
     } catch (err) {
       alert(`save failed: ${err.message}`);
       btn.disabled = false;
@@ -687,7 +677,7 @@ async function onClick(e) {
       } else {
         const tokens = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
         if (status) { status.className = 'toolbar-status ok'; status.textContent = `✓ saved · ${r.thread.length} turns of context${tokens}`; }
-        await Promise.all([refreshDrafts(), refreshSentStats()]);
+        await refreshDrafts();
       }
     } catch (err) {
       if (status) { status.className = 'toolbar-status err'; status.textContent = err.message; }
@@ -751,7 +741,7 @@ async function onClick(e) {
     } else {
       return;
     }
-    await Promise.all([refreshDrafts(), refreshSentStats()]);
+    await refreshDrafts();
   } catch (err) {
     alert(`${action} failed: ${err.message}`);
     btn.disabled = false;
@@ -772,11 +762,7 @@ async function onSubmit(e) {
   if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving…'; }
 
   try {
-    if (kind === 'watched') {
-      await api('/api/watched', { method: 'POST', body: { handle: data.handle, label: data.label || null } });
-      closeForm('form-watched');
-      await refreshWatched();
-    } else if (kind === 'monitor-rule') {
+    if (kind === 'monitor-rule') {
       const payload = {
         name: data.name,
         kind: data.kind || 'flag',
@@ -849,7 +835,7 @@ async function onSubmit(e) {
         body: { chat_id: parseInt(data.chat_id, 10), body: data.body },
       });
       closeForm('form-draft');
-      await Promise.all([refreshDrafts(), refreshSentStats()]);
+      await refreshDrafts();
     } else if (kind === 'settings') {
       const r = await api('/api/settings', {
         method: 'PUT',

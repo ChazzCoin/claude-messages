@@ -267,8 +267,6 @@ body::after {
 }
 .main-sub .accent { color: var(--green); }
 
-.filter-row { display: flex; gap: 6px; }
-
 .filter {
   padding: 6px 12px;
   border: 1px solid var(--border);
@@ -1754,7 +1752,6 @@ body::after {
 }
 .app.no-rightpanel .rightpanel { display: none; }
 .rightpanel.thread-mode { padding: 16px; }
-.rightpanel.thread-mode > .panel-title { margin-top: 14px; }
 
 .rightpanel {
   border-left: 1px solid var(--border);
@@ -1762,83 +1759,6 @@ body::after {
   overflow-y: auto;
   background: rgba(10, 12, 16, 0.4);
 }
-
-.panel-title {
-  font-family: var(--mono);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-faint);
-  margin-bottom: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.panel-title .live-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 6px var(--green);
-  animation: pulse 2s infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.activity {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--text-dim);
-  line-height: 1.7;
-  padding: 12px 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 24px;
-}
-.activity-line { display: flex; gap: 8px; }
-.activity-time { color: var(--text-faint); flex-shrink: 0; }
-.activity-line .ok { color: var(--green); }
-.activity-line .info { color: var(--cyan); }
-.activity-line .warn { color: var(--yellow); }
-
-.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 24px; }
-.stat {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
-}
-.stat-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  color: var(--text-faint);
-  margin-bottom: 6px;
-}
-.stat-value {
-  font-family: var(--mono);
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text);
-}
-.stat-delta { font-size: 10.5px; color: var(--green); margin-left: 4px; font-weight: 500; }
-
-.rule-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 8px;
-  font-size: 12px;
-}
-.rule-name { font-weight: 500; color: var(--text); margin-bottom: 4px; font-size: 12.5px; }
-.rule-trigger { font-family: var(--mono); font-size: 11px; color: var(--text-dim); word-break: break-all; }
-.rule-trigger .op { color: var(--purple); }
-.rule-trigger .str { color: var(--green); }
 
 /* ============================================================
    Home dashboard

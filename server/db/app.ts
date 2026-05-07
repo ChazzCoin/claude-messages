@@ -21,22 +21,6 @@ export function closeAppDb() {
 
 function migrate(db: DB) {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS watched_contacts (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      handle       TEXT NOT NULL UNIQUE,    -- phone or email as it appears in chat.db handle.id
-      label        TEXT,
-      created_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
-    );
-
-    CREATE TABLE IF NOT EXISTS rules (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      name         TEXT NOT NULL,
-      pattern      TEXT NOT NULL,           -- regex string for fast-layer match
-      flags        TEXT NOT NULL DEFAULT 'i',
-      enabled      INTEGER NOT NULL DEFAULT 1,
-      created_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
-    );
-
     CREATE TABLE IF NOT EXISTS drafts (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       source_msg_guid TEXT NOT NULL,        -- chat.db message.guid that triggered this draft
@@ -395,85 +379,6 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
     setState('openai_model', String(patch.openai_model).trim());
   }
   return getSettings();
-}
-
-/* ---------- watched contacts ---------- */
-
-export interface WatchedContact {
-  id: number;
-  handle: string;
-  label: string | null;
-  created_at: number;
-}
-
-export function listWatched(): WatchedContact[] {
-  const db = getAppDb();
-  return db
-    .prepare('SELECT id, handle, label, created_at FROM watched_contacts ORDER BY id DESC')
-    .all() as WatchedContact[];
-}
-
-export function addWatched(handle: string, label: string | null): WatchedContact {
-  const db = getAppDb();
-  const info = db
-    .prepare('INSERT OR IGNORE INTO watched_contacts(handle, label) VALUES (?, ?)')
-    .run(handle, label);
-  const id =
-    info.changes > 0
-      ? (info.lastInsertRowid as number)
-      : (db.prepare('SELECT id FROM watched_contacts WHERE handle = ?').get(handle) as { id: number })
-          .id;
-  return db
-    .prepare('SELECT id, handle, label, created_at FROM watched_contacts WHERE id = ?')
-    .get(id) as WatchedContact;
-}
-
-export function removeWatched(id: number): boolean {
-  const db = getAppDb();
-  return db.prepare('DELETE FROM watched_contacts WHERE id = ?').run(id).changes > 0;
-}
-
-/* ---------- rules ---------- */
-
-export interface Rule {
-  id: number;
-  name: string;
-  pattern: string;
-  flags: string;
-  enabled: 0 | 1;
-  created_at: number;
-}
-
-export function listRules(): Rule[] {
-  const db = getAppDb();
-  return db
-    .prepare('SELECT id, name, pattern, flags, enabled, created_at FROM rules ORDER BY id DESC')
-    .all() as Rule[];
-}
-
-export function addRule(name: string, pattern: string, flags = 'i'): Rule {
-  // Validate regex up-front so a bad pattern doesn't poison the watcher loop.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _check = new RegExp(pattern, flags);
-  const db = getAppDb();
-  const info = db
-    .prepare('INSERT INTO rules(name, pattern, flags) VALUES (?, ?, ?)')
-    .run(name, pattern, flags);
-  return db
-    .prepare('SELECT id, name, pattern, flags, enabled, created_at FROM rules WHERE id = ?')
-    .get(info.lastInsertRowid) as Rule;
-}
-
-export function setRuleEnabled(id: number, enabled: boolean): boolean {
-  const db = getAppDb();
-  return (
-    db.prepare('UPDATE rules SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id).changes > 0
-  );
-}
-
-export function removeRule(id: number): boolean {
-  const db = getAppDb();
-  return db.prepare('DELETE FROM rules WHERE id = ?').run(id).changes > 0;
 }
 
 /* ---------- drafts ---------- */

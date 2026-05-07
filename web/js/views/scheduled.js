@@ -34,7 +34,6 @@ export async function renderScheduledView() {
   setMainHeader({
     title: 'Scheduled',
     subHTML: '<span class="accent" id="sched-count">— pending</span> · queued to send later',
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;

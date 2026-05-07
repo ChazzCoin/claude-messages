@@ -109,7 +109,6 @@ export async function renderHomeView() {
   setMainHeader({
     title: 'Home',
     subHTML: '<span class="accent">dashboard</span> · what needs your attention',
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;

@@ -1,13 +1,11 @@
 // View chrome — header, nav highlight, right-panel mode, form open/close.
 // These are the bits every view needs to call when it mounts/unmounts.
 
-export function setMainHeader({ title, subHTML, showFilters = false }) {
+export function setMainHeader({ title, subHTML }) {
   const t = document.querySelector('.main-title');
   const s = document.querySelector('.main-sub');
-  const f = document.querySelector('.filter-row');
   if (t) t.textContent = title;
   if (s) s.innerHTML = subHTML;
-  if (f) f.style.display = showFilters ? 'flex' : 'none';
 }
 
 export function setActiveNav(view) {

@@ -50,7 +50,6 @@ export async function renderRadarView() {
   setMainHeader({
     title: 'Radar',
     subHTML: '<span class="accent" id="radar-count">— contacts</span> · live memory bank',
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;
@@ -78,7 +77,6 @@ export async function renderRadarDetail(handle) {
   setMainHeader({
     title: 'Radar',
     subHTML: `<a class="back-link" data-action="radar-back">← back to radar</a> · ${escapeHtml(handle)}`,
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;

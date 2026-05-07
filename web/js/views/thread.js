@@ -160,7 +160,6 @@ export async function renderThreadView(chatId) {
   setMainHeader({
     title,
     subHTML: `<a class="back-link" data-action="back-to-inbox">← back to inbox</a>${meta?.identifier ? ' · ' + escapeHtml(meta.identifier) : ''}`,
-    showFilters: false,
   });
   const tb = document.getElementById('thread-toolbar');
   if (tb) tb.innerHTML = renderThreadToolbar(chatId);

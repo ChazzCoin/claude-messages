@@ -84,28 +84,9 @@ export async function refreshDrafts() {
   if (badge) badge.textContent = count;
   const sub = document.getElementById('main-pending-count');
   if (sub) sub.textContent = `${count} pending`;
-  const stat = document.getElementById('stat-drafted');
-  if (stat) stat.textContent = count;
 
   const list = document.getElementById('drafts-list');
   if (list) list.innerHTML = drafts.length ? drafts.map(renderDraftCard).join('') : renderEmptyDrafts();
-}
-
-export async function refreshSentStats() {
-  try {
-    const [{ drafts: sent }, { drafts: discarded }] = await Promise.all([
-      api('/api/drafts?status=sent'),
-      api('/api/drafts?status=discarded'),
-    ]);
-    const sentEl = document.getElementById('stat-sent');
-    if (sentEl) sentEl.textContent = sent.length;
-    const total = sent.length + discarded.length;
-    const rate = total === 0 ? '—' : Math.round((sent.length / total) * 100) + '%';
-    const apEl = document.getElementById('stat-approval');
-    if (apEl) apEl.textContent = rate;
-    const ns = document.getElementById('nav-sent-count');
-    if (ns) ns.textContent = sent.length;
-  } catch (e) { console.warn('sent stats failed:', e); }
 }
 
 export function renderNewDraftToolbar() {
@@ -137,7 +118,6 @@ export async function renderDraftsView() {
   setMainHeader({
     title: 'Drafts queue',
     subHTML: '<span class="accent" id="main-pending-count">— pending</span> · awaiting your approval before send',
-    showFilters: true,
   });
   // Make sure chatsCache is populated for the new-draft chat picker.
   if (chatsCache.length === 0) {

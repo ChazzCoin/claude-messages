@@ -38,7 +38,6 @@ export async function renderFlagsView() {
   setMainHeader({
     title: 'Flags',
     subHTML: '<span class="accent" id="flags-count">— unreviewed</span> · monitor-rule matches',
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;

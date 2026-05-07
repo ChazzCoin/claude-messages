@@ -9,7 +9,6 @@ export async function renderSearchView() {
   setMainHeader({
     title: 'Search',
     subHTML: '<span class="accent">find any message</span> · across all chats',
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;

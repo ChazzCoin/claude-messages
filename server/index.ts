@@ -21,13 +21,6 @@ import {
 import {
   getAppDb,
   closeAppDb,
-  listWatched,
-  addWatched,
-  removeWatched,
-  listRules,
-  addRule,
-  setRuleEnabled,
-  removeRule,
   listDrafts,
   getDraft,
   updateDraftStatus,
@@ -307,60 +300,6 @@ app.get('/api/attachments/:rowid', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
-});
-
-/* ---------- routes: watched contacts (app.db) ---------- */
-
-app.get('/api/watched', (_req, res) => {
-  res.json({ watched: listWatched() });
-});
-
-app.post('/api/watched', (req, res) => {
-  const handle = normalizeHandle(req.body?.handle);
-  const label = typeof req.body?.label === 'string' ? req.body.label.trim() : null;
-  if (!handle) return res.status(400).json({ error: 'handle required' });
-  return res.status(201).json({ watched: addWatched(handle, label || null) });
-});
-
-app.delete('/api/watched/:id', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
-  const ok = removeWatched(id);
-  return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
-});
-
-/* ---------- routes: rules (app.db) ---------- */
-
-app.get('/api/rules', (_req, res) => {
-  res.json({ rules: listRules() });
-});
-
-app.post('/api/rules', (req, res) => {
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
-  const pattern = typeof req.body?.pattern === 'string' ? req.body.pattern : '';
-  const flags = typeof req.body?.flags === 'string' ? req.body.flags : 'i';
-  if (!name || !pattern) return res.status(400).json({ error: 'name and pattern required' });
-  try {
-    return res.status(201).json({ rule: addRule(name, pattern, flags) });
-  } catch (err) {
-    return res.status(400).json({ error: `invalid regex: ${(err as Error).message}` });
-  }
-});
-
-app.patch('/api/rules/:id', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
-  if (typeof req.body?.enabled !== 'boolean')
-    return res.status(400).json({ error: 'only `enabled: bool` supported here' });
-  const ok = setRuleEnabled(id, req.body.enabled);
-  return ok ? res.json({ ok: true }) : res.status(404).json({ error: 'not found' });
-});
-
-app.delete('/api/rules/:id', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
-  const ok = removeRule(id);
-  return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
 });
 
 /* ---------- routes: drafts (app.db + AppleScript send) ---------- */

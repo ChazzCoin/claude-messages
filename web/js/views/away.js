@@ -282,7 +282,6 @@ export async function renderAwayView() {
     subHTML: enabled
       ? '<span class="accent" style="color: var(--yellow);">● ACTIVE</span> · the AI is auto-responding for opted-in contacts'
       : '<span class="accent">off</span> · auto-responder is disabled',
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;

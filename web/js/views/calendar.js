@@ -56,7 +56,6 @@ export async function renderCalendarView() {
   setMainHeader({
     title: 'Calendar',
     subHTML: '<span class="accent" id="cal-count">— pending</span> · auto-extracted events',
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;

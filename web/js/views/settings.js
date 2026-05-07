@@ -22,7 +22,6 @@ export async function renderSettingsView() {
   setMainHeader({
     title: 'Settings',
     subHTML: '<span class="accent">global config</span> · stored in app.db',
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;

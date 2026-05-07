@@ -42,7 +42,6 @@ export async function renderInboxView() {
   setMainHeader({
     title: 'Inbox',
     subHTML: '<span class="accent" id="main-pending-count">— chats</span> · live read of chat.db',
-    showFilters: false,
   });
   const list = document.getElementById('drafts-list');
   if (list) list.innerHTML = '<div class="empty"><div class="empty-title">loading…</div></div>';
