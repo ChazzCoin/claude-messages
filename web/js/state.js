@@ -24,6 +24,10 @@ export let settingsBounds = {
   away_max_replies_per_session: { min: 1, max: 200 },
 };
 export let radarHandlesCache = new Set();
+// Built-in prompt/wrapper defaults from /api/settings response. Read-only
+// for the UI — used to render "Built-in default" panes alongside the
+// editable override textareas on the Galt page.
+export let promptDefaults = {};
 
 // Current view tracking — set by router/setView.
 export let currentView = 'inbox';
@@ -54,6 +58,7 @@ export const TEMPERAMENTS = [
 
 export function setChatsCache(v) { chatsCache = v; }
 export function setContactsCache(v) { contactsCache = v; }
+export function setPromptDefaults(v) { promptDefaults = v ?? {}; }
 export function setSettingsCache(v) { settingsCache = { ...settingsCache, ...v }; }
 export function setSettingsBounds(v) { settingsBounds = { ...settingsBounds, ...v }; }
 export function setRadarHandlesCache(s) { radarHandlesCache = s; }

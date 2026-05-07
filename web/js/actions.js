@@ -913,7 +913,7 @@ async function onSubmit(e) {
         errEl.textContent = '✓ saved';
         setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
       }
-    } else if (kind === 'prompts-away' || kind === 'prompts-summon') {
+    } else if (kind === 'prompts-away' || kind === 'prompts-summon' || kind === 'prompts-universal' || kind === 'prompts-wrappers') {
       // Centralized prompts page. Each form's FormData is exactly the prompt
       // fields owned by that section, keyed by AppSettings column name —
       // pass through to PUT /api/settings, which gates each known key.

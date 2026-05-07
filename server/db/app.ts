@@ -448,6 +448,28 @@ export interface AppSettings {
   openai_api_key: string;
   /** Model name. Defaults to env or 'gpt-4o-mini'. */
   openai_model: string;
+  /* ----- prompt/wrapper overrides (default '' = use code defaults) -----
+   * Every hardcoded prompt fragment that ships in the AI layer can be
+   * overridden by the user via Galt → Prompts. Empty string falls back
+   * to the matching DEFAULT_* constant in server/ai.ts. PROMPT_DEFAULTS
+   * (also in server/ai.ts) is mirrored to the UI via /api/settings so
+   * the user can see exactly what's running.
+   */
+  /** Replaces DEFAULT_DRAFT_SYSTEM (universal "writing AS the user" base). */
+  prompt_draft_system: string;
+  /** Replaces DEFAULT_AWAY_GUARDRAIL — only injected when away_mode is on. */
+  prompt_away_guardrail: string;
+  /** Replaces buildAwayContextNote output (the per-turn away instruction).
+   *  Substitutions: {recipientName}, {persona}. Empty = use code function. */
+  prompt_away_system: string;
+  /** Wrapper templates around data-injection blocks. {body} substitution. */
+  wrapper_voice_profile: string;
+  wrapper_contact_profile: string;
+  wrapper_address_book: string;
+  wrapper_calendar: string;
+  wrapper_contact_notes: string;
+  /** Wrapper for temperament. {temperament} + {guidance} substitutions. */
+  wrapper_temperament: string;
 }
 
 const SETTING_DEFAULTS: AppSettings = {
@@ -474,6 +496,15 @@ const SETTING_DEFAULTS: AppSettings = {
   auto_notes_excluded_handles: '[]',
   openai_api_key: '',
   openai_model: '',
+  prompt_draft_system: '',
+  prompt_away_guardrail: '',
+  prompt_away_system: '',
+  wrapper_voice_profile: '',
+  wrapper_contact_profile: '',
+  wrapper_address_book: '',
+  wrapper_calendar: '',
+  wrapper_contact_notes: '',
+  wrapper_temperament: '',
 };
 
 export const SETTING_BOUNDS = {
@@ -553,6 +584,15 @@ export function getSettings(): AppSettings {
       getState('auto_notes_excluded_handles') ?? SETTING_DEFAULTS.auto_notes_excluded_handles,
     openai_api_key: getState('openai_api_key') ?? SETTING_DEFAULTS.openai_api_key,
     openai_model: getState('openai_model') ?? SETTING_DEFAULTS.openai_model,
+    prompt_draft_system: getState('prompt_draft_system') ?? SETTING_DEFAULTS.prompt_draft_system,
+    prompt_away_guardrail: getState('prompt_away_guardrail') ?? SETTING_DEFAULTS.prompt_away_guardrail,
+    prompt_away_system: getState('prompt_away_system') ?? SETTING_DEFAULTS.prompt_away_system,
+    wrapper_voice_profile: getState('wrapper_voice_profile') ?? SETTING_DEFAULTS.wrapper_voice_profile,
+    wrapper_contact_profile: getState('wrapper_contact_profile') ?? SETTING_DEFAULTS.wrapper_contact_profile,
+    wrapper_address_book: getState('wrapper_address_book') ?? SETTING_DEFAULTS.wrapper_address_book,
+    wrapper_calendar: getState('wrapper_calendar') ?? SETTING_DEFAULTS.wrapper_calendar,
+    wrapper_contact_notes: getState('wrapper_contact_notes') ?? SETTING_DEFAULTS.wrapper_contact_notes,
+    wrapper_temperament: getState('wrapper_temperament') ?? SETTING_DEFAULTS.wrapper_temperament,
   };
 }
 
@@ -657,6 +697,23 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.openai_model !== undefined) {
     setState('openai_model', String(patch.openai_model).trim());
+  }
+  // Prompt / wrapper overrides — pass through verbatim. Empty string clears
+  // the override and re-falls-back to the matching DEFAULT_* code constant.
+  for (const key of [
+    'prompt_draft_system',
+    'prompt_away_guardrail',
+    'prompt_away_system',
+    'wrapper_voice_profile',
+    'wrapper_contact_profile',
+    'wrapper_address_book',
+    'wrapper_calendar',
+    'wrapper_contact_notes',
+    'wrapper_temperament',
+  ] as const) {
+    if (patch[key] !== undefined) {
+      setState(key, String(patch[key]));
+    }
   }
   return getSettings();
 }

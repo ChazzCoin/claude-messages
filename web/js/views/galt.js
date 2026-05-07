@@ -26,18 +26,20 @@ import { api, fetchSettings } from '../api.js';
 import { setMainHeader } from '../shell.js';
 import { escapeHtml } from '../utils.js';
 import {
-  settingsCache, settingsBounds,
-  setSettingsCache, setSettingsBounds,
+  settingsCache, settingsBounds, promptDefaults,
+  setSettingsCache, setSettingsBounds, setPromptDefaults,
 } from '../state.js';
 
-/** Pull settings + bounds from the server, merge into state. Exported because
- *  main.js calls it at boot, and other views (Settings, Home) may want fresh
- *  values. Lives here because Galt is the primary surface that consumes them. */
+/** Pull settings + bounds + prompt defaults from the server, merge into state.
+ *  Exported because main.js calls it at boot, and other views (Settings,
+ *  Home) may want fresh values. Lives here because Galt is the primary
+ *  surface that consumes them. */
 export async function refreshSettings() {
   try {
     const r = await fetchSettings();
     if (r.settings) setSettingsCache(r.settings);
     if (r.bounds) setSettingsBounds(r.bounds);
+    if (r.prompt_defaults) setPromptDefaults(r.prompt_defaults);
   } catch { /* keep prior cache */ }
 }
 
@@ -76,10 +78,35 @@ const PROMPT_REGISTRY = {
         label: 'Persona',
         desc:
           'How the AI should behave while covering — banter, deflection, jokes, how to handle ' +
-          '"are you really an AI?". Distinct from voice profile (which captures HOW you write).',
+          '"are you really an AI?". Distinct from voice profile (which captures HOW you write). ' +
+          'Substituted into {persona} inside the away custom prompt, if the prompt references it.',
         rows: 5,
         placeholder:
           "e.g. 'be casual and a little snarky — lean into the AI thing if anyone asks. crack small jokes. ask follow-ups when curious.'",
+      },
+      {
+        key: 'prompt_away_system',
+        label: 'Custom prompt override',
+        descHtml:
+          'When non-empty, <strong>REPLACES</strong> the entire built-in away prompt (the per-turn ' +
+          'behavior instruction). Placeholders <code>{recipientName}</code> and <code>{persona}</code> ' +
+          'get substituted at send time. Leave empty to use the built-in default below.',
+        rows: 14,
+        placeholder: '(empty — using built-in away prompt)',
+        mono: true,
+        showsDefault: 'prompt_away_system',
+      },
+      {
+        key: 'prompt_away_guardrail',
+        label: 'Away-mode guardrail',
+        descHtml:
+          'Hard rule appended to the system prompt for every away-mode reply — forbids the AI from ' +
+          'committing to plans, RSVPs, prices, etc. on your behalf. ' +
+          '<strong>Only injected when away mode is on.</strong> Empty = built-in default below.',
+        rows: 14,
+        placeholder: '(empty — using built-in guardrail)',
+        mono: true,
+        showsDefault: 'prompt_away_guardrail',
       },
     ],
   },
@@ -112,10 +139,92 @@ const PROMPT_REGISTRY = {
           'voice profile, and contact context still flow through automatically — this only ' +
           'controls the per-turn behavior instructions. Placeholders <code>{userName}</code> ' +
           'and <code>{recipientName}</code> get substituted at send time. Leave empty to use ' +
-          'the built-in.',
-        rows: 12,
+          'the built-in default below.',
+        rows: 14,
         placeholder: '(empty — using built-in summon prompt)',
         mono: true,
+        showsDefault: 'prompt_summon_system',
+      },
+    ],
+  },
+  universal: {
+    title: 'Universal (applies everywhere)',
+    blurbHtml:
+      'These run on <strong>every</strong> AI reply (away, summon, manual draft) regardless of ' +
+      'mode. Edit with care — they\'re foundational. Empty = built-in default below.',
+    fields: [
+      {
+        key: 'prompt_draft_system',
+        label: 'Base draft system prompt',
+        descHtml:
+          'The first block of the system message. Universal "writing AS the user, match voice, ' +
+          'plain text, SKIP if uncertain" guidance. Applies on every AI reply across all modes. ' +
+          'Note: still injected even when summon mode\'s custom-prompt override is set, since ' +
+          'this lives in the data-injection block <em>after</em> the custom prompt — be aware of ' +
+          'potential contradictions if your summon override redefines who Galt is.',
+        rows: 14,
+        mono: true,
+        showsDefault: 'prompt_draft_system',
+      },
+    ],
+  },
+  wrappers: {
+    title: 'Data-injection wrappers',
+    blurbHtml:
+      'Templates that wrap each piece of injected data (voice profile, contact info, calendar, ' +
+      'etc.) before it goes into the system prompt. Each uses <code>{body}</code> for the actual ' +
+      'data. Editable for fine-tuning how each block is framed for the model — but breaking these ' +
+      'breaks the model\'s ability to use that data correctly.',
+    fields: [
+      {
+        key: 'wrapper_voice_profile',
+        label: 'Voice profile wrapper',
+        descHtml: 'Wraps the user\'s voice profile. Substitution: <code>{body}</code>.',
+        rows: 5,
+        mono: true,
+        showsDefault: 'wrapper_voice_profile',
+      },
+      {
+        key: 'wrapper_contact_profile',
+        label: 'Contact profile wrapper',
+        descHtml: 'Wraps the per-contact profile prose. Substitution: <code>{body}</code>.',
+        rows: 5,
+        mono: true,
+        showsDefault: 'wrapper_contact_profile',
+      },
+      {
+        key: 'wrapper_address_book',
+        label: 'Address book wrapper',
+        descHtml: 'Wraps the macOS Contacts.app data block. Substitution: <code>{body}</code>.',
+        rows: 5,
+        mono: true,
+        showsDefault: 'wrapper_address_book',
+      },
+      {
+        key: 'wrapper_calendar',
+        label: 'Calendar wrapper',
+        descHtml: 'Wraps the macOS Calendar.app availability block. Substitution: <code>{body}</code>.',
+        rows: 5,
+        mono: true,
+        showsDefault: 'wrapper_calendar',
+      },
+      {
+        key: 'wrapper_contact_notes',
+        label: 'Contact notes wrapper',
+        descHtml: 'Wraps the per-contact short-note bullets. Substitution: <code>{body}</code>.',
+        rows: 4,
+        mono: true,
+        showsDefault: 'wrapper_contact_notes',
+      },
+      {
+        key: 'wrapper_temperament',
+        label: 'Temperament wrapper',
+        descHtml:
+          'Wraps the temperament-override block (only injected when temperament ≠ normal). ' +
+          'Substitutions: <code>{temperament}</code>, <code>{guidance}</code>.',
+        rows: 4,
+        mono: true,
+        showsDefault: 'wrapper_temperament',
       },
     ],
   },
@@ -130,6 +239,25 @@ function renderPromptField(f) {
     ? ' style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;"'
     : '';
   const placeholder = f.placeholder ? ` placeholder="${escapeHtml(f.placeholder)}"` : '';
+
+  // Optional "Built-in default" collapsible — rendered when the field's
+  // registry entry sets showsDefault to a key that exists in promptDefaults.
+  // The pane shows the actual default text the AI layer will use when this
+  // field is empty, so the user can SEE what's running and copy/edit if they
+  // want to override.
+  let defaultPane = '';
+  if (f.showsDefault && promptDefaults[f.showsDefault]) {
+    const defaultText = promptDefaults[f.showsDefault];
+    defaultPane = `
+      <details style="margin-top: 6px;">
+        <summary style="cursor: pointer; font-size: 11px; color: var(--text-faint); padding: 4px 0;">
+          Show built-in default (${defaultText.length} chars) — read-only
+        </summary>
+        <pre style="background: var(--bg-faint); padding: 10px; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0 0; max-height: 320px; overflow-y: auto;">${escapeHtml(defaultText)}</pre>
+      </details>
+    `;
+  }
+
   return `
     <div class="config-field">
       <label class="config-label">
@@ -137,6 +265,7 @@ function renderPromptField(f) {
         <span class="desc">${desc}</span>
       </label>
       <textarea name="${escapeHtml(f.key)}" rows="${f.rows}"${placeholder}${monoStyle}>${escapeHtml(value)}</textarea>
+      ${defaultPane}
     </div>
   `;
 }
@@ -311,5 +440,7 @@ export async function renderGaltView() {
     <div style="${SECTION_HEADER_STYLE}">Prompts</div>
     ${renderPromptSection('away')}
     ${renderPromptSection('summon')}
+    ${renderPromptSection('universal')}
+    ${renderPromptSection('wrappers')}
   `;
 }

@@ -696,7 +696,15 @@ export async function evaluateRuleAgainstMessage(input: RuleEvalInput): Promise<
 /* drafting — Phase 4 generation                                       */
 /* ------------------------------------------------------------------ */
 
-const DRAFT_SYSTEM = `You are predicting the user's most likely next reply in this iMessage thread. You are writing AS the user — match their voice exactly. Don't draft what a generic helpful person would say; draft what THIS specific user would actually type.
+/* ------------------------------------------------------------------ */
+/* prompt defaults — every hardcoded prompt fragment is named here so  */
+/* the user can see and override each via Settings → Galt → Prompts.   */
+/* These are the FALLBACK values used when the matching settings field */
+/* is empty. Setting names follow the pattern prompt_* (full system    */
+/* prompts) and wrapper_* (templates around data-injection blocks).    */
+/* ------------------------------------------------------------------ */
+
+export const DEFAULT_DRAFT_SYSTEM = `You are predicting the user's most likely next reply in this iMessage thread. You are writing AS the user — match their voice exactly. Don't draft what a generic helpful person would say; draft what THIS specific user would actually type.
 
 Study the user's prior messages (lines starting with "me:") to learn their style:
 - Capitalization habits (all lowercase, Title case, mixed, sentence case)
@@ -716,6 +724,61 @@ Constraints:
 If you genuinely cannot predict an appropriate reply (sensitive topic, missing personal info, recipient asked for something only the user can decide), respond with literally: SKIP
 
 Output ONLY the predicted reply text — no preamble, no quotes, no explanation.`;
+
+export const DEFAULT_WRAPPER_VOICE_PROFILE = `\nVOICE PROFILE — the user's general writing style, established from prior analysis. Apply throughout (the immediate thread can refine, but this is the baseline):\n"""\n{body}\n"""`;
+
+export const DEFAULT_WRAPPER_CONTACT_PROFILE = `\nWHO YOU'RE TALKING TO — the user's own description of this contact: relationship, identity, sensitivities, and how they want you to interact with this person. This OVERRIDES generic defaults — match the tone and posture this profile implies, even when the voice profile would suggest otherwise:\n"""\n{body}\n"""`;
+
+export const DEFAULT_WRAPPER_ADDRESS_BOOK = `\nADDRESS BOOK CONTEXT — what the user has saved about this contact in macOS Contacts.app (role, birthday, free-form notes). This is latent context the user already wrote down. Use it to ground the reply, but don't volunteer these facts unprompted — they're for YOUR situational awareness, not facts to recite back:\n"""\n{body}\n"""`;
+
+export const DEFAULT_WRAPPER_CALENDAR = `\nUSER'S CALENDAR (from macOS Calendar.app — aggregates iCloud, Google, Exchange). Use ONLY when the thread asks about the user's availability or schedule (e.g. "are you free Thursday", "what time works"). Do NOT volunteer calendar contents; do NOT invent events not listed here. If the thread doesn't ask about scheduling, ignore this block:\n"""\n{body}\n"""`;
+
+export const DEFAULT_WRAPPER_CONTACT_NOTES = `\nNOTES ABOUT THIS CONTACT (recent atomic facts — apply when drafting; the most recent notes near the bottom are most current):\n{body}`;
+
+export const DEFAULT_WRAPPER_TEMPERAMENT = `\nTEMPERAMENT FOR THIS DRAFT: {temperament}\n{guidance}`;
+
+export const DEFAULT_AWAY_GUARDRAIL = `\nAWAY-MODE GUARDRAIL — CRITICAL. This draft will be sent automatically without the user's review. The user has not authorized any specific response.
+
+YOU MAY:
+- State factual availability the user's calendar shows ("calendar's blocked at 9am", "calendar's open Thursday evening").
+- Defer the decision back to the user ("he'll get back to you on that", "let me have him confirm when he's back", "I'll let him know").
+- Acknowledge the message conversationally without committing to anything.
+
+YOU MUST NOT:
+- Accept proposals or commit to plans. NEVER write "yes that works", "sounds good", "sure", "see you then", "locked in", or any other commitment phrase.
+- Decline definitively beyond a calendar fact. State "calendar's blocked" — do NOT say "no I can't" / "won't be able to" / "not gonna happen" — those are still commitments the user hasn't authorized.
+- Propose specific times or alternatives. NEVER write "how about Thursday at 3?", "let's do Friday instead", or any concrete counter-offer.
+- Confirm RSVPs, plans, prices, addresses, or decisions on the user's behalf.
+- Invent facts about the user's day, location, mood, or whereabouts.
+
+When the recipient asks you to commit to anything: state any factual availability you have, then defer to the user. The user reviews a notes queue later — anything you defer becomes their note to follow up on. That's the design.
+
+When in doubt: defer.`;
+
+/** Substitute {key} placeholders in a template. Unmatched keys stay as-is.
+ *  Used both inside the AI layer (data-injection wrappers) and exported for
+ *  callers that need to render user-overridable prompts (e.g. away/summon
+ *  full-prompt overrides with {recipientName}, {persona} placeholders). */
+export function applyTemplate(template: string, vars: Record<string, string>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    result = result.split(`{${key}}`).join(value);
+  }
+  return result;
+}
+
+/** Map of every prompt/wrapper default — used by /api/settings to expose
+ *  the current default text to the UI alongside the editable settings. */
+export const PROMPT_DEFAULTS = {
+  prompt_draft_system: DEFAULT_DRAFT_SYSTEM,
+  prompt_away_guardrail: DEFAULT_AWAY_GUARDRAIL,
+  wrapper_voice_profile: DEFAULT_WRAPPER_VOICE_PROFILE,
+  wrapper_contact_profile: DEFAULT_WRAPPER_CONTACT_PROFILE,
+  wrapper_address_book: DEFAULT_WRAPPER_ADDRESS_BOOK,
+  wrapper_calendar: DEFAULT_WRAPPER_CALENDAR,
+  wrapper_contact_notes: DEFAULT_WRAPPER_CONTACT_NOTES,
+  wrapper_temperament: DEFAULT_WRAPPER_TEMPERAMENT,
+} as const;
 
 export const TEMPERAMENTS = [
   'normal',
@@ -791,6 +854,11 @@ export interface DraftReplyInput {
    *  user's behalf. Use this for fully-autonomous auto-reply paths (away
    *  mode) where the draft is sent without the user's review. */
   awayMode?: boolean;
+  /** User-controlled prompt/wrapper overrides. Pass the relevant fields
+   *  from getSettings(); each falls back to the matching DEFAULT_* code
+   *  constant when empty. Omit the whole object to use defaults for
+   *  everything (older callers that haven't been migrated). */
+  promptOverrides?: PromptOverrides;
 }
 
 export interface DraftVariant {
@@ -804,7 +872,29 @@ export interface DraftReplyResult {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
+/** Subset of AppSettings the AI layer reads for prompt customization.
+ *  Each field is optional/empty to fall back to the matching DEFAULT_* code
+ *  constant. Decoupled from the full AppSettings to keep this module's
+ *  contract narrow. */
+export interface PromptOverrides {
+  prompt_draft_system?: string;
+  prompt_away_guardrail?: string;
+  wrapper_voice_profile?: string;
+  wrapper_contact_profile?: string;
+  wrapper_address_book?: string;
+  wrapper_calendar?: string;
+  wrapper_contact_notes?: string;
+  wrapper_temperament?: string;
+}
+
+/** Pick the override if non-empty, else the code default. Trims so a
+ *  whitespace-only setting still falls back. */
+function pickPrompt(override: string | undefined, fallback: string): string {
+  return override && override.trim() ? override : fallback;
+}
+
 function buildSystemPrompt(
+  overrides: PromptOverrides,
   voiceProfile: string | undefined,
   contactNotes: string[] | undefined,
   contactProfile: string | undefined,
@@ -813,26 +903,31 @@ function buildSystemPrompt(
   temperament: Temperament,
   awayMode: boolean,
 ): string {
-  const parts: string[] = [DRAFT_SYSTEM];
+  const parts: string[] = [];
+  parts.push(pickPrompt(overrides.prompt_draft_system, DEFAULT_DRAFT_SYSTEM));
   if (voiceProfile && voiceProfile.trim()) {
-    parts.push(
-      `\nVOICE PROFILE — the user's general writing style, established from prior analysis. Apply throughout (the immediate thread can refine, but this is the baseline):\n"""\n${voiceProfile.trim()}\n"""`,
-    );
+    parts.push(applyTemplate(
+      pickPrompt(overrides.wrapper_voice_profile, DEFAULT_WRAPPER_VOICE_PROFILE),
+      { body: voiceProfile.trim() },
+    ));
   }
   if (contactProfile && contactProfile.trim()) {
-    parts.push(
-      `\nWHO YOU'RE TALKING TO — the user's own description of this contact: relationship, identity, sensitivities, and how they want you to interact with this person. This OVERRIDES generic defaults — match the tone and posture this profile implies, even when the voice profile would suggest otherwise:\n"""\n${contactProfile.trim()}\n"""`,
-    );
+    parts.push(applyTemplate(
+      pickPrompt(overrides.wrapper_contact_profile, DEFAULT_WRAPPER_CONTACT_PROFILE),
+      { body: contactProfile.trim() },
+    ));
   }
   if (addressBookContext && addressBookContext.trim()) {
-    parts.push(
-      `\nADDRESS BOOK CONTEXT — what the user has saved about this contact in macOS Contacts.app (role, birthday, free-form notes). This is latent context the user already wrote down. Use it to ground the reply, but don't volunteer these facts unprompted — they're for YOUR situational awareness, not facts to recite back:\n"""\n${addressBookContext.trim()}\n"""`,
-    );
+    parts.push(applyTemplate(
+      pickPrompt(overrides.wrapper_address_book, DEFAULT_WRAPPER_ADDRESS_BOOK),
+      { body: addressBookContext.trim() },
+    ));
   }
   if (userAvailability && userAvailability.trim()) {
-    parts.push(
-      `\nUSER'S CALENDAR (from macOS Calendar.app — aggregates iCloud, Google, Exchange). Use ONLY when the thread asks about the user's availability or schedule (e.g. "are you free Thursday", "what time works"). Do NOT volunteer calendar contents; do NOT invent events not listed here. If the thread doesn't ask about scheduling, ignore this block:\n"""\n${userAvailability.trim()}\n"""`,
-    );
+    parts.push(applyTemplate(
+      pickPrompt(overrides.wrapper_calendar, DEFAULT_WRAPPER_CALENDAR),
+      { body: userAvailability.trim() },
+    ));
   }
   if (contactNotes && contactNotes.length > 0) {
     const lines = contactNotes
@@ -840,35 +935,21 @@ function buildSystemPrompt(
       .filter((n) => n.length > 0)
       .map((n) => `- ${n}`);
     if (lines.length > 0) {
-      parts.push(
-        `\nNOTES ABOUT THIS CONTACT (recent atomic facts — apply when drafting; the most recent notes near the bottom are most current):\n${lines.join('\n')}`,
-      );
+      parts.push(applyTemplate(
+        pickPrompt(overrides.wrapper_contact_notes, DEFAULT_WRAPPER_CONTACT_NOTES),
+        { body: lines.join('\n') },
+      ));
     }
   }
   const guidance = TEMPERAMENT_GUIDANCE[temperament];
   if (temperament !== 'normal' && guidance) {
-    parts.push(`\nTEMPERAMENT FOR THIS DRAFT: ${temperament}\n${guidance}`);
+    parts.push(applyTemplate(
+      pickPrompt(overrides.wrapper_temperament, DEFAULT_WRAPPER_TEMPERAMENT),
+      { temperament, guidance },
+    ));
   }
   if (awayMode) {
-    parts.push(
-      `\nAWAY-MODE GUARDRAIL — CRITICAL. This draft will be sent automatically without the user's review. The user has not authorized any specific response.
-
-YOU MAY:
-- State factual availability the user's calendar shows ("calendar's blocked at 9am", "calendar's open Thursday evening").
-- Defer the decision back to the user ("he'll get back to you on that", "let me have him confirm when he's back", "I'll let him know").
-- Acknowledge the message conversationally without committing to anything.
-
-YOU MUST NOT:
-- Accept proposals or commit to plans. NEVER write "yes that works", "sounds good", "sure", "see you then", "locked in", or any other commitment phrase.
-- Decline definitively beyond a calendar fact. State "calendar's blocked" — do NOT say "no I can't" / "won't be able to" / "not gonna happen" — those are still commitments the user hasn't authorized.
-- Propose specific times or alternatives. NEVER write "how about Thursday at 3?", "let's do Friday instead", or any concrete counter-offer.
-- Confirm RSVPs, plans, prices, addresses, or decisions on the user's behalf.
-- Invent facts about the user's day, location, mood, or whereabouts.
-
-When the recipient asks you to commit to anything: state any factual availability you have, then defer to the user. The user reviews a notes queue later — anything you defer becomes their note to follow up on. That's the design.
-
-When in doubt: defer.`,
-    );
+    parts.push(pickPrompt(overrides.prompt_away_guardrail, DEFAULT_AWAY_GUARDRAIL));
   }
   return parts.join('\n');
 }
@@ -888,6 +969,7 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
       ? input.temperament
       : 'normal';
   const dataInjection = buildSystemPrompt(
+    input.promptOverrides ?? {},
     input.voiceProfile,
     input.contactNotes,
     input.contactProfile,
