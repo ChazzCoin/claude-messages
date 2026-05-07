@@ -4,7 +4,7 @@
 <dict>
   <!-- Unique service identifier. Used for launchctl start/stop/list. -->
   <key>Label</key>
-  <string>com.chazzromeo.imsg-ai</string>
+  <string>com.chazzromeo.galt</string>
 
   <!-- The launcher script handles nvm sourcing, dep install, and exec. -->
   <key>ProgramArguments</key>
@@ -34,9 +34,9 @@
 
   <!-- Logs land here. tail with `bin/logs`. -->
   <key>StandardOutPath</key>
-  <string>__PROJECT_DIR__/logs/imsg-ai.out.log</string>
+  <string>__PROJECT_DIR__/logs/galt.out.log</string>
   <key>StandardErrorPath</key>
-  <string>__PROJECT_DIR__/logs/imsg-ai.err.log</string>
+  <string>__PROJECT_DIR__/logs/galt.err.log</string>
 
   <!-- Keep PATH minimal but include /usr/local/bin and /opt/homebrew/bin so
        the wrapper script can find git, etc. nvm is sourced inside the wrapper. -->

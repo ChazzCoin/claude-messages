@@ -1,8 +1,8 @@
 {
-  "name": "imsg-ai",
+  "name": "galt",
   "version": "0.1.0",
   "private": true,
-  "description": "Local iMessage assistant — read chat.db, classify with AI, draft replies, send via AppleScript.",
+  "description": "Galt — local iMessage AI assistant. Reads chat.db, drafts replies in your voice, sends via AppleScript.",
   "type": "module",
   "engines": {
     "node": ">=20"

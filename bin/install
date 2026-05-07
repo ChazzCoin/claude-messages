@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# Install the LaunchAgent so the imsg-ai server auto-starts at login and
+# Install the LaunchAgent so the galt server auto-starts at login and
 # restarts on crash. Re-runnable: replaces any existing install.
 
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-LABEL="com.chazzromeo.imsg-ai"
+LABEL="com.chazzromeo.galt"
 TEMPLATE="$PROJECT_DIR/launchd/$LABEL.plist.template"
 TARGET="$HOME/Library/LaunchAgents/$LABEL.plist"
 
@@ -29,7 +29,7 @@ launchctl load -w "$TARGET"
 echo "✓ installed:    $TARGET"
 echo "  service:      $LABEL"
 echo "  project:      $PROJECT_DIR"
-echo "  logs:         $PROJECT_DIR/logs/imsg-ai.{out,err}.log"
+echo "  logs:         $PROJECT_DIR/logs/galt.{out,err}.log"
 
 # Resolve the node binary the LaunchAgent will actually use. macOS TCC attributes
 # Full Disk Access by binary path — the FDA grant on Terminal does NOT carry

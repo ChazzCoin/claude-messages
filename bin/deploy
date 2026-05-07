@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-LABEL="com.chazzromeo.imsg-ai"
+LABEL="com.chazzromeo.galt"
 
 # Source nvm so the typecheck uses the .nvmrc node version.
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
@@ -44,7 +44,7 @@ fi
 
 # Capture the error-log size BEFORE the restart so we can show only new
 # output afterwards (avoids surfacing stale errors from prior runs).
-ERR_LOG="$PROJECT_DIR/logs/imsg-ai.err.log"
+ERR_LOG="$PROJECT_DIR/logs/galt.err.log"
 PRE_ERR_SIZE=0
 if [ -f "$ERR_LOG" ]; then
   PRE_ERR_SIZE=$(wc -c < "$ERR_LOG" | tr -d ' ')
@@ -70,7 +70,7 @@ if [ -f "$ERR_LOG" ]; then
     # Filter to actually-error-shaped lines (skip benign deprecation notices etc).
     FILTERED=$(echo "$NEW_OUTPUT" | grep -i -E '(error|fail|EPERM|EADDRINUSE|EACCES)' | grep -v -i 'deprecation' || true)
     if [ -n "$FILTERED" ]; then
-      echo "▸ NEW errors since restart (logs/imsg-ai.err.log):"
+      echo "▸ NEW errors since restart (logs/galt.err.log):"
       echo "$FILTERED" | sed 's/^/    /'
       echo
       echo "    full tail: ./bin/logs"

@@ -37,7 +37,7 @@ file. Delete a line if the file isn't used in this project.
 
 ## What this is
 
-`imsg-ai` — a single-user, local-only iMessage assistant. Reads
+`galt` (project codename — was `imsg-ai`) — a single-user, local-only iMessage assistant. Reads
 `~/Library/Messages/chat.db` directly (no copy, no sync), routes
 incoming messages through a two-tier filter (regex + OpenAI
 classification), drafts replies for watched contacts and trigger
@@ -102,7 +102,7 @@ applies.
 ## Folder layout
 
 ```
-claude-messages/                  # repo root (project name: imsg-ai)
+claude-messages/                  # repo root (project name: galt)
 ├── server/                       # Node/TS backend
 │   ├── index.ts                  # Express app, routes, boot/shutdown
 │   ├── config.ts                 # env + path resolution
@@ -212,7 +212,7 @@ containerization). The right shape is a per-user `LaunchAgent`.
 
 ```bash
 # one-time, after npm install + .env populated
-./bin/install                         # writes ~/Library/LaunchAgents/com.chazzromeo.imsg-ai.plist
+./bin/install                         # writes ~/Library/LaunchAgents/com.chazzromeo.galt.plist
                                       # then launchctl load -w (auto-starts at login)
 ./bin/status                          # confirm it booted + /api/health responding
 
@@ -225,13 +225,13 @@ containerization). The right shape is a per-user `LaunchAgent`.
 ./bin/uninstall                       # unload + remove from LaunchAgents
 ```
 
-**Plist details:** `launchd/com.chazzromeo.imsg-ai.plist.template`
+**Plist details:** `launchd/com.chazzromeo.galt.plist.template`
 defines a LaunchAgent (per-user, NOT a LaunchDaemon — daemons run as
 root and lose access to your Full Disk Access + Automation grants).
 `bin/install` substitutes the absolute project path into the template
 and installs to `~/Library/LaunchAgents/`. `RunAtLoad=true` means it
 starts at login; `KeepAlive` restarts on crash but not on clean exit
-(so `bin/stop` actually stops it). Logs go to `logs/imsg-ai.{out,err}
+(so `bin/stop` actually stops it). Logs go to `logs/galt.{out,err}
 .log` — gitignored.
 
 **Wrapper script (`bin/run`)** sources nvm, honors `.nvmrc`, runs
@@ -315,14 +315,14 @@ errors don't pollute the output).
 | `chat.db FAIL: EPERM` | macOS Full Disk Access for the Node binary — see Deploy section above |
 | `EADDRINUSE :3000` | another process owns port 3000: `lsof -i :3000` |
 | AI features 503 | `OPENAI_API_KEY` missing in `.env` — fix and `./bin/restart` |
-| service won't stay up | `./bin/logs` then look at `imsg-ai.err.log` |
+| service won't stay up | `./bin/logs` then look at `galt.err.log` |
 
 ### What's where
 
 | | |
 |---|---|
-| LaunchAgent plist | `~/Library/LaunchAgents/com.chazzromeo.imsg-ai.plist` |
-| Service logs | `logs/imsg-ai.{out,err}.log` (gitignored) |
+| LaunchAgent plist | `~/Library/LaunchAgents/com.chazzromeo.galt.plist` |
+| Service logs | `logs/galt.{out,err}.log` (gitignored) |
 | App database | `data/app.db` (gitignored, persists across reinstalls) |
 | User config | `.env` (gitignored, never committed) |
 | Service launcher | `bin/run` (called by launchd; sources nvm, exec npm run serve) |

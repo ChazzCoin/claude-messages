@@ -4,7 +4,7 @@
 # probe so you know the server is actually responding.
 
 set -euo pipefail
-LABEL="com.chazzromeo.imsg-ai"
+LABEL="com.chazzromeo.galt"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "== launchd =="
@@ -41,5 +41,5 @@ print('  away_active_sess :', d['away_active_sessions'])
 else
   echo "  ✗ no response on http://$HOST:$PORT — check logs:"
   echo "    bin/logs"
-  echo "    tail $PROJECT_DIR/logs/imsg-ai.err.log"
+  echo "    tail $PROJECT_DIR/logs/galt.err.log"
 fi

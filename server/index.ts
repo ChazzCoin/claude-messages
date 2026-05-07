@@ -172,7 +172,7 @@ app.get('/api/health', (_req, res) => {
   }
   res.json({
     ok: true,
-    server: 'imsg-ai',
+    server: 'galt',
     version: '0.1.0',
     chat_db: { path: config.chatDbPath, ok: chatDbOk, error: chatDbError },
     app_db: { path: config.appDbPath },
@@ -1188,7 +1188,7 @@ app.post(
     const endMs = p.end_ms ?? startMs + 60 * 60 * 1000;
 
     const ics = buildIcs({
-      uid: `imsg-ai-${p.id}-${Date.now()}@local`,
+      uid: `galt-${p.id}-${Date.now()}@local`,
       title: p.title,
       startMs,
       endMs,
@@ -1198,7 +1198,7 @@ app.post(
         .join('\n\n'),
     });
 
-    const tmpPath = path.join(os.tmpdir(), `imsg-ai-event-${id}.ics`);
+    const tmpPath = path.join(os.tmpdir(), `galt-event-${id}.ics`);
     fs.writeFileSync(tmpPath, ics, 'utf8');
 
     try {
@@ -1235,7 +1235,7 @@ function buildIcs(input: {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//imsg-ai//EN',
+    'PRODID:-//galt//EN',
     'BEGIN:VEVENT',
     `UID:${input.uid}`,
     `DTSTAMP:${fmt(Date.now())}`,
@@ -1867,7 +1867,7 @@ app.use(errorHandler);
 /* ---------- boot ---------- */
 
 const server = app.listen(config.port, config.host, () => {
-  console.log(`imsg-ai listening on http://${config.host}:${config.port}`);
+  console.log(`galt listening on http://${config.host}:${config.port}`);
   // Eagerly init both DBs so failures surface at boot, not on first request.
   try {
     getChatDb();

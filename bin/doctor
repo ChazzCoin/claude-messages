@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Diagnose common imsg-ai install issues. Safe to run any time.
+# Diagnose common galt install issues. Safe to run any time.
 # Exits 0 if everything's healthy, 1 if any check fails.
 #
 # Run after ./bin/setup, or whenever something seems off.
@@ -8,7 +8,7 @@
 set -uo pipefail   # NOT -e: we want to keep checking even if one fails.
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-LABEL="com.chazzromeo.imsg-ai"
+LABEL="com.chazzromeo.galt"
 PORT="${PORT:-3000}"
 HOST="${HOST:-127.0.0.1}"
 
@@ -115,7 +115,7 @@ if launchctl list 2>/dev/null | grep -q "$LABEL"; then
     ok "service running (pid=$PID)"
   else
     fail "service loaded but not running (last_exit=$(launchctl list | awk -v lbl="$LABEL" '$0 ~ lbl { print $2 }'))"
-    hint "fix: ./bin/logs   then look at logs/imsg-ai.err.log"
+    hint "fix: ./bin/logs   then look at logs/galt.err.log"
   fi
 else
   fail "service not loaded with launchctl"

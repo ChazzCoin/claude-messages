@@ -5,7 +5,7 @@
 # Express server (no file-watcher, this is a service).
 #
 # Run manually for testing:  ./bin/run
-# Run via launchd:           launchctl start com.chazzromeo.imsg-ai
+# Run via launchd:           launchctl start com.chazzromeo.galt
 
 set -euo pipefail
 

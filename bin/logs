@@ -8,6 +8,6 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 LOGS="$PROJECT_DIR/logs"
 
 mkdir -p "$LOGS"
-touch "$LOGS/imsg-ai.out.log" "$LOGS/imsg-ai.err.log"
+touch "$LOGS/galt.out.log" "$LOGS/galt.err.log"
 
-exec tail -F "$LOGS/imsg-ai.out.log" "$LOGS/imsg-ai.err.log"
+exec tail -F "$LOGS/galt.out.log" "$LOGS/galt.err.log"

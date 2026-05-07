@@ -7,7 +7,7 @@ dist/
 
 # Service runtime artifacts
 logs/
-~/Library/LaunchAgents/com.chazzromeo.imsg-ai.plist
+~/Library/LaunchAgents/com.chazzromeo.galt.plist
 
 # Local app database — never commit
 data/

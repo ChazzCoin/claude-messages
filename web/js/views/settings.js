@@ -61,7 +61,7 @@ export async function renderSettingsView() {
       </div>
       <div class="settings-row">
         <label class="field-label">Server<span class="desc">version + uptime</span></label>
-        <div class="field-readonly">${escapeHtml(health.server || 'imsg-ai')} v${escapeHtml(health.version || '?')}</div>
+        <div class="field-readonly">${escapeHtml(health.server || 'galt')} v${escapeHtml(health.version || '?')}</div>
       </div>
     `;
 

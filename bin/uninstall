@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-LABEL="com.chazzromeo.imsg-ai"
+LABEL="com.chazzromeo.galt"
 TARGET="$HOME/Library/LaunchAgents/$LABEL.plist"
 
 if [ -f "$TARGET" ]; then

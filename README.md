@@ -1,4 +1,4 @@
-# imsg-ai
+# Galt
 
 Local-only macOS iMessage assistant. Reads your `chat.db`, drafts replies in
 your voice via OpenAI, sends via AppleScript only after you approve. Runs
@@ -15,8 +15,8 @@ Requires: macOS, Terminal access. Get an OpenAI API key from
 paste it in via the dashboard once setup finishes (not into the terminal).
 
 ```bash
-git clone <this-repo-url> imsg-ai
-cd imsg-ai
+git clone <this-repo-url> galt
+cd galt
 ./bin/setup
 ```
 
@@ -87,9 +87,9 @@ issues (FDA missing, OpenAI key blank, port in use, service crashed).
 | Frontend | `web/*` (static HTML + ES modules, no build step) |
 | App database | `data/app.db` (gitignored, persists across reinstalls) |
 | Config | `.env` (gitignored) |
-| LaunchAgent plist | `~/Library/LaunchAgents/com.chazzromeo.imsg-ai.plist` |
-| Service logs | `logs/imsg-ai.{out,err}.log` (gitignored) |
-| Plist template | `launchd/com.chazzromeo.imsg-ai.plist.template` |
+| LaunchAgent plist | `~/Library/LaunchAgents/com.chazzromeo.galt.plist` |
+| Service logs | `logs/galt.{out,err}.log` (gitignored) |
+| Plist template | `launchd/com.chazzromeo.galt.plist.template` |
 
 ---
 

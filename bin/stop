@@ -2,4 +2,4 @@
 # Stop the LaunchAgent. Note: if KeepAlive is set with Crashed=true and the
 # process exits non-zero, launchd will restart it. Use `bin/uninstall` if you
 # want it gone for good.
-exec launchctl stop com.chazzromeo.imsg-ai
+exec launchctl stop com.chazzromeo.galt
