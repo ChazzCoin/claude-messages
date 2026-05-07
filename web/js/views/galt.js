@@ -262,6 +262,115 @@ function renderPromptSection(sectionKey) {
   `;
 }
 
+/* ---------- placeholder reference panel ---------- */
+//
+// Single source of truth for what {placeholders} are available in every
+// editable prompt template. Every entry below works in EVERY field —
+// the AI layer applies one uniform substitution context to all templates.
+// Adding a placeholder = appending an entry here AND a key in
+// buildPlaceholderContext() in server/ai.ts.
+
+const PLACEHOLDER_REFERENCE = [
+  {
+    key: 'messages',
+    renders: 'The full thread (last N messages, oldest → newest, with "me:" / "them:" speakers).',
+    notes:
+      'When this placeholder appears anywhere in the system prompt, the thread is substituted there and is NOT also sent as a separate user message — you control where the conversation appears.',
+  },
+  {
+    key: 'recipientName',
+    renders: 'The contact\'s display name (or their handle if no name is on file).',
+    notes: 'In the manual-draft endpoint, falls back to the chat handle if no name resolves.',
+  },
+  {
+    key: 'userName',
+    renders: 'Your display name. Currently always renders as <code>the user</code> — first-party self-name isn\'t tracked yet.',
+    notes: '',
+  },
+  {
+    key: 'persona',
+    renders: 'The <code>away_persona</code> setting from this page.',
+    notes: 'Empty string when no persona is set or when the call is in summon / manual-draft context.',
+  },
+  {
+    key: 'voice_profile',
+    renders: 'The voice profile being used for THIS call: <code>galt_voice_profile</code> in summon mode, your <code>voice_profile</code> in away / manual draft.',
+    notes: 'Same content the wrapper_voice_profile would inject. If you reference this AND keep wrapper_voice_profile non-empty, the voice profile appears twice — your call.',
+  },
+  {
+    key: 'contact_profile',
+    renders: 'The per-contact prose profile.',
+    notes: 'Empty when no profile has been written for this contact.',
+  },
+  {
+    key: 'address_book',
+    renders: 'macOS Contacts.app data for this contact (role, birthday, free-form notes).',
+    notes: 'Empty when no AddressBook entry exists.',
+  },
+  {
+    key: 'calendar',
+    renders: 'Your availability for the period around now (events from macOS Calendar.app).',
+    notes: 'Empty when no events are in the window.',
+  },
+  {
+    key: 'contact_notes',
+    renders: 'Per-contact short-note bullets (one per line, prefixed with "- ").',
+    notes: 'Empty when no notes exist for this contact.',
+  },
+  {
+    key: 'temperament',
+    renders: 'Current temperament name: <code>normal</code>, <code>blunt</code>, <code>warm</code>, etc.',
+    notes: '',
+  },
+  {
+    key: 'guidance',
+    renders: 'Style guidance text that maps to the current temperament.',
+    notes: 'Empty when temperament is <code>normal</code>.',
+  },
+  {
+    key: 'body',
+    renders: 'The data being wrapped — voice profile text, calendar block, contact notes, etc.',
+    notes:
+      'ONLY meaningful inside data-injection wrapper templates. Empty everywhere else. (The wrapper\'s job is to frame this content for the model — that\'s why each wrapper has its own template.)',
+  },
+];
+
+function renderPlaceholdersPanel() {
+  const rows = PLACEHOLDER_REFERENCE.map((p) => `
+    <tr>
+      <td style="padding: 8px 14px 8px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; vertical-align: top; white-space: nowrap;"><code>{${escapeHtml(p.key)}}</code></td>
+      <td style="padding: 8px 14px 8px 0; font-size: 12px; vertical-align: top;">${p.renders}</td>
+      <td style="padding: 8px 0; font-size: 11px; color: var(--text-faint); vertical-align: top;">${p.notes}</td>
+    </tr>
+  `).join('');
+  return `
+    <section class="away-section">
+      <details class="away-collapsible" open>
+        <summary>
+          <span>Available placeholders</span>
+          <span class="config-summary-meta">${PLACEHOLDER_REFERENCE.length} variables · usable in every prompt below</span>
+        </summary>
+        <div class="desc" style="margin: 0 0 14px 0; max-width: 720px;">
+          Every <code>{placeholder}</code> below is substituted in <em>every</em> editable
+          prompt field on this page, with the same data, applied uniformly. Use them
+          freely — empty data renders as nothing, so referencing a placeholder that has
+          no data this turn just collapses out.
+        </div>
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--border);">
+              <th style="text-align: left; padding: 6px 14px 6px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint);">Placeholder</th>
+              <th style="text-align: left; padding: 6px 14px 6px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint);">Renders to</th>
+              <th style="text-align: left; padding: 6px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint);">Notes</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </details>
+    </section>
+  `;
+}
+
 /* ---------- top-level render ---------- */
 
 export async function renderGaltView() {
@@ -281,12 +390,15 @@ export async function renderGaltView() {
       Every prompt fragment the AI layer ships with is exposed below. An
       empty textarea means the built-in default (collapsible under each
       field) is what runs. Type anything and your text replaces the
-      default — with <code>{placeholder}</code> substitution where applicable.
+      default — with <code>{placeholder}</code> substitution applied
+      uniformly across every field (see the reference panel below).
       Mode-level settings (toggle, trigger phrase, contact whitelist, etc.)
       live on <a href="#/away">Away</a> and <a href="#/summon">Summon</a>.
       OpenAI key, model, AI context window, and your voice profile live
       on <a href="#/settings">Settings</a>.
     </div>
+
+    ${renderPlaceholdersPanel()}
 
     ${renderPromptSection('away')}
     ${renderPromptSection('summon')}

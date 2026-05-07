@@ -160,7 +160,6 @@ import {
   TEMPERAMENTS,
   type Temperament,
   type PromptOverrides,
-  applyTemplate,
   PROMPT_DEFAULTS,
 } from './ai.js';
 
@@ -923,6 +922,10 @@ app.post(
       chatRow.chat_identifier,
     );
 
+    // Resolve a display name for the recipient so {recipientName} works
+    // in any prompt the user authored. Source has no contact_name on
+    // sourceMsg, so fall back to the chat_identifier (handle).
+    const manualRecipientName = sourceMsg.contact_name || chatRow.chat_identifier;
     const result = await draftReply({
       thread,
       contextNote,
@@ -934,6 +937,10 @@ app.post(
       temperament,
       count: variantCount,
       promptOverrides: pickPromptOverrides(settings),
+      templateVars: {
+        recipientName: manualRecipientName,
+        persona: settings.away_persona || '',
+      },
     });
 
     // System-wide rule: every AI-generated message gets the "Galt: " prefix.
@@ -2114,15 +2121,12 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     const recipientName = msg.contact_name || msg.handle || 'them';
     const { addressBookContext, userAvailability } = await resolveDraftContext(msg.handle);
     // User-provided override (Galt → Prompts → Away mode → "Custom prompt")
-    // wins when non-empty. {recipientName} and {persona} get substituted at
-    // runtime so the user's prompt can reference them. Empty = built-in.
+    // wins when non-empty. Pass the RAW template — draftReply substitutes
+    // every {placeholder} ({recipientName}, {persona}, {messages}, etc.)
+    // in one place using the universal context.
     const awayPromptOverride = settings.prompt_away_system.trim();
     const awayContextNote = awayPromptOverride
-      ? applyTemplate(awayPromptOverride, {
-          recipientName,
-          persona: settings.away_persona || '',
-        })
-      : buildAwayContextNote(settings.away_persona, recipientName);
+      || buildAwayContextNote(settings.away_persona, recipientName);
 
     const result = await draftReply({
       thread,
@@ -2136,6 +2140,10 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       count: 1,
       awayMode: true,
       promptOverrides: pickPromptOverrides(settings),
+      templateVars: {
+        recipientName,
+        persona: settings.away_persona || '',
+      },
     });
     const usable = result.variants.find((v) => !v.skipped && v.body.trim().length > 0);
     if (!usable) {
@@ -2314,12 +2322,12 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
     })();
 
     // User-provided override (Galt → Prompts → Summon mode) wins when
-    // non-empty. {userName} / {recipientName} get substituted at runtime so
-    // the user's prompt can reference them. Empty override = built-in prompt.
+    // non-empty. Pass the RAW template — draftReply substitutes every
+    // {placeholder} ({userName}, {recipientName}, {messages}, etc.) in
+    // one place using the universal context.
     const customPrompt = settings.summon_system_prompt.trim();
     const contextNote = customPrompt
-      ? applyTemplate(customPrompt, { userName, recipientName })
-      : buildSummonContextNote({
+      || buildSummonContextNote({
           userName,
           recipientName,
           triggerFromUser: msg.is_from_me === 1,
@@ -2340,6 +2348,7 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
       temperament: 'normal',
       count: 1,
       promptOverrides: pickPromptOverrides(settings),
+      templateVars: { userName, recipientName },
     });
 
     const usable = result.variants.find((v) => !v.skipped && v.body.trim().length > 0);

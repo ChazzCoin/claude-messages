@@ -767,6 +767,61 @@ export function applyTemplate(template: string, vars: Record<string, string>): s
   return result;
 }
 
+/** Canonical list of every placeholder available in user-editable prompt
+ *  templates. Single source of truth for both the AI layer and the UI's
+ *  "Available placeholders" reference panel. */
+export const PLACEHOLDER_KEYS = [
+  'messages',
+  'userName',
+  'recipientName',
+  'persona',
+  'voice_profile',
+  'contact_profile',
+  'address_book',
+  'calendar',
+  'contact_notes',
+  'temperament',
+  'guidance',
+  'body',
+] as const;
+
+/** Build the universal placeholder context applied to every editable
+ *  prompt template. Empty strings for absent data — the model just sees
+ *  the placeholder collapse to nothing. `body` is overridden per-wrapper. */
+export function buildPlaceholderContext(opts: {
+  messages?: string;
+  userName?: string;
+  recipientName?: string;
+  persona?: string;
+  voiceProfile?: string;
+  contactProfile?: string;
+  addressBookContext?: string;
+  userAvailability?: string;
+  contactNotes?: string[];
+  temperament?: string;
+  guidance?: string;
+}): Record<string, string> {
+  const notesText = (opts.contactNotes ?? [])
+    .map((n) => n.trim())
+    .filter((n) => n.length > 0)
+    .map((n) => `- ${n}`)
+    .join('\n');
+  return {
+    messages: opts.messages ?? '',
+    userName: opts.userName ?? '',
+    recipientName: opts.recipientName ?? '',
+    persona: opts.persona ?? '',
+    voice_profile: (opts.voiceProfile ?? '').trim(),
+    contact_profile: (opts.contactProfile ?? '').trim(),
+    address_book: (opts.addressBookContext ?? '').trim(),
+    calendar: (opts.userAvailability ?? '').trim(),
+    contact_notes: notesText,
+    temperament: opts.temperament ?? 'normal',
+    guidance: opts.guidance ?? '',
+    body: '',
+  };
+}
+
 /** Map of every prompt/wrapper default — used by /api/settings to expose
  *  the current default text to the UI alongside the editable settings. */
 export const PROMPT_DEFAULTS = {
@@ -859,6 +914,15 @@ export interface DraftReplyInput {
    *  constant when empty. Omit the whole object to use defaults for
    *  everything (older callers that haven't been migrated). */
   promptOverrides?: PromptOverrides;
+  /** Variables substituted into every editable prompt template alongside
+   *  the data inputs (voiceProfile, contactProfile, etc.). Caller passes
+   *  raw templates — substitution happens once, here. Map keys match the
+   *  exposed placeholder names (userName, recipientName, persona). */
+  templateVars?: {
+    userName?: string;
+    recipientName?: string;
+    persona?: string;
+  };
 }
 
 export interface DraftVariant {
@@ -893,63 +957,55 @@ function pickPrompt(override: string | undefined, fallback: string): string {
   return override && override.trim() ? override : fallback;
 }
 
+/** Resolve the templates that will actually be used (override-or-default)
+ *  for each slot — same logic everywhere we need to enumerate "what goes
+ *  into the system prompt for this call." Used both during assembly and
+ *  for {messages}-placeholder detection. */
+function resolveTemplates(overrides: PromptOverrides) {
+  return {
+    draft_system:       pickPrompt(overrides.prompt_draft_system,       DEFAULT_DRAFT_SYSTEM),
+    away_guardrail:     pickPrompt(overrides.prompt_away_guardrail,     DEFAULT_AWAY_GUARDRAIL),
+    voice_profile:      pickPrompt(overrides.wrapper_voice_profile,     DEFAULT_WRAPPER_VOICE_PROFILE),
+    contact_profile:    pickPrompt(overrides.wrapper_contact_profile,   DEFAULT_WRAPPER_CONTACT_PROFILE),
+    address_book:       pickPrompt(overrides.wrapper_address_book,      DEFAULT_WRAPPER_ADDRESS_BOOK),
+    calendar:           pickPrompt(overrides.wrapper_calendar,          DEFAULT_WRAPPER_CALENDAR),
+    contact_notes:      pickPrompt(overrides.wrapper_contact_notes,     DEFAULT_WRAPPER_CONTACT_NOTES),
+    temperament:        pickPrompt(overrides.wrapper_temperament,       DEFAULT_WRAPPER_TEMPERAMENT),
+  };
+}
+
 function buildSystemPrompt(
   overrides: PromptOverrides,
-  voiceProfile: string | undefined,
-  contactNotes: string[] | undefined,
-  contactProfile: string | undefined,
-  addressBookContext: string | undefined,
-  userAvailability: string | undefined,
-  temperament: Temperament,
+  ctx: Record<string, string>,
   awayMode: boolean,
 ): string {
+  const t = resolveTemplates(overrides);
   const parts: string[] = [];
-  parts.push(pickPrompt(overrides.prompt_draft_system, DEFAULT_DRAFT_SYSTEM));
-  if (voiceProfile && voiceProfile.trim()) {
-    parts.push(applyTemplate(
-      pickPrompt(overrides.wrapper_voice_profile, DEFAULT_WRAPPER_VOICE_PROFILE),
-      { body: voiceProfile.trim() },
-    ));
+  // Base draft system prompt — substituted with the full context so the user
+  // can reference any placeholder ({recipientName}, {messages}, etc.) here too.
+  parts.push(applyTemplate(t.draft_system, ctx));
+  // Wrappers — each only injected when its data is non-empty. The wrapper
+  // template gets the full context PLUS body=<the wrapped data>.
+  if (ctx.voice_profile) {
+    parts.push(applyTemplate(t.voice_profile,   { ...ctx, body: ctx.voice_profile }));
   }
-  if (contactProfile && contactProfile.trim()) {
-    parts.push(applyTemplate(
-      pickPrompt(overrides.wrapper_contact_profile, DEFAULT_WRAPPER_CONTACT_PROFILE),
-      { body: contactProfile.trim() },
-    ));
+  if (ctx.contact_profile) {
+    parts.push(applyTemplate(t.contact_profile, { ...ctx, body: ctx.contact_profile }));
   }
-  if (addressBookContext && addressBookContext.trim()) {
-    parts.push(applyTemplate(
-      pickPrompt(overrides.wrapper_address_book, DEFAULT_WRAPPER_ADDRESS_BOOK),
-      { body: addressBookContext.trim() },
-    ));
+  if (ctx.address_book) {
+    parts.push(applyTemplate(t.address_book,    { ...ctx, body: ctx.address_book }));
   }
-  if (userAvailability && userAvailability.trim()) {
-    parts.push(applyTemplate(
-      pickPrompt(overrides.wrapper_calendar, DEFAULT_WRAPPER_CALENDAR),
-      { body: userAvailability.trim() },
-    ));
+  if (ctx.calendar) {
+    parts.push(applyTemplate(t.calendar,        { ...ctx, body: ctx.calendar }));
   }
-  if (contactNotes && contactNotes.length > 0) {
-    const lines = contactNotes
-      .map((n) => n.trim())
-      .filter((n) => n.length > 0)
-      .map((n) => `- ${n}`);
-    if (lines.length > 0) {
-      parts.push(applyTemplate(
-        pickPrompt(overrides.wrapper_contact_notes, DEFAULT_WRAPPER_CONTACT_NOTES),
-        { body: lines.join('\n') },
-      ));
-    }
+  if (ctx.contact_notes) {
+    parts.push(applyTemplate(t.contact_notes,   { ...ctx, body: ctx.contact_notes }));
   }
-  const guidance = TEMPERAMENT_GUIDANCE[temperament];
-  if (temperament !== 'normal' && guidance) {
-    parts.push(applyTemplate(
-      pickPrompt(overrides.wrapper_temperament, DEFAULT_WRAPPER_TEMPERAMENT),
-      { temperament, guidance },
-    ));
+  if (ctx.temperament !== 'normal' && ctx.guidance) {
+    parts.push(applyTemplate(t.temperament,     ctx));
   }
   if (awayMode) {
-    parts.push(pickPrompt(overrides.prompt_away_guardrail, DEFAULT_AWAY_GUARDRAIL));
+    parts.push(applyTemplate(t.away_guardrail,  ctx));
   }
   return parts.join('\n');
 }
@@ -962,32 +1018,65 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
       return `${speaker}: ${m.text}`;
     })
     .join('\n');
-  const note = input.contextNote?.trim();
+  const noteRaw = input.contextNote?.trim() ?? '';
+  const overrides = input.promptOverrides ?? {};
+  const awayMode = input.awayMode === true;
 
   const temperament: Temperament =
     input.temperament && (TEMPERAMENTS as readonly string[]).includes(input.temperament)
       ? input.temperament
       : 'normal';
-  const dataInjection = buildSystemPrompt(
-    input.promptOverrides ?? {},
-    input.voiceProfile,
-    input.contactNotes,
-    input.contactProfile,
-    input.addressBookContext,
-    input.userAvailability,
+
+  // Detect {messages} placeholder use across every template that will go
+  // into the system message. If used anywhere, the thread is substituted
+  // there and the user message becomes a minimal placeholder. If not, the
+  // thread goes as the user message (default behavior).
+  const t = resolveTemplates(overrides);
+  const allTemplates = [
+    noteRaw,
+    t.draft_system,
+    t.voice_profile,
+    t.contact_profile,
+    t.address_book,
+    t.calendar,
+    t.contact_notes,
+    t.temperament,
+    ...(awayMode ? [t.away_guardrail] : []),
+  ];
+  const usesMessagesPlaceholder = allTemplates.some((s) => s.includes('{messages}'));
+
+  // Build the universal substitution context. messages is empty when the
+  // user didn't ask for it (so {messages} would just render as nothing
+  // anywhere it's mistakenly present in a default).
+  const ctx = buildPlaceholderContext({
+    messages: usesMessagesPlaceholder ? threadText : '',
+    userName: input.templateVars?.userName,
+    recipientName: input.templateVars?.recipientName,
+    persona: input.templateVars?.persona,
+    voiceProfile: input.voiceProfile,
+    contactProfile: input.contactProfile,
+    addressBookContext: input.addressBookContext,
+    userAvailability: input.userAvailability,
+    contactNotes: input.contactNotes,
     temperament,
-    input.awayMode === true,
-  );
+    guidance: TEMPERAMENT_GUIDANCE[temperament],
+  });
+
+  // Substitute the contextNote (custom prompt or built-in default) with the
+  // full context. Caller passes raw template; we own substitution.
+  const note = noteRaw ? applyTemplate(noteRaw, ctx) : '';
+  const dataInjection = buildSystemPrompt(overrides, ctx, awayMode);
   // Standard prompt assembly across all auto-reply features:
   //   1. customPrompt (feature instruction — what Galt is doing this turn)
   //   2. dataInjection (voice profile + contact + calendar + temperament)
-  //   3. thread (last N messages, oldest → newest, newest at bottom)
+  //   3. thread (last N messages — either via {messages} substitution
+  //      inside the system message, or as the user message if not used)
   // Custom prompt LEADS the system message so its identity/behavior rules
-  // anchor the model's reading of everything below it. Empty contextNote =
-  // dataInjection alone (used by the manual-draft endpoint when the user
-  // didn't supply a hint).
+  // anchor the model's reading of everything below it.
   const systemPrompt = note ? `${note}\n\n${dataInjection}` : dataInjection;
-  const userContent = `Thread (oldest → newest):\n${threadText}`;
+  const userContent = usesMessagesPlaceholder
+    ? 'Reply now.'
+    : `Thread (oldest → newest):\n${threadText}`;
   const requestedCount = Math.max(1, Math.min(5, Math.floor(input.count ?? 1)));
 
   const resp = await client.chat.completions.create({
