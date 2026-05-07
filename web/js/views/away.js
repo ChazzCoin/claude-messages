@@ -1,16 +1,18 @@
 // Away mode view — opt-in auto-responder.
 //
 // Layout philosophy: this page is read way more often than it's edited. The
-// daily flow is "did anything come in while I was out?" — so notes and
-// active sessions live at the top. Configuration (greeting / persona /
-// safety cap / contacts) lives in a collapsed <details> at the bottom.
+// daily flow is "is anything happening with the auto-responder?" — so active
+// sessions live at the top. Configuration (greeting / persona / safety cap /
+// contacts) lives in a collapsed <details> at the bottom. The follow-up
+// notes queue used to live here too, but graduated to its own first-class
+// page (see views/auto-notes.js); auto-note extraction runs 24/7 now,
+// independent of away mode.
 
 import { api } from '../api.js';
 import { setMainHeader } from '../shell.js';
-import { escapeHtml, initials, avatarClass, relTime } from '../utils.js';
+import { escapeHtml, initials, avatarClass } from '../utils.js';
 import {
   settingsCache, settingsBounds,
-  awayUnreviewedNotes, setAwayUnreviewedNotes,
 } from '../state.js';
 import { renderSessionCard } from '../components/session-card.js';
 
@@ -31,38 +33,10 @@ function renderAwayContact(c) {
   `;
 }
 
-/* ---------- note card (the action-queue item) ---------- */
-function renderAwayNoteCard(n) {
-  const sender = n.contact_name || n.handle;
-  const reviewed = n.reviewed_at != null;
-  const time = relTime(n.created_at);
-  return `
-    <div class="away-note-card ${reviewed ? 'reviewed' : ''}" data-note-id="${n.id}">
-      <div class="note-cat ${escapeHtml(n.category)}">${escapeHtml(n.category)}</div>
-      <div>
-        <div class="note-body">${escapeHtml(n.summary)}</div>
-        <div class="note-from">from <span class="name">${escapeHtml(sender)}</span></div>
-        ${n.message_text ? `<div class="note-quote">"${escapeHtml(n.message_text)}"</div>` : ''}
-        ${n.reasoning ? `<div class="note-reasoning">${escapeHtml(n.reasoning)}</div>` : ''}
-      </div>
-      <div class="note-meta">${escapeHtml(time)}</div>
-      <div class="note-actions">
-        ${!reviewed ? `<button class="btn" data-action="review-away-note" data-id="${n.id}">Mark reviewed</button>` : '<span class="reviewed-tag">reviewed</span>'}
-        <button class="btn ghost" data-action="open-thread-by-handle" data-handle="${escapeHtml(n.handle)}">Open thread</button>
-        <div class="spacer" style="flex:1;"></div>
-        <button class="btn ghost" data-action="delete-away-note" data-id="${n.id}">Delete</button>
-      </div>
-    </div>
-  `;
-}
-
 /* ---------- top-of-page status banner ---------- */
-function renderStatusBanner(enabled, activeCount, unreviewedCount) {
-  const stats = [];
-  if (activeCount > 0) stats.push(`<span class="stat-active">${activeCount} active session${activeCount === 1 ? '' : 's'}</span>`);
-  if (unreviewedCount > 0) stats.push(`<span class="stat-unreviewed">${unreviewedCount} unreviewed note${unreviewedCount === 1 ? '' : 's'}</span>`);
-  const statsLine = stats.length > 0
-    ? `<span class="status-stats">${stats.join(' · ')}</span>`
+function renderStatusBanner(enabled, activeCount) {
+  const statsLine = activeCount > 0
+    ? `<span class="status-stats"><span class="stat-active">${activeCount} active session${activeCount === 1 ? '' : 's'}</span></span>`
     : '<span class="status-stats muted">nothing happening right now</span>';
 
   return `
@@ -97,52 +71,6 @@ function renderActiveSessionsPanel(active) {
       <div class="away-active-list">
         ${active.map((s) => renderSessionCard(s, { kind: 'away' })).join('')}
       </div>
-    </section>
-  `;
-}
-
-/* ---------- notes panel (the action queue) ---------- */
-function renderNotesPanel(notes, unreviewedCount) {
-  if (notes.length === 0) {
-    return `
-      <section class="away-section away-notes">
-        <h3>Notes from while you were out</h3>
-        <div class="empty-row" style="padding:12px 0;">
-          The AI logs anything substantive that comes in during away mode —
-          meeting requests, things to discuss, time-sensitive items.
-          When you have unreviewed notes, they'll show up here as your follow-up queue.
-        </div>
-      </section>
-    `;
-  }
-
-  const unreviewed = notes.filter((n) => n.reviewed_at == null);
-  const reviewed = notes.filter((n) => n.reviewed_at != null);
-
-  const headerRight = unreviewedCount > 0
-    ? `<button class="btn ghost small review-all-btn" data-action="review-all-away-notes">Mark all reviewed</button>`
-    : '';
-
-  const reviewedSection = reviewed.length > 0
-    ? `
-      <details class="away-collapsible">
-        <summary><span>Reviewed</span><span class="count">${reviewed.length}</span></summary>
-        <div class="away-reviewed-list">${reviewed.map(renderAwayNoteCard).join('')}</div>
-      </details>
-    `
-    : '';
-
-  return `
-    <section class="away-section away-notes">
-      <h3>
-        <span>Notes from while you were out</span>
-        ${unreviewedCount > 0 ? `<span class="count unreviewed">${unreviewedCount} unreviewed</span>` : `<span class="count muted">all caught up</span>`}
-        ${headerRight}
-      </h3>
-      ${unreviewed.length > 0
-        ? `<div class="away-unreviewed-list">${unreviewed.map(renderAwayNoteCard).join('')}</div>`
-        : '<div class="empty-row" style="padding:8px 0;">no unreviewed notes — all caught up</div>'}
-      ${reviewedSection}
     </section>
   `;
 }
@@ -264,18 +192,13 @@ export async function renderAwayView() {
 
   let contacts = [];
   let sessions = [];
-  let notesData = { notes: [], unreviewed: 0 };
   try {
-    const [c, s, n] = await Promise.all([
+    const [c, s] = await Promise.all([
       api('/api/away/contacts'),
       api('/api/away/sessions?limit=100'),
-      api('/api/away/notes?limit=200'),
     ]);
     contacts = c.contacts || [];
     sessions = s.sessions || [];
-    notesData = { notes: n.notes || [], unreviewed: n.unreviewed ?? 0 };
-    setAwayUnreviewedNotes(notesData.unreviewed);
-    updateAwayNavBadge();
   } catch (err) {
     list.innerHTML = `<div class="empty"><div class="empty-title">Failed to load.</div><div class="empty-sub">${escapeHtml(err.message)}</div></div>`;
     return;
@@ -285,9 +208,8 @@ export async function renderAwayView() {
   const pastSessions = sessions.filter((s) => s.status === 'ended').slice(0, 30);
 
   list.innerHTML = `
-    ${renderStatusBanner(enabled, activeSessions.length, notesData.unreviewed)}
+    ${renderStatusBanner(enabled, activeSessions.length)}
     ${renderActiveSessionsPanel(activeSessions)}
-    ${renderNotesPanel(notesData.notes, notesData.unreviewed)}
     ${renderPastSessionsPanel(pastSessions)}
     ${renderConfigPanel(contacts)}
   `;
@@ -297,22 +219,16 @@ export function updateAwayPill() {
   const pill = document.getElementById('pill-away');
   const on = !!settingsCache.away_mode_enabled;
   if (pill) pill.style.display = on ? '' : 'none';
-  // Nav badge is now driven by the unreviewed-notes count, not the on/off
-  // state. updateAwayNavBadge handles it.
   updateAwayNavBadge();
 }
 
+/** Sidebar nav badge shows 'on' when away mode is active, hidden otherwise.
+ *  Auto-note count badging moved to its own nav item — see auto-notes.js. */
 export function updateAwayNavBadge() {
   const navBadge = document.getElementById('nav-away-badge');
   if (!navBadge) return;
   const on = !!settingsCache.away_mode_enabled;
-  if (awayUnreviewedNotes > 0) {
-    navBadge.style.display = '';
-    navBadge.textContent = String(awayUnreviewedNotes);
-    navBadge.style.background = 'var(--orange)';
-    navBadge.style.color = '#0a0c10';
-    navBadge.title = `${awayUnreviewedNotes} unreviewed away note(s)`;
-  } else if (on) {
+  if (on) {
     navBadge.style.display = '';
     navBadge.textContent = 'on';
     navBadge.style.background = 'var(--yellow)';
@@ -321,12 +237,4 @@ export function updateAwayNavBadge() {
   } else {
     navBadge.style.display = 'none';
   }
-}
-
-export async function refreshAwayNotesBadge() {
-  try {
-    const r = await api('/api/away/notes?reviewed=false&limit=1');
-    setAwayUnreviewedNotes(r.unreviewed ?? 0);
-  } catch { setAwayUnreviewedNotes(0); }
-  updateAwayNavBadge();
 }

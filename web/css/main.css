@@ -461,9 +461,9 @@ body::after {
   background: rgba(255, 255, 255, 0.01);
 }
 
-/* New-draft toolbar slot above the drafts list */
-#drafts-toolbar { margin-bottom: 12px; }
-#drafts-toolbar .add-btn { width: auto; padding: 8px 14px; }
+/* New-draft toolbar (now lives at top of Inbox via #inbox-drafts-toolbar) */
+#inbox-drafts-toolbar { margin-bottom: 12px; }
+#inbox-drafts-toolbar .add-btn { width: auto; padding: 8px 14px; }
 
 /* Empty state inside the drafts queue */
 .empty {
@@ -1597,7 +1597,7 @@ body::after {
 }
 .contact-toggle.on { color: var(--green); }
 .contact-toggle.off { color: var(--text-faint); }
-.away-note-card {
+.auto-note-card {
   padding: 10px 12px;
   background: var(--bg-elev);
   border-radius: 6px;
@@ -1608,46 +1608,46 @@ body::after {
   gap: 8px 12px;
   align-items: start;
 }
-.away-note-card.reviewed { opacity: 0.5; border-left-color: var(--text-faint); }
-.away-note-card .note-cat {
+.auto-note-card.reviewed { opacity: 0.5; border-left-color: var(--text-faint); }
+.auto-note-card .note-cat {
   font-family: var(--mono); font-size: 10px; color: var(--cyan);
   text-transform: uppercase; letter-spacing: 0.6px;
   padding: 2px 6px; border: 1px solid var(--cyan); border-radius: 4px;
   text-align: center; align-self: start;
 }
-.away-note-card .note-cat.urgent { color: var(--red); border-color: var(--red); }
-.away-note-card .note-cat.business { color: var(--yellow); border-color: var(--yellow); }
-.away-note-card .note-cat.personal { color: var(--purple); border-color: var(--purple); }
+.auto-note-card .note-cat.urgent { color: var(--red); border-color: var(--red); }
+.auto-note-card .note-cat.business { color: var(--yellow); border-color: var(--yellow); }
+.auto-note-card .note-cat.personal { color: var(--purple); border-color: var(--purple); }
 /* Legacy categories retained as fallback styling for any pre-migration rows. */
-.away-note-card .note-cat.meet { color: var(--purple); border-color: var(--purple); }
-.away-note-card .note-cat.discuss { color: var(--cyan); border-color: var(--cyan); }
-.away-note-card .note-cat.request { color: var(--yellow); border-color: var(--yellow); }
-.away-note-card .note-cat.other { color: var(--text-faint); border-color: var(--border-strong); }
-.away-note-card .note-body { font-size: 13.5px; line-height: 1.5; color: var(--text); }
-.away-note-card .note-from { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
-.away-note-card .note-from .name { color: var(--text); font-weight: 500; }
-.away-note-card .note-quote {
+.auto-note-card .note-cat.meet { color: var(--purple); border-color: var(--purple); }
+.auto-note-card .note-cat.discuss { color: var(--cyan); border-color: var(--cyan); }
+.auto-note-card .note-cat.request { color: var(--yellow); border-color: var(--yellow); }
+.auto-note-card .note-cat.other { color: var(--text-faint); border-color: var(--border-strong); }
+.auto-note-card .note-body { font-size: 13.5px; line-height: 1.5; color: var(--text); }
+.auto-note-card .note-from { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.auto-note-card .note-from .name { color: var(--text); font-weight: 500; }
+.auto-note-card .note-quote {
   font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
   margin-top: 6px; padding: 6px 8px;
   background: rgba(255, 255, 255, 0.02);
   border-left: 2px solid var(--border-strong);
   border-radius: 0 4px 4px 0;
 }
-.away-note-card .note-reasoning {
+.auto-note-card .note-reasoning {
   font-family: var(--mono); font-size: 10.5px; color: var(--text-faint);
   margin-top: 4px;
 }
-.away-note-card .note-meta {
+.auto-note-card .note-meta {
   font-family: var(--mono); font-size: 10px; color: var(--text-faint);
   text-align: right; align-self: start;
 }
-.away-note-card .note-actions {
+.auto-note-card .note-actions {
   grid-column: 1 / -1;
   display: flex; gap: 6px; padding-top: 6px;
   border-top: 1px dashed var(--border);
   margin-top: 4px;
 }
-.away-note-card .note-actions .btn { padding: 3px 10px; font-size: 11px; }
+.auto-note-card .note-actions .btn { padding: 3px 10px; font-size: 11px; }
 
 /* ============================================================
    Visual date+time picker
@@ -2059,6 +2059,58 @@ body::after {
 .btn.small {
   padding: 4px 10px;
   font-size: 11px;
+}
+
+/* ============================================================
+   Inbox sectioning (Drafts at top, Chats below)
+   ============================================================ */
+.inbox-drafts-section,
+.inbox-chats-section { margin-bottom: 18px; }
+.inbox-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 2px 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.inbox-section-head h3 {
+  font-size: 11px;
+  font-family: var(--mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0;
+}
+.inbox-section-head .count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ============================================================
+   Queue (consolidated review queue: calendar / flags / scheduled)
+   ============================================================ */
+.queue-tab .queue-tab-count {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+.queue-tab.active .queue-tab-count {
+  background: var(--accent);
+  color: #0a0c10;
+}
+
+/* Search panel on Home — same styling as the former Search view, just
+   parked inside a panel. */
+.home-panel-search {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
 }
 
 /* ============================================================

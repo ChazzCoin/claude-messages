@@ -30,12 +30,19 @@ export function renderSchedCard(s) {
   `;
 }
 
-export async function renderScheduledView() {
-  setMainHeader({
-    title: 'Scheduled',
-    subHTML: '<span class="accent" id="sched-count">— pending</span> · queued to send later',
-  });
-  const list = document.getElementById('drafts-list');
+/**
+ * Render the Scheduled pane. When called standalone (no target arg), takes
+ * over the main column with its own header. When embedded inside the Queue
+ * view, pass the host element so the Queue's header/tab-strip stay intact.
+ */
+export async function renderScheduledView(targetEl) {
+  if (!targetEl) {
+    setMainHeader({
+      title: 'Scheduled',
+      subHTML: '<span class="accent" id="sched-count">— pending</span> · queued to send later',
+    });
+  }
+  const list = targetEl || document.getElementById('drafts-list');
   if (!list) return;
   setScheduleFormPicker(null); // reset; remounted below if/when the form is shown
   list.innerHTML = `

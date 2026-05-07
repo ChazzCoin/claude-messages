@@ -14,7 +14,7 @@ import {
   flagsTab, calendarTab, currentView, currentChatId, currentRadarHandle,
   pendingVariants, scheduleFormPicker,
   setSettingsCache, setFlagsTab, setCalendarTab, setRadarSignalsTab,
-  setPendingVariants,
+  setQueueTab, setPendingVariants,
 } from './state.js';
 
 import { refreshDrafts } from './views/drafts.js';
@@ -28,16 +28,30 @@ import {
 import {
   refreshCalendarList, renderCalendarView,
 } from './views/calendar.js';
+import { renderQueueView } from './views/queue.js';
 import {
   refreshRadarHandlesCache, renderRadarView, renderRadarDetail,
 } from './views/radar.js';
 import {
-  renderAwayView, updateAwayPill, refreshAwayNotesBadge,
+  renderAwayView, updateAwayPill,
 } from './views/away.js';
+import {
+  renderAutoNotesView, refreshAutoNotesBadge,
+} from './views/auto-notes.js';
 import { refreshRules } from './views/rules.js';
 import { runSearch } from './views/search.js';
 
 let searchTimer = null;
+
+/** Re-render whichever view currently shows auto-note rows (the dedicated
+ *  page or the home dashboard). Used after any review/delete action. */
+async function rerenderNotesView() {
+  if (currentView === 'auto-notes') await renderAutoNotesView();
+  else if (currentView === 'home') {
+    const { renderHomeView } = await import('./views/home.js');
+    await renderHomeView();
+  }
+}
 
 /** Wire up every document-level listener once at startup. */
 export function installActionHandlers() {
@@ -77,10 +91,12 @@ async function onClick(e) {
   if (action === 'back-to-inbox') { navigate('inbox'); return; }
 
   // Home dashboard "see all" links.
-  if (action === 'open-inbox')    { navigate('inbox'); return; }
-  if (action === 'open-away')     { navigate('away'); return; }
-  if (action === 'open-summon')   { navigate('summon'); return; }
-  if (action === 'open-calendar') { navigate('calendar'); return; }
+  if (action === 'open-inbox')      { navigate('inbox'); return; }
+  if (action === 'open-away')       { navigate('away'); return; }
+  if (action === 'open-summon')     { navigate('summon'); return; }
+  if (action === 'open-auto-notes') { navigate('auto-notes'); return; }
+  if (action === 'open-calendar')   { setQueueTab('calendar'); navigate('queue'); return; }
+  if (action === 'open-queue')      { navigate('queue'); return; }
 
   if (action === 'open-thread-by-handle') {
     const handle = btn.dataset.handle;
@@ -90,10 +106,23 @@ async function onClick(e) {
     return;
   }
 
+  /* ---------- Queue (consolidated calendar / flags / scheduled) ---------- */
+  if (action === 'queue-tab') {
+    const t = btn.dataset.tab;
+    if (t === 'calendar' || t === 'flags' || t === 'scheduled') {
+      setQueueTab(t);
+      await renderQueueView();
+    }
+    return;
+  }
+
   /* ---------- Flags ---------- */
   if (action === 'flags-tab') {
     setFlagsTab(btn.dataset.tab === 'all' ? 'all' : 'unreviewed');
-    await renderFlagsView();
+    // Re-render the flags pane inside the Queue host (no targetEl == top
+    // level, but we want to stay nested — pass the queue-content element).
+    const target = document.getElementById('queue-content');
+    await renderFlagsView(target || undefined);
     return;
   }
   if (action === 'review-flag') {
@@ -192,6 +221,17 @@ async function onClick(e) {
     return;
   }
 
+  /* ---------- Auto Notes ---------- */
+  if (action === 'toggle-auto-notes') {
+    const next = !settingsCache.auto_notes_enabled;
+    try {
+      const r = await api('/api/settings', { method: 'PUT', body: { auto_notes_enabled: next } });
+      if (r.settings) setSettingsCache(r.settings);
+      if (currentView === 'auto-notes') await renderAutoNotesView();
+    } catch (err) { alert(`toggle failed: ${err.message}`); }
+    return;
+  }
+
   /* ---------- Away mode ---------- */
   if (action === 'toggle-away-mode') {
     const next = !settingsCache.away_mode_enabled;
@@ -254,31 +294,31 @@ async function onClick(e) {
     } catch (err) { alert(`dismiss failed: ${err.message}`); }
     return;
   }
-  if (action === 'review-away-note') {
+  if (action === 'review-auto-note') {
     const id = parseInt(btn.dataset.id, 10);
     if (!Number.isFinite(id)) return;
     try {
-      await api(`/api/away/notes/${id}/review`, { method: 'POST', body: {} });
-      await refreshAwayNotesBadge();
-      if (currentView === 'away') await renderAwayView();
+      await api(`/api/auto-notes/${id}/review`, { method: 'POST', body: {} });
+      await refreshAutoNotesBadge();
+      await rerenderNotesView();
     } catch (err) { alert(`review failed: ${err.message}`); }
     return;
   }
-  if (action === 'review-all-away-notes') {
+  if (action === 'review-all-auto-notes') {
     try {
-      await api('/api/away/notes/review-all', { method: 'POST', body: {} });
-      await refreshAwayNotesBadge();
-      if (currentView === 'away') await renderAwayView();
+      await api('/api/auto-notes/review-all', { method: 'POST', body: {} });
+      await refreshAutoNotesBadge();
+      await rerenderNotesView();
     } catch (err) { alert(`review all failed: ${err.message}`); }
     return;
   }
-  if (action === 'delete-away-note') {
+  if (action === 'delete-auto-note') {
     const id = parseInt(btn.dataset.id, 10);
     if (!Number.isFinite(id)) return;
     try {
-      await api(`/api/away/notes/${id}`, { method: 'DELETE' });
-      await refreshAwayNotesBadge();
-      if (currentView === 'away') await renderAwayView();
+      await api(`/api/auto-notes/${id}`, { method: 'DELETE' });
+      await refreshAutoNotesBadge();
+      await rerenderNotesView();
     } catch (err) { alert(`delete failed: ${err.message}`); }
     return;
   }
@@ -379,7 +419,8 @@ async function onClick(e) {
   /* ---------- Calendar ---------- */
   if (action === 'cal-tab') {
     setCalendarTab(btn.dataset.tab || 'pending');
-    await renderCalendarView();
+    const target = document.getElementById('queue-content');
+    await renderCalendarView(target || undefined);
     return;
   }
   if (action === 'cal-export') {
@@ -855,6 +896,27 @@ async function onSubmit(e) {
         errEl.textContent = '✓ saved';
         setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
       }
+    } else if (kind === 'auto-notes-config') {
+      // Excluded handles textarea: one per line, trim, drop blanks.
+      const excluded = String(data.auto_notes_excluded_handles || '')
+        .split('\n')
+        .map((h) => h.trim())
+        .filter((h) => h.length > 0);
+      const r = await api('/api/settings', {
+        method: 'PUT',
+        body: {
+          auto_notes_enabled: data.auto_notes_enabled === 'on' ? 1 : 0,
+          auto_notes_min_confidence: parseInt(data.auto_notes_min_confidence, 10) || 0,
+          auto_notes_excluded_handles: JSON.stringify(excluded),
+        },
+      });
+      if (r.settings) setSettingsCache(r.settings);
+      if (errEl) {
+        errEl.classList.add('ok');
+        errEl.textContent = '✓ saved';
+        setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+      }
+      if (currentView === 'auto-notes') await renderAutoNotesView();
     } else if (kind === 'radar-profile') {
       const handle = form.dataset.handle;
       await api(`/api/radar/contacts/by-handle/${encodeURIComponent(handle)}/profile`, {

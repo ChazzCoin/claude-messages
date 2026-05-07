@@ -52,12 +52,19 @@ export function renderCalCard(p) {
   `;
 }
 
-export async function renderCalendarView() {
-  setMainHeader({
-    title: 'Calendar',
-    subHTML: '<span class="accent" id="cal-count">— pending</span> · auto-extracted events',
-  });
-  const list = document.getElementById('drafts-list');
+/**
+ * Render the Calendar pane. When called standalone (no target arg), takes
+ * over the main column with its own header. When embedded inside the Queue
+ * view, pass the host element so the Queue's header/tab-strip stay intact.
+ */
+export async function renderCalendarView(targetEl) {
+  if (!targetEl) {
+    setMainHeader({
+      title: 'Calendar',
+      subHTML: '<span class="accent" id="cal-count">— pending</span> · auto-extracted events',
+    });
+  }
+  const list = targetEl || document.getElementById('drafts-list');
   if (!list) return;
   list.innerHTML = `
     <div style="display:flex;gap:6px;margin-bottom:12px;">

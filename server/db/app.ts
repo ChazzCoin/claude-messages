@@ -195,9 +195,12 @@ function migrate(db: DB) {
     CREATE INDEX IF NOT EXISTS idx_away_sessions_handle_status ON away_sessions(handle, status);
     CREATE INDEX IF NOT EXISTS idx_away_sessions_started ON away_sessions(started_at);
 
-    -- Away notes: substantive things from inbound messages during away mode
-    -- that the user should personally follow up on when they're back.
-    CREATE TABLE IF NOT EXISTS away_notes (
+    -- Auto notes: substantive things extracted from inbound messages that the
+    -- user should personally follow up on. Runs 24/7 on every inbound message
+    -- regardless of mode (was previously coupled to away mode, hence the
+    -- former 'away_notes' name; the runtime behavior was already mode-
+    -- agnostic, the data model just hadn't caught up).
+    CREATE TABLE IF NOT EXISTS auto_notes (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       session_id      INTEGER,
       handle          TEXT NOT NULL,
@@ -212,9 +215,9 @@ function migrate(db: DB) {
       reviewed_at     INTEGER
     );
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_away_notes_unique ON away_notes(message_guid);
-    CREATE INDEX IF NOT EXISTS idx_away_notes_handle ON away_notes(handle);
-    CREATE INDEX IF NOT EXISTS idx_away_notes_unreviewed ON away_notes(reviewed_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_auto_notes_unique ON auto_notes(message_guid);
+    CREATE INDEX IF NOT EXISTS idx_auto_notes_handle ON auto_notes(handle);
+    CREATE INDEX IF NOT EXISTS idx_auto_notes_unreviewed ON auto_notes(reviewed_at);
 
     -- Summon sessions: Galt is invoked into a live conversation by a user-typed
     -- trigger phrase ("GALT!!" by default), and stays active until the user
@@ -257,14 +260,15 @@ function migrate(db: DB) {
   // Index on kind has to come AFTER the ALTER above.
   db.exec('CREATE INDEX IF NOT EXISTS idx_monitor_rules_kind ON monitor_rules(kind)');
 
-  // Migrate away_notes category set: meet/discuss/request/urgent/other → urgent/business/personal.
+  // Migrate legacy away_notes category set: meet/discuss/request/urgent/other → urgent/business/personal.
   // Detect via the CHECK clause in sqlite_master; idempotent (no-op on fresh
-  // install or after migration).
-  const awayNotesSql =
+  // install or after migration). Runs BEFORE the rename-to-auto_notes step
+  // so the data is shaped correctly before it moves.
+  const legacyAwayNotesSql =
     (db
       .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='away_notes'")
       .get() as { sql: string } | undefined)?.sql ?? '';
-  if (awayNotesSql.includes("'meet'")) {
+  if (legacyAwayNotesSql.includes("'meet'")) {
     db.exec(`
       BEGIN;
       CREATE TABLE away_notes_new (
@@ -300,6 +304,31 @@ function migrate(db: DB) {
       COMMIT;
     `);
     console.log('[migrate] away_notes categories migrated to urgent/business/personal');
+  }
+
+  // Rename away_notes → auto_notes. The feature was promoted from "away
+  // mode follow-ups" to a first-class 24/7 inbound-message triage; the
+  // table moves with it. Idempotent: only runs when away_notes exists and
+  // auto_notes does not.
+  const hasAwayNotes = !!db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='away_notes'")
+    .get();
+  const hasAutoNotes = !!db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='auto_notes'")
+    .get();
+  if (hasAwayNotes && !hasAutoNotes) {
+    db.exec(`
+      BEGIN;
+      ALTER TABLE away_notes RENAME TO auto_notes;
+      DROP INDEX IF EXISTS idx_away_notes_unique;
+      DROP INDEX IF EXISTS idx_away_notes_handle;
+      DROP INDEX IF EXISTS idx_away_notes_unreviewed;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_auto_notes_unique ON auto_notes(message_guid);
+      CREATE INDEX IF NOT EXISTS idx_auto_notes_handle ON auto_notes(handle);
+      CREATE INDEX IF NOT EXISTS idx_auto_notes_unreviewed ON auto_notes(reviewed_at);
+      COMMIT;
+    `);
+    console.log('[migrate] away_notes renamed to auto_notes');
   }
 }
 
@@ -362,6 +391,20 @@ export interface AppSettings {
   summon_max_replies_per_session: number;
   /** Auto-end after this many minutes with no messages in the chat. */
   summon_idle_timeout_min: number;
+  /** Auto Notes: master switch for the 24/7 inbound-message triage that
+   *  extracts substantive follow-up items into the auto_notes table.
+   *  When 0, no AI extraction runs on inbound messages (away mode and
+   *  summon mode keep working — they're independent). 0/1, default 1. */
+  auto_notes_enabled: number;
+  /** Reserved for future use — minimum confidence (0..100) the extractor
+   *  needs before persisting a note. Default 0 = no filter. The AI
+   *  function doesn't return a confidence today; this exists so the
+   *  setting + UI can land before the extractor is updated. */
+  auto_notes_min_confidence: number;
+  /** JSON array of handles (phone numbers / emails) to skip during auto-
+   *  note extraction. Default '[]'. Lets the user opt specific contacts
+   *  out without disabling the whole feature. */
+  auto_notes_excluded_handles: string;
   /** OpenAI API key. When set, takes precedence over the OPENAI_API_KEY env
    *  var. Stored locally in app.db so users can configure AI from the
    *  Settings UI instead of editing .env. NEVER returned by /api/settings —
@@ -389,6 +432,9 @@ const SETTING_DEFAULTS: AppSettings = {
   summon_persona: '',
   summon_max_replies_per_session: 30,
   summon_idle_timeout_min: 30,
+  auto_notes_enabled: 1,
+  auto_notes_min_confidence: 0,
+  auto_notes_excluded_handles: '[]',
   openai_api_key: '',
   openai_model: '',
 };
@@ -399,6 +445,7 @@ export const SETTING_BOUNDS = {
   away_max_replies_per_session: { min: 1, max: 200 },
   summon_max_replies_per_session: { min: 1, max: 200 },
   summon_idle_timeout_min: { min: 1, max: 720 },
+  auto_notes_min_confidence: { min: 0, max: 100 },
 } as const;
 
 function parseIntOr(v: string | null, fallback: number): number {
@@ -455,6 +502,16 @@ export function getSettings(): AppSettings {
       getState('summon_idle_timeout_min'),
       SETTING_DEFAULTS.summon_idle_timeout_min,
     ),
+    auto_notes_enabled: parseIntOr(
+      getState('auto_notes_enabled'),
+      SETTING_DEFAULTS.auto_notes_enabled,
+    ),
+    auto_notes_min_confidence: parseIntOr(
+      getState('auto_notes_min_confidence'),
+      SETTING_DEFAULTS.auto_notes_min_confidence,
+    ),
+    auto_notes_excluded_handles:
+      getState('auto_notes_excluded_handles') ?? SETTING_DEFAULTS.auto_notes_excluded_handles,
     openai_api_key: getState('openai_api_key') ?? SETTING_DEFAULTS.openai_api_key,
     openai_model: getState('openai_model') ?? SETTING_DEFAULTS.openai_model,
   };
@@ -527,6 +584,29 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
     const n = Math.max(min, Math.min(max, Math.floor(Number(patch.summon_idle_timeout_min))));
     if (!Number.isFinite(n)) throw new Error('summon_idle_timeout_min must be an integer');
     setState('summon_idle_timeout_min', String(n));
+  }
+  if (patch.auto_notes_enabled !== undefined) {
+    setState('auto_notes_enabled', String(patch.auto_notes_enabled ? 1 : 0));
+  }
+  if (patch.auto_notes_min_confidence !== undefined) {
+    const { min, max } = SETTING_BOUNDS.auto_notes_min_confidence;
+    const n = Math.max(min, Math.min(max, Math.floor(Number(patch.auto_notes_min_confidence))));
+    if (!Number.isFinite(n)) throw new Error('auto_notes_min_confidence must be an integer');
+    setState('auto_notes_min_confidence', String(n));
+  }
+  if (patch.auto_notes_excluded_handles !== undefined) {
+    // Must be a JSON array of strings. Reject anything else so the read
+    // path can JSON.parse without try/catch.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(String(patch.auto_notes_excluded_handles));
+    } catch {
+      throw new Error('auto_notes_excluded_handles must be a JSON array of strings');
+    }
+    if (!Array.isArray(parsed) || !parsed.every((h) => typeof h === 'string')) {
+      throw new Error('auto_notes_excluded_handles must be a JSON array of strings');
+    }
+    setState('auto_notes_excluded_handles', JSON.stringify(parsed));
   }
   if (patch.openai_api_key !== undefined) {
     // Trim whitespace; an empty string clears the key (falls back to env var).
@@ -1582,11 +1662,11 @@ export function activeSummonChatIds(): Set<number> {
   return new Set(rows.map((r) => r.chat_id));
 }
 
-/* ---------- away notes (things to follow up on after coming back) ---------- */
+/* ---------- auto notes (24/7 inbound triage — substantive items to follow up on) ---------- */
 
-export type AwayNoteCategory = 'urgent' | 'business' | 'personal';
+export type AutoNoteCategory = 'urgent' | 'business' | 'personal';
 
-export interface AwayNote {
+export interface AutoNote {
   id: number;
   session_id: number | null;
   handle: string;
@@ -1594,36 +1674,36 @@ export interface AwayNote {
   message_rowid: number | null;
   message_text: string | null;
   summary: string;
-  category: AwayNoteCategory;
+  category: AutoNoteCategory;
   reasoning: string | null;
   created_at: number;
   reviewed_at: number | null;
 }
 
-const AWAY_NOTE_COLS =
+const AUTO_NOTE_COLS =
   'id, session_id, handle, message_guid, message_rowid, message_text, summary, category, reasoning, created_at, reviewed_at';
 
-export function awayNoteAlreadyExists(messageGuid: string): boolean {
+export function autoNoteAlreadyExists(messageGuid: string): boolean {
   const db = getAppDb();
   return !!db
-    .prepare('SELECT 1 FROM away_notes WHERE message_guid = ? LIMIT 1')
+    .prepare('SELECT 1 FROM auto_notes WHERE message_guid = ? LIMIT 1')
     .get(messageGuid);
 }
 
-export function insertAwayNote(input: {
+export function insertAutoNote(input: {
   session_id: number | null;
   handle: string;
   message_guid: string;
   message_rowid: number | null;
   message_text: string | null;
   summary: string;
-  category: AwayNoteCategory;
+  category: AutoNoteCategory;
   reasoning: string | null;
-}): AwayNote | null {
+}): AutoNote | null {
   const db = getAppDb();
   const info = db
     .prepare(
-      `INSERT OR IGNORE INTO away_notes
+      `INSERT OR IGNORE INTO auto_notes
         (session_id, handle, message_guid, message_rowid, message_text, summary, category, reasoning)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
@@ -1639,66 +1719,66 @@ export function insertAwayNote(input: {
     );
   if (info.changes === 0) return null;
   return db
-    .prepare(`SELECT ${AWAY_NOTE_COLS} FROM away_notes WHERE id = ?`)
-    .get(info.lastInsertRowid) as AwayNote;
+    .prepare(`SELECT ${AUTO_NOTE_COLS} FROM auto_notes WHERE id = ?`)
+    .get(info.lastInsertRowid) as AutoNote;
 }
 
-export function listAwayNotes(opts: { reviewed?: boolean; limit?: number } = {}): AwayNote[] {
+export function listAutoNotes(opts: { reviewed?: boolean; limit?: number } = {}): AutoNote[] {
   const db = getAppDb();
   const limit = Math.max(1, Math.min(500, opts.limit ?? 200));
   if (opts.reviewed === false) {
     return db
       .prepare(
-        `SELECT ${AWAY_NOTE_COLS} FROM away_notes WHERE reviewed_at IS NULL ORDER BY created_at DESC LIMIT ?`,
+        `SELECT ${AUTO_NOTE_COLS} FROM auto_notes WHERE reviewed_at IS NULL ORDER BY created_at DESC LIMIT ?`,
       )
-      .all(limit) as AwayNote[];
+      .all(limit) as AutoNote[];
   }
   if (opts.reviewed === true) {
     return db
       .prepare(
-        `SELECT ${AWAY_NOTE_COLS} FROM away_notes WHERE reviewed_at IS NOT NULL ORDER BY created_at DESC LIMIT ?`,
+        `SELECT ${AUTO_NOTE_COLS} FROM auto_notes WHERE reviewed_at IS NOT NULL ORDER BY created_at DESC LIMIT ?`,
       )
-      .all(limit) as AwayNote[];
+      .all(limit) as AutoNote[];
   }
   return db
-    .prepare(`SELECT ${AWAY_NOTE_COLS} FROM away_notes ORDER BY created_at DESC LIMIT ?`)
-    .all(limit) as AwayNote[];
+    .prepare(`SELECT ${AUTO_NOTE_COLS} FROM auto_notes ORDER BY created_at DESC LIMIT ?`)
+    .all(limit) as AutoNote[];
 }
 
-export function getAwayNote(id: number): AwayNote | null {
+export function getAutoNote(id: number): AutoNote | null {
   const db = getAppDb();
   const row = db
-    .prepare(`SELECT ${AWAY_NOTE_COLS} FROM away_notes WHERE id = ?`)
-    .get(id) as AwayNote | undefined;
+    .prepare(`SELECT ${AUTO_NOTE_COLS} FROM auto_notes WHERE id = ?`)
+    .get(id) as AutoNote | undefined;
   return row ?? null;
 }
 
-export function markAwayNoteReviewed(id: number): AwayNote | null {
+export function markAutoNoteReviewed(id: number): AutoNote | null {
   const db = getAppDb();
   db.prepare(
-    "UPDATE away_notes SET reviewed_at = strftime('%s','now')*1000 WHERE id = ?",
+    "UPDATE auto_notes SET reviewed_at = strftime('%s','now')*1000 WHERE id = ?",
   ).run(id);
-  return getAwayNote(id);
+  return getAutoNote(id);
 }
 
-export function markAllAwayNotesReviewed(): number {
+export function markAllAutoNotesReviewed(): number {
   const db = getAppDb();
   return db
     .prepare(
-      "UPDATE away_notes SET reviewed_at = strftime('%s','now')*1000 WHERE reviewed_at IS NULL",
+      "UPDATE auto_notes SET reviewed_at = strftime('%s','now')*1000 WHERE reviewed_at IS NULL",
     )
     .run().changes;
 }
 
-export function removeAwayNote(id: number): boolean {
+export function removeAutoNote(id: number): boolean {
   const db = getAppDb();
-  return db.prepare('DELETE FROM away_notes WHERE id = ?').run(id).changes > 0;
+  return db.prepare('DELETE FROM auto_notes WHERE id = ?').run(id).changes > 0;
 }
 
-export function countUnreviewedAwayNotes(): number {
+export function countUnreviewedAutoNotes(): number {
   const db = getAppDb();
   const row = db
-    .prepare('SELECT COUNT(*) as n FROM away_notes WHERE reviewed_at IS NULL')
+    .prepare('SELECT COUNT(*) as n FROM auto_notes WHERE reviewed_at IS NULL')
     .get() as { n: number } | undefined;
   return row?.n ?? 0;
 }
