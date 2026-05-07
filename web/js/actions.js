@@ -20,7 +20,7 @@ import {
 import { refreshDrafts } from './views/drafts.js';
 import { renderThreadToolbar, renderVariantCards } from './views/thread.js';
 import { loadAndRenderNotes, loadAndRenderProfile } from './views/inbox.js';
-import { renderSettingsView } from './views/settings.js';
+import { renderGaltView } from './views/galt.js';
 import { refreshFlagsList, renderFlagsView } from './views/flags.js';
 import {
   refreshScheduledList, refreshScheduledCount,
@@ -71,13 +71,13 @@ async function onClick(e) {
   if (action === 'show-form')      { openForm(btn.dataset.target); return; }
   if (action === 'hide-form')      { closeForm(btn.dataset.target); return; }
 
-  // Settings: reset to defaults
+  // Galt: reset AI context window to default
   if (action === 'reset-settings') {
     if (!confirm('Reset all settings to defaults?')) return;
     try {
       const r = await api('/api/settings', { method: 'PUT', body: { ai_context_count: 20 } });
       if (r.settings) setSettingsCache(r.settings);
-      await renderSettingsView();
+      await renderGaltView();
     } catch (err) { alert(`reset failed: ${err.message}`); }
     return;
   }
@@ -696,7 +696,7 @@ async function onClick(e) {
         body: { openai_api_key: '' },
       });
       if (r.settings) setSettingsCache(r.settings);
-      await renderSettingsView();
+      await renderGaltView();
     } catch (err) { alert(`clear failed: ${err.message}`); }
     return;
   }
@@ -719,7 +719,7 @@ async function onClick(e) {
         body: { sample_count: sample, user_context: userContext },
       });
       if (r.settings) setSettingsCache(r.settings);
-      await renderSettingsView();
+      await renderGaltView();
       const newErr = document.querySelector('form[data-form="voice-profile"] [data-error]');
       if (newErr) {
         newErr.classList.add('ok');
@@ -876,7 +876,8 @@ async function onSubmit(e) {
       }
     } else if (kind === 'summon-config') {
       // The on/off master switch lives in the page header (toggle-summon-mode)
-      // — this form only owns the configuration knobs.
+      // — this form only owns activation + safety knobs. Prompt content
+      // (persona, custom prompt override) lives on #/galt.
       const trigger = (data.summon_trigger_phrase || '').trim();
       const endP = (data.summon_end_phrase || '').trim();
       if (!trigger) throw new Error('Trigger phrase cannot be empty');
@@ -886,8 +887,6 @@ async function onSubmit(e) {
         body: {
           summon_trigger_phrase: trigger,
           summon_end_phrase: endP,
-          galt_voice_profile: data.galt_voice_profile || '',
-          summon_system_prompt: data.summon_system_prompt || '',
           summon_max_replies_per_session: parseInt(data.summon_max_replies_per_session, 10),
           summon_idle_timeout_min: parseInt(data.summon_idle_timeout_min, 10),
         },
@@ -904,12 +903,22 @@ async function onSubmit(e) {
       const r = await api('/api/settings', {
         method: 'PUT',
         body: {
-          away_message: data.away_message || '',
-          away_persona: data.away_persona || '',
           away_max_replies_per_session: parseInt(data.away_max_replies_per_session, 10),
           away_send_delay_enabled: delayEnabled,
         },
       });
+      if (r.settings) setSettingsCache(r.settings);
+      if (errEl) {
+        errEl.classList.add('ok');
+        errEl.textContent = '✓ saved';
+        setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+      }
+    } else if (kind === 'prompts-away' || kind === 'prompts-summon') {
+      // Centralized prompts page. Each form's FormData is exactly the prompt
+      // fields owned by that section, keyed by AppSettings column name —
+      // pass through to PUT /api/settings, which gates each known key.
+      // Adding a prompt to the registry "just works" with no change here.
+      const r = await api('/api/settings', { method: 'PUT', body: { ...data } });
       if (r.settings) setSettingsCache(r.settings);
       if (errEl) {
         errEl.classList.add('ok');
@@ -1015,7 +1024,7 @@ async function onSubmit(e) {
         const r = await api('/api/settings', { method: 'PUT', body });
         if (r.settings) setSettingsCache(r.settings);
         // Re-render so masked-state + last4 + Clear button reflect the save.
-        await renderSettingsView();
+        await renderGaltView();
         const newErr = document.querySelector('form[data-form="openai"] [data-error]');
         if (newErr) {
           newErr.classList.add('ok');

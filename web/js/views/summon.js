@@ -99,7 +99,7 @@ function renderConfigPanel() {
       <details class="away-collapsible" open>
         <summary>
           <span>Configuration</span>
-          <span class="config-summary-meta">trigger · end phrase · persona · safety cap · idle timeout</span>
+          <span class="config-summary-meta">trigger · end phrase · safety cap · idle timeout · prompts on <a href="#/galt">Galt</a></span>
         </summary>
 
         <form class="away-config-form" data-form="summon-config">
@@ -121,18 +121,10 @@ function renderConfigPanel() {
 
           <div class="config-field">
             <label class="config-label">
-              Galt voice profile
-              <span class="desc">Prose describing how Galt sounds when he's himself — voice, tone, register, length, quirks, what to avoid. Used here in summon mode (where Galt is a third voice). Distinct from your own voice profile (Settings → Voice profile), which Galt uses when impersonating you in away mode. User-written; no AI generation. Injected as the VOICE PROFILE in the AI's data-injection block.</span>
+              Galt voice profile & custom prompt
+              <span class="desc">Prompts and the Galt voice profile live on the <a href="#/galt">Galt</a> page — the master config for the AI persona itself.</span>
             </label>
-            <textarea name="galt_voice_profile" rows="4" placeholder="e.g. 'direct, no hedging. keep it iMessage-short — usually one line. light dry humor when it fits the moment. don't be a help desk. push back if i'm being dumb.'">${escapeHtml(settingsCache.galt_voice_profile || '')}</textarea>
-          </div>
-
-          <div class="config-field">
-            <label class="config-label">
-              Custom prompt override <span class="desc" style="display:inline; font-weight:normal;">(advanced)</span>
-              <span class="desc">When non-empty, REPLACES the entire built-in summon prompt. Write your own instructions for how Galt should behave. The conversation thread, voice profile, and contact context still flow through automatically — this just controls the per-turn behavior instructions. Placeholders <code>{userName}</code> and <code>{recipientName}</code> get substituted at send time. Leave empty to use the built-in.</span>
-            </label>
-            <textarea name="summon_system_prompt" rows="12" placeholder="(empty — using built-in prompt)" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;">${escapeHtml(settingsCache.summon_system_prompt || '')}</textarea>
+            <a href="#/galt" class="btn ghost" style="align-self: flex-start;">Edit on Galt →</a>
           </div>
 
           <div class="config-field">

@@ -13,6 +13,9 @@
 //   #/rules                  → rules detail panel (drafts col header)
 //   #/settings               → settings
 //   #/away                   → away mode
+//   #/summon                 → summon mode
+//   #/galt                   → Galt's master config (persona, prompts, …)
+//   #/prompts                → legacy alias for #/galt
 //
 // Also keeps state.currentView / state.currentChatId / state.currentRadarHandle
 // in sync, and handles "back to inbox" / sidebar nav-item clicks.
@@ -31,6 +34,7 @@ import { renderRadarView, renderRadarDetail } from './views/radar.js';
 import { renderAwayView } from './views/away.js';
 import { renderAutoNotesView } from './views/auto-notes.js';
 import { renderSummonView } from './views/summon.js';
+import { renderGaltView } from './views/galt.js';
 import { renderQueueView } from './views/queue.js';
 import { setQueueTab } from './state.js';
 
@@ -51,6 +55,7 @@ export async function setView(view, arg = null) {
     : view === 'radar-detail' ? 'radar'
     : view === 'drafts' ? 'inbox'
     : view === 'search' ? 'home'
+    : view === 'prompts' ? 'galt'
     : (view === 'flags' || view === 'calendar' || view === 'scheduled') ? 'queue'
     : view;
   setActiveNav(navKey);
@@ -67,6 +72,8 @@ export async function setView(view, arg = null) {
     case 'away':          await renderAwayView(); break;
     case 'auto-notes':    await renderAutoNotesView(); break;
     case 'summon':        await renderSummonView(); break;
+    case 'galt':          await renderGaltView(); break;
+    case 'prompts':       await renderGaltView(); break;          // legacy alias
     case 'queue':         await renderQueueView(); break;
     // Legacy routes — these used to be standalone pages but folded into
     // other surfaces during the sidebar cleanup. Old bookmarks and

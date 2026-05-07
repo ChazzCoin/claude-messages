@@ -8,7 +8,7 @@ import { installRouter, initialRoute, setView } from './router.js';
 import { installActionHandlers } from './actions.js';
 import { connectSSE } from './sse.js';
 
-import { refreshSettings } from './views/settings.js';
+import { refreshSettings } from './views/galt.js';
 import { refreshRadarHandlesCache } from './views/radar.js';
 import { updateAwayPill } from './views/away.js';
 import { refreshAutoNotesBadge } from './views/auto-notes.js';
