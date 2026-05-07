@@ -1715,6 +1715,52 @@ function isOurAutoSendEcho(handle: string, body: string | null | undefined): boo
   return !!set && set.has(body);
 }
 
+/**
+ * Shared AI-auto-send pipeline used by every code path that sends an
+ * AI-generated message on the user's behalf (away greeting, away
+ * continuation, summon reply). Encapsulates the four steps that have
+ * to happen in this exact order:
+ *
+ *   1. apply the system-wide `Galt: ` prefix (idempotent + speaker-label-strip)
+ *   2. optional humanizing delay (away or summon profile)
+ *   3. re-check the abort condition AFTER the delay — caller-supplied,
+ *      because what counts as "should we still send" is mode-specific
+ *      (away: session not user-replied + mode still on; summon: session
+ *      still active + master switch still on)
+ *   4. mark the body in the echo guard, then AppleScript-send
+ *
+ * Returns whether the send actually went out so the caller can decide
+ * whether to bump the session, broadcast SSE, etc. — those bits stay
+ * with the caller because their payloads are mode-specific.
+ */
+async function aiAutoSend(opts: {
+  handle: string;
+  body: string;
+  delayProfile: 'away' | 'summon' | 'off';
+  abortIf?: () => boolean;
+  logTag?: string;
+}): Promise<{ sent: boolean; aborted: boolean; prefixedBody: string }> {
+  const prefixedBody = withGaltPrefix(opts.body);
+  const tag = opts.logTag ?? '[ai-send]';
+
+  if (opts.delayProfile !== 'off') {
+    const delayMs = opts.delayProfile === 'summon'
+      ? summonSendDelayMs(prefixedBody)
+      : naturalSendDelayMs(prefixedBody);
+    console.log(`${tag} delayed ${delayMs}ms`);
+    await sleep(delayMs);
+  }
+
+  if (opts.abortIf && opts.abortIf()) {
+    console.log(`${tag} aborted (state changed during delay)`);
+    return { sent: false, aborted: true, prefixedBody };
+  }
+
+  trackOurAutoSend(opts.handle, prefixedBody); // mark BEFORE send so the watcher echo doesn't trip the wrong handler
+  await sendMessageViaAppleScript(opts.handle, prefixedBody);
+  return { sent: true, aborted: false, prefixedBody };
+}
+
 function buildAwayContextNote(persona: string, recipientName: string): string {
   const sections: string[] = [];
 
@@ -1920,33 +1966,23 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       return;
     }
     try {
-      // System-wide rule: away-mode auto-sends are AI-channel messages, so
-      // they get the Galt: prefix. The greeting is a canned text but it's
-      // sent by the AI without the user's at-send review, so the contact
-      // still benefits from knowing it's AI vs the user typing.
-      const prefixedGreeting = withGaltPrefix(greeting);
+      // Abort if a session was created for this handle in the meantime
+      // (parallel inbound) or away mode was toggled off during the delay.
+      const handle = msg.handle; // capture for closure (TS narrowing is lost in arrow fn)
+      const result = await aiAutoSend({
+        handle,
+        body: greeting,
+        delayProfile: settings.away_send_delay_enabled ? 'away' : 'off',
+        abortIf: () => !!getActiveAwaySession(handle) || !getSettings().away_mode_enabled,
+        logTag: `[away] greeting to ${handle}`,
+      });
+      if (!result.sent) return;
 
-      // Humanizing delay before send. If the user replies (or away mode is
-      // toggled off, or another inbound creates a session for this handle)
-      // during the delay, abort to avoid the queued greeting landing late.
-      if (settings.away_send_delay_enabled) {
-        const delay = naturalSendDelayMs(prefixedGreeting);
-        console.log(`[away] greeting to ${msg.handle} delayed ${delay}ms`);
-        await sleep(delay);
-        const stillNoSession = !getActiveAwaySession(msg.handle);
-        const stillEnabled = !!getSettings().away_mode_enabled;
-        if (!stillNoSession || !stillEnabled) {
-          console.log(`[away] aborting queued greeting for ${msg.handle} (state changed during delay)`);
-          return;
-        }
-      }
-      trackOurAutoSend(msg.handle, prefixedGreeting); // mark BEFORE send so the echo race doesn't end the session
-      await sendMessageViaAppleScript(msg.handle, prefixedGreeting);
       const newSession = createAwaySession(msg.handle);
       console.log(`[away] greeting sent to ${msg.handle}, session ${newSession.id} opened`);
       sseBroadcast('away.greeting_sent', {
         session: enrichAway(newSession),
-        message: prefixedGreeting,
+        message: result.prefixedBody,
       });
       // Even the FIRST message can carry a follow-up item — extract.
       void extractAwayNoteForMessage(newSession.id, msg);
@@ -2000,36 +2036,32 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       return;
     }
 
-    // System-wide rule: AI-generated message → Galt: prefix.
-    const prefixedBody = withGaltPrefix(usable.body);
+    // Abort if user replied themselves during delay (session ends), or away
+    // mode was toggled off, or session ended for any reason.
+    const handle = msg.handle; // capture for closure (TS narrowing is lost in arrow fn)
+    const sessionId = session.id;
+    const send = await aiAutoSend({
+      handle,
+      body: usable.body,
+      delayProfile: settings.away_send_delay_enabled ? 'away' : 'off',
+      abortIf: () => {
+        const current = getActiveAwaySession(handle);
+        return !current
+          || current.id !== sessionId
+          || current.status === 'ended'
+          || !getSettings().away_mode_enabled;
+      },
+      logTag: `[away] continuation to ${handle} (session ${sessionId})`,
+    });
+    if (!send.sent) return;
 
-    // Humanizing delay before send. If the user replies during the delay
-    // (or away mode is toggled off, or session ends for any reason), abort
-    // — the queued AI reply landing AFTER the user's typed reply would be
-    // confusing and contradictory.
-    if (settings.away_send_delay_enabled) {
-      const delay = naturalSendDelayMs(prefixedBody);
-      console.log(`[away] continuation to ${msg.handle} (session ${session.id}) delayed ${delay}ms`);
-      await sleep(delay);
-      const current = getActiveAwaySession(msg.handle);
-      const stillEnabled = !!getSettings().away_mode_enabled;
-      if (!current || current.id !== session.id || current.status === 'ended' || !stillEnabled) {
-        console.log(
-          `[away] aborting queued continuation for session ${session.id} (state changed during delay)`,
-        );
-        return;
-      }
-    }
-
-    trackOurAutoSend(msg.handle, prefixedBody); // mark BEFORE send so the echo race doesn't end the session
-    await sendMessageViaAppleScript(msg.handle, prefixedBody);
     const updated = bumpAwaySession(session.id);
     console.log(
       `[away] auto-replied to ${msg.handle} (session ${session.id}, reply ${updated?.ai_reply_count ?? '?'})`,
     );
     sseBroadcast('away.replied', {
       session: updated ? enrichAway(updated) : null,
-      body: prefixedBody,
+      body: send.prefixedBody,
       thread_turns: thread.length,
       usage: result.usage ?? null,
     });
@@ -2197,35 +2229,32 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
       return;
     }
 
-    // Prepend the canonical "Galt: " prefix (idempotent + case-tolerant; the
-    // model is told NOT to add one, but withGaltPrefix strips any accidental
-    // leading "Galt:" before re-prepending).
-    const prefixedBody = withGaltPrefix(usable.body);
+    // Abort if Galt was dismissed during the typing delay (end-phrase typed,
+    // session manually ended from dashboard, master switch flipped off).
+    // Uses the summon delay profile (faster than away — friend dropping in,
+    // not user covering for themselves).
+    const handle = msg.handle; // capture for closure (TS narrowing is lost in arrow fn)
+    const chatId = msg.chat_id;
+    const sessionId = session.id;
+    const send = await aiAutoSend({
+      handle,
+      body: usable.body,
+      delayProfile: settings.away_send_delay_enabled ? 'summon' : 'off',
+      abortIf: () => {
+        const current = getActiveSummonSession(chatId);
+        return !current || current.id !== sessionId || !getSettings().summon_enabled;
+      },
+      logTag: `[summon] session ${sessionId}`,
+    });
+    if (!send.sent) return;
 
-    // Summon-specific (faster) typing delay. Galt is a friend dropping into
-    // the conversation, not the user covering for themselves — should feel
-    // snappy. Reuses the away_send_delay_enabled toggle for off-switch.
-    if (settings.away_send_delay_enabled) {
-      const delay = summonSendDelayMs(prefixedBody);
-      console.log(`[summon] session ${session.id} reply delayed ${delay}ms`);
-      await sleep(delay);
-      const current = getActiveSummonSession(msg.chat_id);
-      const stillEnabled = !!getSettings().summon_enabled;
-      if (!current || current.id !== session.id || !stillEnabled) {
-        console.log(`[summon] aborting reply for session ${session.id} — state changed during delay`);
-        return;
-      }
-    }
-
-    trackOurAutoSend(msg.handle, prefixedBody);
-    await sendMessageViaAppleScript(msg.handle, prefixedBody);
     const updated = bumpSummonSession(session.id);
     console.log(
       `[summon] auto-replied in session ${session.id} (chat ${msg.chat_id}, reply ${updated?.ai_reply_count ?? '?'})`,
     );
     sseBroadcast('summon.replied', {
       session: updated ? enrichSummon(updated) : null,
-      body: prefixedBody,
+      body: send.prefixedBody,
       thread_turns: thread.length,
       usage: result.usage ?? null,
     });

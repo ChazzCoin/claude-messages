@@ -96,7 +96,7 @@ function summonPanel(activeSessions) {
       </div>
       ${activeBlock}
       <div class="home-panel-actions">
-        <a class="btn ghost" data-action="open-away">Configure summon →</a>
+        <a class="btn ghost" data-action="open-summon">Configure summon →</a>
       </div>
     </div>
   `;

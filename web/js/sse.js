@@ -124,8 +124,10 @@ export function connectSSE() {
 
     /* ---------- summon mode ---------- */
     const refreshOnSummonChange = async () => {
-      if (currentView === 'away') await renderAwayView();
-      else if (currentView === 'home') {
+      if (currentView === 'summon') {
+        const { renderSummonView } = await import('./views/summon.js');
+        await renderSummonView();
+      } else if (currentView === 'home') {
         const { renderHomeView } = await import('./views/home.js');
         await renderHomeView();
       }
