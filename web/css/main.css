@@ -1616,6 +1616,9 @@ body::after {
   text-align: center; align-self: start;
 }
 .away-note-card .note-cat.urgent { color: var(--red); border-color: var(--red); }
+.away-note-card .note-cat.business { color: var(--yellow); border-color: var(--yellow); }
+.away-note-card .note-cat.personal { color: var(--purple); border-color: var(--purple); }
+/* Legacy categories retained as fallback styling for any pre-migration rows. */
 .away-note-card .note-cat.meet { color: var(--purple); border-color: var(--purple); }
 .away-note-card .note-cat.discuss { color: var(--cyan); border-color: var(--cyan); }
 .away-note-card .note-cat.request { color: var(--yellow); border-color: var(--yellow); }

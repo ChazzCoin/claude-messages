@@ -1875,6 +1875,25 @@ async function extractAwayNoteForMessage(sessionId: number | null, msg: MessageR
   }
 }
 
+/**
+ * Run note-triage on every inbound message regardless of mode. The model
+ * itself self-gates (returns should_note=false on banter / pleasantries /
+ * trivia), so we don't need an external classifier in front of it.
+ *
+ * Skip when an active away session exists for this handle — the away path
+ * (handleAwayModeMessage) already calls extractAwayNoteForMessage with the
+ * session_id, which is preferable to the null-session path here. The dedup
+ * check inside extractAwayNoteForMessage means racing both paths is safe;
+ * this guard just prefers the session-aware insert when one is available.
+ */
+async function triageInboundMessage(msg: MessageRow): Promise<void> {
+  if (msg.is_from_me === 1) return;
+  if (!msg.text || msg.text.trim().length === 0) return;
+  if (!msg.handle) return;
+  if (getActiveAwaySession(msg.handle)) return;
+  await extractAwayNoteForMessage(null, msg);
+}
+
 async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
   const settings = getSettings();
   if (!settings.away_mode_enabled) return;
@@ -1993,6 +2012,7 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       contextNote: buildAwayContextNote(settings.away_persona, recipientName),
       temperament: 'normal',
       count: 1,
+      awayMode: true,
     });
     const usable = result.variants.find((v) => !v.skipped && v.body.trim().length > 0);
     if (!usable) {
@@ -2383,6 +2403,9 @@ messageWatcher.onMessages((messages: MessageRow[]) => {
     void evaluateMessageAgainstRules(m);
     void evaluateMessageForCalendar(m);
     void evaluateMessageForRadar(m);
+    // Note triage on every inbound message, regardless of mode. Skips itself
+    // when an away session is active (that path triages with a session_id).
+    void triageInboundMessage(m);
     // away mode handles both incoming (auto-respond) and outgoing (user-replied → end session).
     void handleAwayModeMessage(m);
     // summon mode: trigger phrase opens a session, end phrase closes it,

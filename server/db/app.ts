@@ -206,7 +206,7 @@ function migrate(db: DB) {
       message_text    TEXT,
       summary         TEXT NOT NULL,
       category        TEXT NOT NULL
-                       CHECK (category IN ('meet', 'discuss', 'request', 'urgent', 'other')),
+                       CHECK (category IN ('urgent', 'business', 'personal')),
       reasoning       TEXT,
       created_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
       reviewed_at     INTEGER
@@ -256,6 +256,51 @@ function migrate(db: DB) {
   }
   // Index on kind has to come AFTER the ALTER above.
   db.exec('CREATE INDEX IF NOT EXISTS idx_monitor_rules_kind ON monitor_rules(kind)');
+
+  // Migrate away_notes category set: meet/discuss/request/urgent/other → urgent/business/personal.
+  // Detect via the CHECK clause in sqlite_master; idempotent (no-op on fresh
+  // install or after migration).
+  const awayNotesSql =
+    (db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='away_notes'")
+      .get() as { sql: string } | undefined)?.sql ?? '';
+  if (awayNotesSql.includes("'meet'")) {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE away_notes_new (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id      INTEGER,
+        handle          TEXT NOT NULL,
+        message_guid    TEXT NOT NULL,
+        message_rowid   INTEGER,
+        message_text    TEXT,
+        summary         TEXT NOT NULL,
+        category        TEXT NOT NULL
+                         CHECK (category IN ('urgent', 'business', 'personal')),
+        reasoning       TEXT,
+        created_at      INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+        reviewed_at     INTEGER
+      );
+      INSERT INTO away_notes_new
+        (id, session_id, handle, message_guid, message_rowid, message_text, summary, category, reasoning, created_at, reviewed_at)
+      SELECT
+        id, session_id, handle, message_guid, message_rowid, message_text, summary,
+        CASE category
+          WHEN 'urgent'  THEN 'urgent'
+          WHEN 'request' THEN 'business'
+          ELSE 'personal'
+        END,
+        reasoning, created_at, reviewed_at
+      FROM away_notes;
+      DROP TABLE away_notes;
+      ALTER TABLE away_notes_new RENAME TO away_notes;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_away_notes_unique ON away_notes(message_guid);
+      CREATE INDEX IF NOT EXISTS idx_away_notes_handle ON away_notes(handle);
+      CREATE INDEX IF NOT EXISTS idx_away_notes_unreviewed ON away_notes(reviewed_at);
+      COMMIT;
+    `);
+    console.log('[migrate] away_notes categories migrated to urgent/business/personal');
+  }
 }
 
 /* ---------- state helpers ---------- */
@@ -1539,7 +1584,7 @@ export function activeSummonChatIds(): Set<number> {
 
 /* ---------- away notes (things to follow up on after coming back) ---------- */
 
-export type AwayNoteCategory = 'meet' | 'discuss' | 'request' | 'urgent' | 'other';
+export type AwayNoteCategory = 'urgent' | 'business' | 'personal';
 
 export interface AwayNote {
   id: number;
