@@ -715,6 +715,15 @@ app.post(
       count: variantCount,
     });
 
+    // System-wide rule: every AI-generated message gets the "Galt: " prefix.
+    // Apply to every non-skipped variant in-place — the saved draft body
+    // and the variants returned to the frontend are all prefixed from here on.
+    for (const v of result.variants) {
+      if (!v.skipped && v.body.trim().length > 0) {
+        v.body = withGaltPrefix(v.body);
+      }
+    }
+
     const usage = result.usage ?? null;
     const usableVariants = result.variants.filter((v) => !v.skipped && v.body.trim().length > 0);
 
@@ -733,7 +742,7 @@ app.post(
         chat_id: chatId,
         handle: chatRow.chat_identifier,
         body: usableVariants[0]!.body,
-        reasoning: `AI · model=${result.model} · context=${thread.length} turns · ${tokenLine}${profileLine}${contactProfileLine}${tempLine}${memoryLine}${noteLine}`,
+        reasoning: `AI · model=${result.model} · context=${thread.length} turns · ${tokenLine}${profileLine}${contactProfileLine}${tempLine}${memoryLine}${noteLine} · galt-prefix: applied`,
       });
     }
 
@@ -1429,9 +1438,6 @@ const AUTO_ECHO_TTL_MS = 60_000;
  */
 const draftingForChat = new Set<number>();
 
-/** Literal prefix prepended to every Galt reply in summon mode so both
- *  parties can scan a bubble and instantly tell AI from human. */
-const SUMMON_PREFIX = 'Galt: ';
 
 /**
  * Humanizing delay before each away-mode auto-send. Without this, replies
@@ -1455,6 +1461,38 @@ function naturalSendDelayMs(body: string): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
+}
+
+/**
+ * SYSTEM-WIDE RULE: every AI-generated message that goes out (or gets staged
+ * as a draft for the user to approve) is prefixed with "Galt: " so the
+ * recipient — and the user reviewing the drafts queue — can always tell
+ * at a glance which messages are AI vs human-typed. The user's own typed
+ * messages (Direct Send compose, manual + new draft) are NEVER prefixed.
+ *
+ * Applied at every AI-generation chokepoint:
+ *   - /api/ai/draft  (single-shot + 3 options)
+ *   - away mode: greeting + continuation sends
+ *   - summon mode: every reply
+ */
+export const GALT_PREFIX = 'Galt: ';
+
+/**
+ * Idempotent prefix application — strips any combination of leading
+ * "me:" / "them:" / "Galt:" speaker labels that the model occasionally
+ * leaks from the thread context, then prepends the canonical "Galt: ".
+ * Safe to call multiple times on the same body without doubling.
+ */
+export function withGaltPrefix(body: string): string {
+  let stripped = body;
+  // Repeatedly strip recognized leading speaker labels — handles both
+  // single leaks ("me: hello") and stacked leaks ("Galt: me: hello").
+  for (let i = 0; i < 4; i++) {
+    const next = stripped.replace(/^\s*(galt|me|them)\s*:\s*/i, '');
+    if (next === stripped) break;
+    stripped = next;
+  }
+  return `${GALT_PREFIX}${stripped}`;
 }
 
 function trackOurAutoSend(handle: string, body: string): void {
@@ -1673,11 +1711,17 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       return;
     }
     try {
+      // System-wide rule: away-mode auto-sends are AI-channel messages, so
+      // they get the Galt: prefix. The greeting is a canned text but it's
+      // sent by the AI without the user's at-send review, so the contact
+      // still benefits from knowing it's AI vs the user typing.
+      const prefixedGreeting = withGaltPrefix(greeting);
+
       // Humanizing delay before send. If the user replies (or away mode is
       // toggled off, or another inbound creates a session for this handle)
       // during the delay, abort to avoid the queued greeting landing late.
       if (settings.away_send_delay_enabled) {
-        const delay = naturalSendDelayMs(greeting);
+        const delay = naturalSendDelayMs(prefixedGreeting);
         console.log(`[away] greeting to ${msg.handle} delayed ${delay}ms`);
         await sleep(delay);
         const stillNoSession = !getActiveAwaySession(msg.handle);
@@ -1687,13 +1731,13 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
           return;
         }
       }
-      trackOurAutoSend(msg.handle, greeting); // mark BEFORE send so the echo race doesn't end the session
-      await sendMessageViaAppleScript(msg.handle, greeting);
+      trackOurAutoSend(msg.handle, prefixedGreeting); // mark BEFORE send so the echo race doesn't end the session
+      await sendMessageViaAppleScript(msg.handle, prefixedGreeting);
       const newSession = createAwaySession(msg.handle);
       console.log(`[away] greeting sent to ${msg.handle}, session ${newSession.id} opened`);
       sseBroadcast('away.greeting_sent', {
         session: enrichAway(newSession),
-        message: greeting,
+        message: prefixedGreeting,
       });
       // Even the FIRST message can carry a follow-up item — extract.
       void extractAwayNoteForMessage(newSession.id, msg);
@@ -1744,12 +1788,15 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       return;
     }
 
+    // System-wide rule: AI-generated message → Galt: prefix.
+    const prefixedBody = withGaltPrefix(usable.body);
+
     // Humanizing delay before send. If the user replies during the delay
     // (or away mode is toggled off, or session ends for any reason), abort
     // — the queued AI reply landing AFTER the user's typed reply would be
     // confusing and contradictory.
     if (settings.away_send_delay_enabled) {
-      const delay = naturalSendDelayMs(usable.body);
+      const delay = naturalSendDelayMs(prefixedBody);
       console.log(`[away] continuation to ${msg.handle} (session ${session.id}) delayed ${delay}ms`);
       await sleep(delay);
       const current = getActiveAwaySession(msg.handle);
@@ -1762,15 +1809,15 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       }
     }
 
-    trackOurAutoSend(msg.handle, usable.body); // mark BEFORE send so the echo race doesn't end the session
-    await sendMessageViaAppleScript(msg.handle, usable.body);
+    trackOurAutoSend(msg.handle, prefixedBody); // mark BEFORE send so the echo race doesn't end the session
+    await sendMessageViaAppleScript(msg.handle, prefixedBody);
     const updated = bumpAwaySession(session.id);
     console.log(
       `[away] auto-replied to ${msg.handle} (session ${session.id}, reply ${updated?.ai_reply_count ?? '?'})`,
     );
     sseBroadcast('away.replied', {
       session: updated ? enrichAway(updated) : null,
-      body: usable.body,
+      body: prefixedBody,
       thread_turns: thread.length,
       usage: result.usage ?? null,
     });
@@ -1931,12 +1978,10 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
       return;
     }
 
-    // Prepend the literal "Galt: " prefix so both parties can tell which
-    // messages are AI vs human. The model is told NOT to add it (the runtime
-    // owns the prefix), so we never get "Galt: Galt: ..." double-prefixes.
-    // Strip any accidental leading "Galt: " just in case the model snuck it in.
-    const stripped = usable.body.replace(/^\s*galt\s*:\s*/i, '');
-    const prefixedBody = `${SUMMON_PREFIX}${stripped}`;
+    // Prepend the canonical "Galt: " prefix (idempotent + case-tolerant; the
+    // model is told NOT to add one, but withGaltPrefix strips any accidental
+    // leading "Galt:" before re-prepending).
+    const prefixedBody = withGaltPrefix(usable.body);
 
     // Humanizing delay (shared with away). Re-check session state after the
     // delay because Galt can be dismissed mid-typing.
