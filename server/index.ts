@@ -1816,6 +1816,9 @@ function buildSummonContextNote(opts: {
   userName: string;
   recipientName: string;
   triggerFromUser: boolean;
+  /** True when the latest message contains the trigger phrase — the user is
+   *  explicitly invoking Galt this turn. Forces a reply (SKIP forbidden). */
+  isActivation: boolean;
 }): string {
   const sections: string[] = [];
   const lastSpeaker = opts.triggerFromUser ? opts.userName : opts.recipientName;
@@ -1846,9 +1849,15 @@ function buildSummonContextNote(opts: {
     `READ YOUR OWN PRIOR REPLIES (the "me: Galt: ..." lines). DO NOT repeat phrasings, openings, questions, or asks across turns. Vary every reply. If you already asked something, do NOT ask the same thing again — either rephrase, escalate, or just move on. If your last reply opened with "yeah" or "haha", don't open with that again. Different word, different angle.`,
   );
 
-  sections.push(
-    `WHEN TO SKIP (return SKIP literally):\n- The latest turn is emoji-only / one-word ("lol", "k", "haha")\n- ${opts.userName} and ${opts.recipientName} are sorting out a private logistic together that doesn't need you\n- You'd otherwise default to a help-desk question — choose silence over "what do you need?"\n- You have nothing genuinely useful to add to the existing topic\n\nSKIP is always a better choice than asking generic "what should I do" questions. When the only thing you can think of is a help-desk phrase, skip instead.`,
-  );
+  if (opts.isActivation) {
+    sections.push(
+      `MUST REPLY THIS TURN — ${opts.userName} explicitly invoked you (the trigger phrase is in the latest message). Returning SKIP is NOT allowed on this turn. If the latest message names a SPECIFIC ask, answer that. If it's a bare summon with no clear topic, drop one short on-topic line picking up wherever the thread left off — like a friend who walked into the room and caught the last few minutes. The "CRITICAL — NEVER ASK" list above already prevents help-desk phrasings; you don't need SKIP to avoid them. Produce a real, non-empty reply.`,
+    );
+  } else {
+    sections.push(
+      `WHEN TO SKIP (return SKIP literally) — only these two cases:\n- The latest turn is emoji-only / one-word ("lol", "k", "haha", "ok")\n- ${opts.userName} and ${opts.recipientName} are clearly sorting out a private logistic between just the two of them (scheduling, finalizing a transaction, an ongoing back-and-forth that's plainly not addressed to you)\n\nThat's the entire list. If you have any real take, observation, joke, or fact to contribute — REPLY, even if it's short. The "CRITICAL — NEVER ASK" list above already prevents help-desk phrasing; do NOT fall back to SKIP just to avoid sounding generic.`,
+    );
+  }
 
   sections.push(
     `WHEN TO REPLY: real questions you can answer, factual claims worth a take, decisions to weigh in on, jokes that fit, things to explain, or just a relevant comment that fits the existing conversation. ALWAYS in iMessage register — concise, often a single line. Not essay-length, not multiple paragraphs.`,
@@ -1865,7 +1874,9 @@ function buildSummonContextNote(opts: {
   }
 
   sections.push(
-    `OUTPUT FORMAT: just the reply text. No "Galt: " prefix (the runtime adds it). No quotes, no preamble, no explanation. Return SKIP literally if there's genuinely nothing useful to add right now.`,
+    opts.isActivation
+      ? `OUTPUT FORMAT: just the reply text. No "Galt: " prefix (the runtime adds it). No quotes, no preamble, no explanation. SKIP is forbidden on this turn — produce real reply text.`
+      : `OUTPUT FORMAT: just the reply text. No "Galt: " prefix (the runtime adds it). No quotes, no preamble, no explanation. Return SKIP literally only when one of the two SKIP cases above clearly applies.`,
   );
 
   return sections.join('\n\n');
@@ -2260,6 +2271,7 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
         userName,
         recipientName,
         triggerFromUser: msg.is_from_me === 1,
+        isActivation: isTrigger,
       }),
       temperament: 'normal',
       count: 1,
@@ -2267,7 +2279,11 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
 
     const usable = result.variants.find((v) => !v.skipped && v.body.trim().length > 0);
     if (!usable) {
-      console.log(`[summon] session ${session.id} — model returned SKIP for this turn (staying quiet)`);
+      if (isTrigger) {
+        console.warn(`[summon] session ${session.id} — model returned SKIP on an activation/trigger turn despite prompt forbidding it (model fault — retrigger or inspect prompt)`);
+      } else {
+        console.log(`[summon] session ${session.id} — model returned SKIP for this turn (staying quiet)`);
+      }
       return;
     }
 
