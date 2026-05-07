@@ -13,6 +13,8 @@
 //   #/rules                  → rules detail panel (drafts col header)
 //   #/settings               → settings
 //   #/away                   → away mode
+//   #/summon                 → summon mode
+//   #/prompts                → centralized prompt config (greeting, persona, summon override)
 //
 // Also keeps state.currentView / state.currentChatId / state.currentRadarHandle
 // in sync, and handles "back to inbox" / sidebar nav-item clicks.
@@ -31,6 +33,7 @@ import { renderRadarView, renderRadarDetail } from './views/radar.js';
 import { renderAwayView } from './views/away.js';
 import { renderAutoNotesView } from './views/auto-notes.js';
 import { renderSummonView } from './views/summon.js';
+import { renderPromptsView } from './views/prompts.js';
 import { renderQueueView } from './views/queue.js';
 import { setQueueTab } from './state.js';
 
@@ -67,6 +70,7 @@ export async function setView(view, arg = null) {
     case 'away':          await renderAwayView(); break;
     case 'auto-notes':    await renderAutoNotesView(); break;
     case 'summon':        await renderSummonView(); break;
+    case 'prompts':       await renderPromptsView(); break;
     case 'queue':         await renderQueueView(); break;
     // Legacy routes — these used to be standalone pages but folded into
     // other surfaces during the sidebar cleanup. Old bookmarks and

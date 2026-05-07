@@ -107,25 +107,17 @@ function renderConfigPanel(contacts) {
       <details class="away-collapsible">
         <summary>
           <span>Away mode configuration</span>
-          <span class="config-summary-meta">greeting · persona · safety cap · ${contacts.length} contact${contacts.length === 1 ? '' : 's'}</span>
+          <span class="config-summary-meta">safety cap · ${contacts.length} contact${contacts.length === 1 ? '' : 's'} · prompts on <a href="#/prompts">Prompts</a></span>
         </summary>
 
         <div class="away-config-grid">
           <form class="away-config-form" data-form="away-config">
             <div class="config-field">
               <label class="config-label">
-                Greeting
-                <span class="desc">first canned reply when an opted-in contact messages</span>
+                Greeting & persona
+                <span class="desc">moved to the centralized <a href="#/prompts">Prompts</a> page so all custom prompting lives in one place</span>
               </label>
-              <textarea name="away_message" rows="3">${escapeHtml(settingsCache.away_message || '')}</textarea>
-            </div>
-
-            <div class="config-field">
-              <label class="config-label">
-                Persona
-                <span class="desc">how the AI should behave while covering — banter, deflection, jokes (separate from voice profile, which captures HOW you write)</span>
-              </label>
-              <textarea name="away_persona" rows="5" placeholder="e.g. 'be casual and a little snarky — lean into the AI thing if anyone asks. crack small jokes. ask follow-ups when curious.'">${escapeHtml(settingsCache.away_persona || '')}</textarea>
+              <a href="#/prompts" class="btn ghost" style="align-self: flex-start;">Edit on Prompts →</a>
             </div>
 
             <div class="config-field">
