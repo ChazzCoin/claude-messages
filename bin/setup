@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+#
+# First-run installer for imsg-ai. Run this AFTER `git clone`, from inside
+# the project directory:
+#
+#   ./bin/setup
+#
+# What it does, in order:
+#   1. Confirms macOS + Bash + project dir
+#   2. Installs Node 22 via nvm if not already present
+#   3. Runs npm install
+#   4. Creates .env from the example (OpenAI key is added later via the dashboard)
+#   5. Installs the LaunchAgent (./bin/install)
+#   6. Walks you through the macOS Full Disk Access grant
+#   7. Runs ./bin/doctor to verify the install
+#   8. Prints next steps + day-to-day commands
+#
+# Re-running is safe — every step short-circuits if already done.
+
+set -euo pipefail
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$PROJECT_DIR"
+
+# Pretty output helpers.
+b() { printf '\033[1m%s\033[0m\n' "$*"; }
+g() { printf '\033[32m%s\033[0m\n' "$*"; }
+y() { printf '\033[33m%s\033[0m\n' "$*"; }
+r() { printf '\033[31m%s\033[0m\n' "$*"; }
+hr() { printf '\033[90m%s\033[0m\n' "────────────────────────────────────────────────────────────────────"; }
+
+echo
+b "imsg-ai · first-run setup"
+hr
+echo "  project: $PROJECT_DIR"
+echo
+
+############################################################
+# 1. Sanity checks
+############################################################
+
+if [ "$(uname -s)" != "Darwin" ]; then
+  r "✗ This is macOS-only — chat.db, AppleScript, and Contacts are all Apple-specific."
+  exit 1
+fi
+
+if [ ! -f "$PROJECT_DIR/package.json" ]; then
+  r "✗ no package.json in $PROJECT_DIR — are you running this from the project root?"
+  exit 1
+fi
+
+############################################################
+# 2. Node + nvm
+############################################################
+
+b "▸ Node.js"
+
+NEED_NODE=1
+if command -v node >/dev/null 2>&1; then
+  NODE_VER="$(node --version | sed 's/^v//')"
+  NODE_MAJOR="${NODE_VER%%.*}"
+  if [ "$NODE_MAJOR" -ge 20 ]; then
+    g "  ✓ node v$NODE_VER on PATH"
+    NEED_NODE=0
+  else
+    y "  ⚠ node v$NODE_VER is too old (need ≥ 20)"
+  fi
+else
+  y "  ⚠ node not on PATH"
+fi
+
+if [ "$NEED_NODE" = "1" ]; then
+  # Try nvm.
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+    echo
+    echo "  nvm (Node Version Manager) is not installed. We use it to pin Node 22."
+    read -r -p "  Install nvm now? [Y/n] " ans
+    if [[ -z "$ans" || "$ans" =~ ^[Yy]$ ]]; then
+      echo "  installing nvm…"
+      curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+      export NVM_DIR="$HOME/.nvm"
+    else
+      r "  aborted — install Node 20+ yourself, then re-run ./bin/setup"
+      exit 1
+    fi
+  fi
+
+  # shellcheck disable=SC1091
+  . "$NVM_DIR/nvm.sh"
+  echo "  installing Node from .nvmrc ($(cat .nvmrc))…"
+  nvm install
+  nvm use
+  g "  ✓ node $(node --version)"
+fi
+echo
+
+############################################################
+# 3. Dependencies
+############################################################
+
+b "▸ Dependencies"
+if [ -d node_modules ] && [ -f node_modules/.package-lock.json ]; then
+  echo "  node_modules already present — running npm install to verify lockfile…"
+else
+  echo "  installing (this is the only slow step on a fresh clone)…"
+fi
+npm install --no-audit --no-fund
+g "  ✓ npm install clean"
+echo
+
+############################################################
+# 4. .env
+############################################################
+
+b "▸ Environment (.env)"
+if [ ! -f .env ]; then
+  cp .env.example .env
+  g "  ✓ created .env from .env.example"
+else
+  g "  ✓ .env already exists"
+fi
+echo "  (you'll add your OpenAI API key from the dashboard, not here)"
+echo
+
+############################################################
+# 5. LaunchAgent
+############################################################
+
+b "▸ LaunchAgent"
+"$PROJECT_DIR/bin/install" >/dev/null
+g "  ✓ installed and loaded"
+echo
+
+############################################################
+# 6. Full Disk Access — the manual step
+############################################################
+
+# Resolve the actual node binary the LaunchAgent will use, after sourcing nvm.
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$NVM_DIR/nvm.sh"
+  nvm use --silent 2>/dev/null || true
+fi
+NODE_BIN="$(command -v node 2>/dev/null || echo '')"
+
+b "▸ Full Disk Access (the manual step)"
+hr
+
+# Quick probe: if /api/health says chat.db is already readable, the FDA grant
+# is already in place. Skip the manual walk-through.
+sleep 2  # let the just-restarted service come up
+ALREADY_OK="$(curl -fsS --max-time 3 'http://127.0.0.1:3000/api/health' 2>/dev/null \
+  | python3 -c 'import sys, json; d=json.load(sys.stdin); print(d["chat_db"]["ok"])' 2>/dev/null \
+  || echo 'False')"
+if [ "$ALREADY_OK" = "True" ]; then
+  g "  ✓ chat.db already readable — FDA looks good, skipping the walk-through"
+  echo
+else
+
+cat <<EOF
+  macOS attributes Full Disk Access per-binary. The LaunchAgent runs Node
+  directly, so YOUR Terminal's FDA grant doesn't apply. You need to add THIS
+  exact node binary to the FDA list:
+
+      $NODE_BIN
+
+  We'll copy that path to your clipboard and open the right Settings pane.
+  Then in System Settings:
+
+    1. Click the '+' button under Full Disk Access
+    2. Press ⌘ + ⇧ + G (Go to folder)
+    3. Paste — the path is already on your clipboard
+    4. Press Enter, select 'node', click Open
+    5. Toggle the switch ON for the new entry
+    6. Come back here and press Enter
+
+  Why: chat.db lives under ~/Library/Messages, which is FDA-protected. Without
+  this grant, the dashboard will load but show 'chat.db ok: False' and no chats.
+
+EOF
+
+if [ -n "$NODE_BIN" ]; then
+  printf '%s' "$NODE_BIN" | pbcopy
+  g "  ✓ path copied to clipboard"
+fi
+
+# Open System Settings to the FDA pane.
+open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" 2>/dev/null || true
+
+echo
+read -r -p "  Press Enter when you've added node to Full Disk Access (or 's' to skip): " resp
+if [[ "$resp" =~ ^[Ss]$ ]]; then
+  y "  ⚠ skipped — chat.db reads will fail until you grant FDA"
+else
+  echo "  restarting service to pick up the new permission…"
+  "$PROJECT_DIR/bin/restart" >/dev/null 2>&1 || true
+fi
+fi  # end of "if ALREADY_OK != True"
+echo
+
+############################################################
+# 7. Verify
+############################################################
+
+b "▸ Verifying install"
+hr
+echo
+"$PROJECT_DIR/bin/doctor" || true
+echo
+
+############################################################
+# 8. Next steps
+############################################################
+
+hr
+b "Setup complete."
+echo
+echo "Next: open the dashboard and add your OpenAI API key."
+g "  http://127.0.0.1:3000"
+echo
+echo "  → Settings (left sidebar) → OpenAI section → paste key → Save"
+echo "  → Get a key: https://platform.openai.com/api-keys"
+echo
+echo "Without a key, the dashboard works for browsing chats; AI buttons return 503."
+echo
+echo "Day-to-day commands:"
+echo "  ./bin/status           — health check"
+echo "  ./bin/logs             — tail logs (Ctrl-C to exit)"
+echo "  ./bin/doctor           — diagnose problems"
+echo "  ./bin/deploy           — apply code edits (typecheck + restart)"
+echo "  ./bin/uninstall        — remove the LaunchAgent"
+echo
+echo "First time you approve a draft, macOS will prompt for Automation → Messages."
+echo "Click 'OK' once and it persists. (No way to pre-grant this — it's per-app.)"
+echo

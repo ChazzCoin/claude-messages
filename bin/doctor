@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+#
+# Diagnose common imsg-ai install issues. Safe to run any time.
+# Exits 0 if everything's healthy, 1 if any check fails.
+#
+# Run after ./bin/setup, or whenever something seems off.
+
+set -uo pipefail   # NOT -e: we want to keep checking even if one fails.
+
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LABEL="com.chazzromeo.imsg-ai"
+PORT="${PORT:-3000}"
+HOST="${HOST:-127.0.0.1}"
+
+g() { printf '\033[32m%s\033[0m\n' "$*"; }
+y() { printf '\033[33m%s\033[0m\n' "$*"; }
+r() { printf '\033[31m%s\033[0m\n' "$*"; }
+
+PASS=0
+FAIL=0
+WARN=0
+
+ok()    { g "  ✓ $*"; PASS=$((PASS+1)); }
+warn()  { y "  ⚠ $*"; WARN=$((WARN+1)); }
+fail()  { r "  ✗ $*"; FAIL=$((FAIL+1)); }
+hint()  { printf '\033[90m       %s\033[0m\n' "$*"; }
+
+############################################################
+# 1. macOS sanity
+############################################################
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  ok "macOS"
+else
+  fail "not macOS — this app is Apple-specific"
+  exit 1
+fi
+
+############################################################
+# 2. Node — source nvm first, since that's what the LaunchAgent does.
+############################################################
+
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$NVM_DIR/nvm.sh"
+  # Honor .nvmrc — must run in the current shell, not a subshell, so PATH updates.
+  if [ -f "$PROJECT_DIR/.nvmrc" ] && command -v nvm >/dev/null 2>&1; then
+    OLD_PWD="$PWD"
+    cd "$PROJECT_DIR"
+    nvm use --silent >/dev/null 2>&1 || true
+    cd "$OLD_PWD"
+  fi
+fi
+
+if command -v node >/dev/null 2>&1; then
+  NODE_VER="$(node --version | sed 's/^v//')"
+  NODE_MAJOR="${NODE_VER%%.*}"
+  NODE_VIA="$([ -d "$NVM_DIR" ] && command -v node | grep -q "$NVM_DIR" && echo ' (via nvm)' || echo '')"
+  if [ "$NODE_MAJOR" -ge 20 ]; then
+    ok "node v$NODE_VER$NODE_VIA"
+  else
+    fail "node v$NODE_VER$NODE_VIA too old (need ≥ 20)"
+    hint "fix: ./bin/setup will install Node 22 via nvm"
+  fi
+else
+  fail "node not installed"
+  hint "fix: ./bin/setup"
+fi
+
+############################################################
+# 3. Dependencies
+############################################################
+
+if [ -d "$PROJECT_DIR/node_modules" ]; then
+  ok "node_modules installed"
+else
+  fail "node_modules missing"
+  hint "fix: npm install (or re-run ./bin/setup)"
+fi
+
+############################################################
+# 4. .env / OpenAI key
+############################################################
+
+if [ -f "$PROJECT_DIR/.env" ]; then
+  KEY="$(grep -E '^OPENAI_API_KEY=' "$PROJECT_DIR/.env" | sed 's/^OPENAI_API_KEY=//')"
+  if [ -n "$KEY" ]; then
+    ok ".env present, OPENAI_API_KEY set"
+  else
+    warn ".env present but OPENAI_API_KEY is blank"
+    hint "AI features will return 503 until you add a key"
+    hint "fix: edit $PROJECT_DIR/.env, then ./bin/restart"
+  fi
+else
+  fail ".env missing"
+  hint "fix: cp .env.example .env  (or re-run ./bin/setup)"
+fi
+
+############################################################
+# 5. LaunchAgent
+############################################################
+
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+if [ -f "$PLIST" ]; then
+  ok "LaunchAgent plist installed"
+else
+  fail "LaunchAgent not installed"
+  hint "fix: ./bin/install"
+fi
+
+if launchctl list 2>/dev/null | grep -q "$LABEL"; then
+  PID="$(launchctl list | awk -v lbl="$LABEL" '$0 ~ lbl { print $1 }')"
+  if [ "$PID" != "-" ] && [ -n "$PID" ]; then
+    ok "service running (pid=$PID)"
+  else
+    fail "service loaded but not running (last_exit=$(launchctl list | awk -v lbl="$LABEL" '$0 ~ lbl { print $2 }'))"
+    hint "fix: ./bin/logs   then look at logs/imsg-ai.err.log"
+  fi
+else
+  fail "service not loaded with launchctl"
+  hint "fix: ./bin/install"
+fi
+
+############################################################
+# 6. /api/health
+############################################################
+
+HEALTH="$(curl -fsS --max-time 3 "http://$HOST:$PORT/api/health" 2>/dev/null || echo '')"
+if [ -n "$HEALTH" ]; then
+  ok "/api/health responds on http://$HOST:$PORT"
+
+  CHATDB_OK="$(echo "$HEALTH" | python3 -c 'import sys, json; d=json.load(sys.stdin); print(d["chat_db"]["ok"])' 2>/dev/null || echo 'False')"
+  CHATDB_ERR="$(echo "$HEALTH" | python3 -c 'import sys, json; d=json.load(sys.stdin); print(d["chat_db"].get("error",""))' 2>/dev/null || echo '')"
+  WATCHER="$(echo "$HEALTH" | python3 -c 'import sys, json; d=json.load(sys.stdin); print(d["watcher_running"])' 2>/dev/null || echo 'False')"
+  OPENAI="$(echo "$HEALTH" | python3 -c 'import sys, json; d=json.load(sys.stdin); print(d["openai_configured"])' 2>/dev/null || echo 'False')"
+
+  if [ "$CHATDB_OK" = "True" ]; then
+    ok "chat.db readable"
+  else
+    fail "chat.db NOT readable: $CHATDB_ERR"
+    hint "fix: System Settings → Privacy & Security → Full Disk Access"
+    hint "     Add the node binary at: $(command -v node 2>/dev/null || echo '<unknown>')"
+    hint "     Then ./bin/restart"
+  fi
+
+  if [ "$WATCHER" = "True" ]; then
+    ok "watcher running"
+  else
+    warn "watcher not running (incoming messages won't auto-route)"
+  fi
+
+  if [ "$OPENAI" = "True" ]; then
+    ok "OpenAI configured"
+  else
+    warn "OpenAI not configured (AI buttons will 503)"
+    hint "fix: add OPENAI_API_KEY to .env, then ./bin/restart"
+  fi
+else
+  fail "/api/health unreachable on http://$HOST:$PORT"
+  hint "Most common: service hasn't started yet, or port $PORT is taken."
+  hint "Check:       lsof -i :$PORT"
+  hint "Logs:        ./bin/logs"
+fi
+
+############################################################
+# Summary
+############################################################
+
+echo
+if [ "$FAIL" -gt 0 ]; then
+  r "$PASS pass · $WARN warn · $FAIL fail"
+  exit 1
+elif [ "$WARN" -gt 0 ]; then
+  y "$PASS pass · $WARN warn — degraded but usable"
+  exit 0
+else
+  g "$PASS pass — all systems go"
+  exit 0
+fi
