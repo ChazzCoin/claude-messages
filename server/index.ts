@@ -2160,6 +2160,10 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
 
     const contactNotes = listNotesForHandle(msg.handle).map((n) => n.body);
     const contactProfile = getContactProfile(msg.handle).profile;
+    // Address book + calendar context — same shape as the regular draft
+    // path and away mode use. Galt-as-third-voice should know who they're
+    // talking to and (when relevant) the user's availability.
+    const { addressBookContext, userAvailability } = await resolveDraftContext(msg.handle);
     const recipientName = msg.contact_name || msg.handle || 'them';
     // The user's display name from contacts. Falls back to "the user" so
     // Galt has SOMETHING to call them rather than going nameless.
@@ -2175,6 +2179,8 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
       voiceProfile: settings.voice_profile,
       contactNotes,
       contactProfile,
+      addressBookContext,
+      userAvailability,
       contextNote: buildSummonContextNote({
         persona: settings.summon_persona,
         userName,
