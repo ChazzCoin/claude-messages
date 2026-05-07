@@ -23,6 +23,7 @@ import {
 import {
   setActiveNav, setRightPanelMode, clearDraftsToolbar,
 } from './shell.js';
+import { renderHomeView } from './views/home.js';
 import { renderInboxView } from './views/inbox.js';
 import { renderThreadView } from './views/thread.js';
 import { renderDraftsView } from './views/drafts.js';
@@ -53,6 +54,7 @@ export async function setView(view, arg = null) {
   if (view !== 'drafts') clearDraftsToolbar();
 
   switch (view) {
+    case 'home':          await renderHomeView(); break;
     case 'inbox':         await renderInboxView(); break;
     case 'thread':        await renderThreadView(arg); break;
     case 'drafts':        await renderDraftsView(); break;
@@ -64,7 +66,7 @@ export async function setView(view, arg = null) {
     case 'radar-detail':  setCurrentRadarHandle(arg); await renderRadarDetail(arg); break;
     case 'calendar':      await renderCalendarView(); break;
     case 'away':          await renderAwayView(); break;
-    default:              await renderInboxView();
+    default:              await renderHomeView();
   }
 }
 
@@ -75,15 +77,15 @@ function hashFor(view, arg) {
   return `#/${view}`;
 }
 
-/** Parse location.hash into (view, arg). Returns ('inbox', null) for empty/invalid. */
+/** Parse location.hash into (view, arg). Returns ('home', null) for empty/invalid. */
 function parseHash(hash) {
   const raw = (hash || '').replace(/^#\/?/, '').trim();
-  if (!raw) return ['inbox', null];
+  if (!raw) return ['home', null];
   const [view, ...rest] = raw.split('/').map(decodeURIComponent);
   const arg = rest.join('/') || null;
   if (view === 'thread' && arg) {
     const id = parseInt(arg, 10);
-    return Number.isFinite(id) ? ['thread', id] : ['inbox', null];
+    return Number.isFinite(id) ? ['thread', id] : ['home', null];
   }
   if (view === 'radar' && arg) return ['radar-detail', arg];
   return [view, null];

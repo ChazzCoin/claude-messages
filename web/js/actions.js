@@ -75,6 +75,12 @@ async function onClick(e) {
     return;
   }
   if (action === 'back-to-inbox') { navigate('inbox'); return; }
+
+  // Home dashboard "see all" links.
+  if (action === 'open-inbox')    { navigate('inbox'); return; }
+  if (action === 'open-away')     { navigate('away'); return; }
+  if (action === 'open-calendar') { navigate('calendar'); return; }
+
   if (action === 'open-thread-by-handle') {
     const handle = btn.dataset.handle;
     const meta = chatsCache.find((c) => c.identifier === handle);
@@ -799,6 +805,19 @@ async function onSubmit(e) {
       });
       closeForm('form-away-contact');
       await renderAwayView();
+    } else if (kind === 'away-greeting') {
+      // Home-page quick-edit form for just the greeting. Lighter than the
+      // full away-config form on the Away view.
+      const r = await api('/api/settings', {
+        method: 'PUT',
+        body: { away_message: data.away_message || '' },
+      });
+      if (r.settings) setSettingsCache(r.settings);
+      if (errEl) {
+        errEl.classList.add('ok');
+        errEl.textContent = '✓ saved';
+        setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+      }
     } else if (kind === 'away-config') {
       const r = await api('/api/settings', {
         method: 'PUT',
