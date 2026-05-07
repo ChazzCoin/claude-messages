@@ -79,6 +79,7 @@ async function onClick(e) {
   // Home dashboard "see all" links.
   if (action === 'open-inbox')    { navigate('inbox'); return; }
   if (action === 'open-away')     { navigate('away'); return; }
+  if (action === 'open-summon')   { navigate('summon'); return; }
   if (action === 'open-calendar') { navigate('calendar'); return; }
 
   if (action === 'open-thread-by-handle') {
@@ -240,11 +241,15 @@ async function onClick(e) {
     if (!confirm('Dismiss Galt from this conversation?')) return;
     try {
       await api(`/api/summon/sessions/${id}`, { method: 'DELETE' });
-      // Re-render whichever view is up — could be away page or home.
-      if (currentView === 'away') await renderAwayView();
-      else if (currentView === 'home') {
+      // Re-render whichever view is up — summon page, home, or away (legacy).
+      if (currentView === 'summon') {
+        const { renderSummonView } = await import('./views/summon.js');
+        await renderSummonView();
+      } else if (currentView === 'home') {
         const { renderHomeView } = await import('./views/home.js');
         await renderHomeView();
+      } else if (currentView === 'away') {
+        await renderAwayView();
       }
     } catch (err) { alert(`dismiss failed: ${err.message}`); }
     return;
