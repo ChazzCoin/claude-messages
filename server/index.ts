@@ -32,6 +32,8 @@ import {
   listNotesForHandle,
   addNoteForHandle,
   removeNote,
+  getContactProfile,
+  setContactProfile,
   // monitor rules + flags
   listMonitorRules,
   listEnabledMonitorRules,
@@ -522,6 +524,23 @@ app.delete('/api/contacts/notes/:id', (req, res) => {
   return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
 });
 
+/* ---------- routes: per-contact profile (long-form prose) ---------- */
+// One prose block per handle. Distinct from notes (short bullets) and radar
+// profile (auto-distilled from signals). Injected into every AI reply.
+
+app.get('/api/contacts/profile', (req, res) => {
+  const handle = typeof req.query.handle === 'string' ? req.query.handle : '';
+  if (!handle) return res.status(400).json({ error: 'handle required' });
+  res.json(getContactProfile(handle));
+});
+
+app.put('/api/contacts/profile', (req, res) => {
+  const handle = normalizeHandle(req.body?.handle);
+  const profile = typeof req.body?.profile === 'string' ? req.body.profile : '';
+  if (!handle) return res.status(400).json({ error: 'handle required' });
+  res.json(setContactProfile(handle, profile));
+});
+
 /* ---------- routes: settings ---------- */
 
 /**
@@ -662,12 +681,14 @@ app.post(
     if (!chatRow) return res.status(404).json({ error: `chat ${chatId} not found` });
 
     const contactNotes = listNotesForHandle(chatRow.chat_identifier).map((n) => n.body);
+    const contactProfile = getContactProfile(chatRow.chat_identifier).profile;
 
     const result = await draftReply({
       thread,
       contextNote,
       voiceProfile: settings.voice_profile,
       contactNotes,
+      contactProfile,
       temperament,
       count: variantCount,
     });
@@ -684,12 +705,13 @@ app.post(
       const noteLine = contextNote ? ` · note: ${JSON.stringify(contextNote)}` : '';
       const profileLine = settings.voice_profile ? ' · voice-profile: applied' : '';
       const memoryLine = contactNotes.length > 0 ? ` · contact-notes: ${contactNotes.length}` : '';
+      const contactProfileLine = contactProfile ? ' · contact-profile: applied' : '';
       draftRecord = createDraft({
         source_msg_guid: sourceMsg.guid,
         chat_id: chatId,
         handle: chatRow.chat_identifier,
         body: usableVariants[0]!.body,
-        reasoning: `AI · model=${result.model} · context=${thread.length} turns · ${tokenLine}${profileLine}${tempLine}${memoryLine}${noteLine}`,
+        reasoning: `AI · model=${result.model} · context=${thread.length} turns · ${tokenLine}${profileLine}${contactProfileLine}${tempLine}${memoryLine}${noteLine}`,
       });
     }
 
@@ -704,6 +726,7 @@ app.post(
       temperament,
       voice_profile_applied: !!settings.voice_profile,
       contact_notes_applied: contactNotes.length,
+      contact_profile_applied: !!contactProfile,
       model: result.model,
       usage,
       draft: enrichDraft(draftRecord),
@@ -1509,11 +1532,13 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     if (thread.length === 0) return;
 
     const contactNotes = listNotesForHandle(msg.handle).map((n) => n.body);
+    const contactProfile = getContactProfile(msg.handle).profile;
     const recipientName = msg.contact_name || msg.handle || 'them';
     const result = await draftReply({
       thread,
       voiceProfile: settings.voice_profile,
       contactNotes,
+      contactProfile,
       contextNote: buildAwayContextNote(settings.away_persona, recipientName),
       temperament: 'normal',
       count: 1,

@@ -764,6 +764,10 @@ export interface DraftReplyInput {
   voiceProfile?: string;
   /** Per-contact memory notes (relationship intel for THIS recipient). Each is a separate note. */
   contactNotes?: string[];
+  /** User-written long-form prose about this contact: identity, relationship,
+   *  sensitivities, how to talk to them. Distinct from contactNotes (short
+   *  bullets) — this is the "who you're talking to" identity block. */
+  contactProfile?: string;
   /** Tone override for this draft. 'normal' = baseline. */
   temperament?: Temperament;
   /** How many variants to generate (1..5). Defaults to 1. */
@@ -784,12 +788,18 @@ export interface DraftReplyResult {
 function buildSystemPrompt(
   voiceProfile: string | undefined,
   contactNotes: string[] | undefined,
+  contactProfile: string | undefined,
   temperament: Temperament,
 ): string {
   const parts: string[] = [DRAFT_SYSTEM];
   if (voiceProfile && voiceProfile.trim()) {
     parts.push(
       `\nVOICE PROFILE — the user's general writing style, established from prior analysis. Apply throughout (the immediate thread can refine, but this is the baseline):\n"""\n${voiceProfile.trim()}\n"""`,
+    );
+  }
+  if (contactProfile && contactProfile.trim()) {
+    parts.push(
+      `\nWHO YOU'RE TALKING TO — the user's own description of this contact: relationship, identity, sensitivities, and how they want you to interact with this person. This OVERRIDES generic defaults — match the tone and posture this profile implies, even when the voice profile would suggest otherwise:\n"""\n${contactProfile.trim()}\n"""`,
     );
   }
   if (contactNotes && contactNotes.length > 0) {
@@ -799,7 +809,7 @@ function buildSystemPrompt(
       .map((n) => `- ${n}`);
     if (lines.length > 0) {
       parts.push(
-        `\nNOTES ABOUT THIS CONTACT (relationship intel — apply when drafting; the most recent notes near the bottom are most current):\n${lines.join('\n')}`,
+        `\nNOTES ABOUT THIS CONTACT (recent atomic facts — apply when drafting; the most recent notes near the bottom are most current):\n${lines.join('\n')}`,
       );
     }
   }
@@ -827,7 +837,7 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
     input.temperament && (TEMPERAMENTS as readonly string[]).includes(input.temperament)
       ? input.temperament
       : 'normal';
-  const systemPrompt = buildSystemPrompt(input.voiceProfile, input.contactNotes, temperament);
+  const systemPrompt = buildSystemPrompt(input.voiceProfile, input.contactNotes, input.contactProfile, temperament);
   const requestedCount = Math.max(1, Math.min(5, Math.floor(input.count ?? 1)));
 
   const resp = await client.chat.completions.create({

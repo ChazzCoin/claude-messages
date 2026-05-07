@@ -69,6 +69,45 @@ export async function renderInboxView() {
   }
 }
 
+/* ---------- per-contact profile (long-form prose, top of thread sidebar) ---------- */
+
+export function renderProfileBlock(handle, profile, updatedAt) {
+  const updatedLabel = updatedAt > 0
+    ? `last updated ${relTime(updatedAt)}`
+    : 'not yet written';
+  const filled = (profile || '').trim().length > 0;
+  return `
+    <div class="profile-block ${filled ? 'filled' : ''}">
+      <div class="notes-header">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a6.5 6.5 0 0 1 13 0"/></svg>
+        <span>About this contact</span>
+        <span class="count" style="margin-left:auto;">${escapeHtml(updatedLabel)}</span>
+      </div>
+      <div class="notes-sub">// fed into every AI reply (regular + away mode)</div>
+      <form class="profile-form" data-form="contact-profile" data-handle="${escapeHtml(handle)}">
+        <textarea name="profile" rows="6" placeholder="Who is this person? Any context for how the AI should interact with them — relationship, sensitivities, recurring topics. e.g. 'this is my wife, we have 2 kids lulu and val. we're going through a hard time so be sensitive and warm. avoid logistics talk unless she brings it up.'">${escapeHtml(profile || '')}</textarea>
+        <div class="profile-actions">
+          <button type="submit" class="btn primary">Save</button>
+          <span class="settings-status" data-error></span>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+export async function loadAndRenderProfile(handle) {
+  const el = document.getElementById('thread-profile');
+  if (!el) return;
+  if (!handle) { el.innerHTML = ''; return; }
+  try {
+    const r = await api(`/api/contacts/profile?handle=${encodeURIComponent(handle)}`);
+    el.innerHTML = renderProfileBlock(handle, r.profile || '', r.updated_at || 0);
+  } catch (e) {
+    el.innerHTML = '';
+    console.warn('profile fetch failed:', e);
+  }
+}
+
 /* ---------- per-contact memory notes (rendered in the thread right panel) ---------- */
 
 export function renderNotesBlock(handle, notes) {

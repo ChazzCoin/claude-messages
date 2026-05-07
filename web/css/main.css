@@ -579,6 +579,44 @@ body::after {
 .att-file .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .att-file .size { font-family: var(--mono); font-size: 10px; color: var(--text-faint); margin-left: auto; }
 
+/* Per-contact long-form profile (top of the thread sidebar) */
+.profile-block {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.profile-block.filled {
+  border-left: 2px solid var(--purple);
+}
+.profile-form { display: flex; flex-direction: column; gap: 8px; }
+.profile-form textarea {
+  width: 100%;
+  padding: 9px 11px;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.profile-form textarea:focus { outline: none; border-color: var(--purple); }
+.profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.profile-actions .settings-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  min-height: 14px;
+}
+
 /* Per-contact memory notes section */
 .notes-block {
   background: var(--bg-card);

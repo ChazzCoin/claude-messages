@@ -8,7 +8,7 @@ import {
   chatsCache, settingsCache, settingsBounds,
   radarHandlesCache, TEMPERAMENTS,
 } from '../state.js';
-import { loadAndRenderNotes } from './inbox.js';
+import { loadAndRenderNotes, loadAndRenderProfile } from './inbox.js';
 
 function renderReactions(reactions) {
   if (!reactions || reactions.length === 0) return '';
@@ -165,7 +165,10 @@ export async function renderThreadView(chatId) {
   if (tb) tb.innerHTML = renderThreadToolbar(chatId);
   const compose = document.getElementById('thread-compose-bar');
   if (compose) compose.innerHTML = renderThreadCompose(chatId);
-  if (meta?.identifier) loadAndRenderNotes(meta.identifier);
+  if (meta?.identifier) {
+    loadAndRenderProfile(meta.identifier);
+    loadAndRenderNotes(meta.identifier);
+  }
 
   const list = document.getElementById('drafts-list');
   if (list) list.innerHTML = '<div class="empty"><div class="empty-title">loading…</div></div>';

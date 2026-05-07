@@ -47,6 +47,17 @@ function migrate(db: DB) {
 
     CREATE INDEX IF NOT EXISTS idx_contact_notes_handle ON contact_notes(handle);
 
+    -- Per-contact prose profile. User-written, long-form context about the
+    -- contact: relationship, identity, sensitivities, how to talk to them.
+    -- Distinct from contact_notes (short atomic facts) and radar profile
+    -- (auto-distilled from signals). Injected into every AI reply (regular
+    -- draft AND away-mode auto-reply) as a "WHO YOU'RE TALKING TO" section.
+    CREATE TABLE IF NOT EXISTS contact_profiles (
+      handle       TEXT PRIMARY KEY,
+      profile      TEXT NOT NULL DEFAULT '',
+      updated_at   INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+    );
+
     -- AI-driven monitor rules. kind='flag' is the user-defined match-and-flag
     -- pipeline; kind='calendar' triggers auto-event extraction on matching messages.
     CREATE TABLE IF NOT EXISTS monitor_rules (
@@ -495,6 +506,37 @@ export function addNoteForHandle(handle: string, body: string): ContactNote {
 export function removeNote(id: number): boolean {
   const db = getAppDb();
   return db.prepare('DELETE FROM contact_notes WHERE id = ?').run(id).changes > 0;
+}
+
+/* ---------- contact profiles (per-handle, long-form prose) ---------- */
+
+export interface ContactProfile {
+  handle: string;
+  profile: string;
+  updated_at: number;
+}
+
+/** Returns the profile if one exists, otherwise an empty string. Always safe to call. */
+export function getContactProfile(handle: string): ContactProfile {
+  const db = getAppDb();
+  const row = db
+    .prepare('SELECT handle, profile, updated_at FROM contact_profiles WHERE handle = ?')
+    .get(handle) as ContactProfile | undefined;
+  return row ?? { handle, profile: '', updated_at: 0 };
+}
+
+/** Set or clear the profile. An empty string is a valid value (clears it). */
+export function setContactProfile(handle: string, profile: string): ContactProfile {
+  const db = getAppDb();
+  const trimmed = profile.trim();
+  db.prepare(
+    `INSERT INTO contact_profiles(handle, profile, updated_at)
+     VALUES (?, ?, strftime('%s','now')*1000)
+     ON CONFLICT(handle) DO UPDATE SET
+       profile = excluded.profile,
+       updated_at = excluded.updated_at`,
+  ).run(handle, trimmed);
+  return getContactProfile(handle);
 }
 
 /* ---------- monitor rules (AI-evaluated incoming-message filters) ---------- */

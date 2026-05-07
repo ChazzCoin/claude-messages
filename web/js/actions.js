@@ -19,7 +19,7 @@ import {
 
 import { refreshDrafts } from './views/drafts.js';
 import { renderThreadToolbar, renderVariantCards } from './views/thread.js';
-import { loadAndRenderNotes } from './views/inbox.js';
+import { loadAndRenderNotes, loadAndRenderProfile } from './views/inbox.js';
 import { renderSettingsView } from './views/settings.js';
 import { refreshFlagsList, renderFlagsView } from './views/flags.js';
 import {
@@ -856,6 +856,18 @@ async function onSubmit(e) {
         await api('/api/contacts/notes', { method: 'POST', body: { handle, body } });
         form.reset();
         await loadAndRenderNotes(handle);
+      }
+    } else if (kind === 'contact-profile') {
+      const handle = form.dataset.handle;
+      const profile = typeof data.profile === 'string' ? data.profile : '';
+      await api('/api/contacts/profile', { method: 'PUT', body: { handle, profile } });
+      // Re-render so the "last updated" line refreshes.
+      await loadAndRenderProfile(handle);
+      const newErr = document.querySelector(`form[data-form="contact-profile"][data-handle="${handle.replace(/"/g, '\\"')}"] [data-error]`);
+      if (newErr) {
+        newErr.classList.add('ok');
+        newErr.textContent = '✓ saved';
+        setTimeout(() => { newErr.classList.remove('ok'); newErr.textContent = ''; }, 2500);
       }
     } else if (kind === 'openai') {
       // Empty input means "no change" — only send fields that have content,
