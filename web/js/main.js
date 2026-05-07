@@ -1,0 +1,64 @@
+// Entrypoint. Loaded as <script type="module" src="/js/main.js"></script>.
+// Imports run top-to-bottom; init() fires after DOMContentLoaded.
+
+import { refreshHealth, fetchContacts } from './api.js';
+import { setContactsCache } from './state.js';
+import { installContactAutocomplete } from './components/autocomplete.js';
+import { installRouter, initialRoute, setView } from './router.js';
+import { installActionHandlers } from './actions.js';
+import { connectSSE } from './sse.js';
+
+import { refreshSettings } from './views/settings.js';
+import { refreshWatched, refreshRules } from './views/rules.js';
+import { refreshSentStats } from './views/drafts.js';
+import { refreshFlagsBadgeOnly } from './views/flags.js';
+import { refreshScheduledCountOnly } from './views/scheduled.js';
+import { refreshRadarHandlesCache } from './views/radar.js';
+import { refreshCalendarBadgeOnly } from './views/calendar.js';
+import { refreshAwayNotesBadge, updateAwayPill } from './views/away.js';
+
+async function refreshContactsCache() {
+  try {
+    const r = await fetchContacts();
+    const filtered = (r.contacts || []).filter((c) => c.handles && c.handles.length);
+    setContactsCache(filtered);
+  } catch { /* keep prior cache */ }
+}
+
+async function init() {
+  // Settings first so dependent renderers see the cached values.
+  await refreshSettings();
+  updateAwayPill();
+
+  // Wire up event delegation up front so anything rendered below already works.
+  installContactAutocomplete();
+  installActionHandlers();
+  installRouter();
+
+  // Sidebar/right-panel data — same regardless of which main view is up.
+  await Promise.all([
+    refreshHealth(),
+    refreshWatched(),
+    refreshRules(),
+    refreshSentStats(),
+    refreshFlagsBadgeOnly(),
+    refreshScheduledCountOnly(),
+    refreshRadarHandlesCache(),
+    refreshCalendarBadgeOnly(),
+    refreshContactsCache(),
+    refreshAwayNotesBadge(),
+  ]);
+
+  // Land on whatever the URL hash says (defaults to inbox).
+  const [view, arg] = initialRoute();
+  await setView(view, arg);
+
+  // Live updates from the watcher.
+  connectSSE();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
