@@ -2259,6 +2259,22 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
       return 'the user';
     })();
 
+    // User-provided override (Settings → Summon → Custom prompt) wins when
+    // non-empty. {userName} / {recipientName} get substituted at runtime so
+    // the user's prompt can reference them. Empty override = built-in prompt.
+    const customPrompt = settings.summon_system_prompt.trim();
+    const contextNote = customPrompt
+      ? customPrompt
+          .replace(/\{userName\}/g, userName)
+          .replace(/\{recipientName\}/g, recipientName)
+      : buildSummonContextNote({
+          persona: settings.summon_persona,
+          userName,
+          recipientName,
+          triggerFromUser: msg.is_from_me === 1,
+          isActivation: isTrigger,
+        });
+
     const result = await draftReply({
       thread,
       voiceProfile: settings.voice_profile,
@@ -2266,13 +2282,7 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
       contactProfile,
       addressBookContext,
       userAvailability,
-      contextNote: buildSummonContextNote({
-        persona: settings.summon_persona,
-        userName,
-        recipientName,
-        triggerFromUser: msg.is_from_me === 1,
-        isActivation: isTrigger,
-      }),
+      contextNote,
       temperament: 'normal',
       count: 1,
     });

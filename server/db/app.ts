@@ -391,6 +391,13 @@ export interface AppSettings {
   summon_max_replies_per_session: number;
   /** Auto-end after this many minutes with no messages in the chat. */
   summon_idle_timeout_min: number;
+  /** Full system-prompt override for summon mode. When non-empty, REPLACES
+   *  the built-in summon prompt entirely (the per-turn context note passed
+   *  to draftReply). The thread, voice profile, contact context, address
+   *  book, and persona keep flowing through their normal paths — only the
+   *  summon-mode instruction text is overridden. Supports two placeholder
+   *  substitutions: {userName} and {recipientName}. Empty = use built-in. */
+  summon_system_prompt: string;
   /** Auto Notes: master switch for the 24/7 inbound-message triage that
    *  extracts substantive follow-up items into the auto_notes table.
    *  When 0, no AI extraction runs on inbound messages (away mode and
@@ -432,6 +439,7 @@ const SETTING_DEFAULTS: AppSettings = {
   summon_persona: '',
   summon_max_replies_per_session: 30,
   summon_idle_timeout_min: 30,
+  summon_system_prompt: '',
   auto_notes_enabled: 1,
   auto_notes_min_confidence: 0,
   auto_notes_excluded_handles: '[]',
@@ -502,6 +510,8 @@ export function getSettings(): AppSettings {
       getState('summon_idle_timeout_min'),
       SETTING_DEFAULTS.summon_idle_timeout_min,
     ),
+    summon_system_prompt:
+      getState('summon_system_prompt') ?? SETTING_DEFAULTS.summon_system_prompt,
     auto_notes_enabled: parseIntOr(
       getState('auto_notes_enabled'),
       SETTING_DEFAULTS.auto_notes_enabled,
@@ -584,6 +594,9 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
     const n = Math.max(min, Math.min(max, Math.floor(Number(patch.summon_idle_timeout_min))));
     if (!Number.isFinite(n)) throw new Error('summon_idle_timeout_min must be an integer');
     setState('summon_idle_timeout_min', String(n));
+  }
+  if (patch.summon_system_prompt !== undefined) {
+    setState('summon_system_prompt', String(patch.summon_system_prompt));
   }
   if (patch.auto_notes_enabled !== undefined) {
     setState('auto_notes_enabled', String(patch.auto_notes_enabled ? 1 : 0));

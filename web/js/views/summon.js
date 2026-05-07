@@ -122,9 +122,17 @@ function renderConfigPanel() {
           <div class="config-field">
             <label class="config-label">
               Persona
-              <span class="desc">how Galt should behave AS THEMSELVES while summoned. Distinct from away persona — here Galt is a third voice you pulled in, not pretending to be you.</span>
+              <span class="desc">how Galt should behave AS THEMSELVES while summoned. Distinct from away persona — here Galt is a third voice you pulled in, not pretending to be you. Appended to the built-in prompt; ignored when the custom prompt below is set.</span>
             </label>
             <textarea name="summon_persona" rows="4" placeholder="e.g. 'be helpful but not stiff. crack a joke when it fits. keep replies short — iMessage register, not essay-length. push back if i'm being dumb.'">${escapeHtml(settingsCache.summon_persona || '')}</textarea>
+          </div>
+
+          <div class="config-field">
+            <label class="config-label">
+              Custom prompt override <span class="desc" style="display:inline; font-weight:normal;">(advanced)</span>
+              <span class="desc">When non-empty, REPLACES the entire built-in summon prompt. Write your own instructions for how Galt should behave. The conversation thread, voice profile, and contact context still flow through automatically — this just controls the per-turn behavior instructions. Placeholders <code>{userName}</code> and <code>{recipientName}</code> get substituted at send time. Leave empty to use the built-in.</span>
+            </label>
+            <textarea name="summon_system_prompt" rows="12" placeholder="(empty — using built-in prompt)" style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;">${escapeHtml(settingsCache.summon_system_prompt || '')}</textarea>
           </div>
 
           <div class="config-field">
