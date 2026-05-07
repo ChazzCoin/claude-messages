@@ -534,7 +534,7 @@ export async function extractCalendarEvent(input: {
 /* away notes — extract follow-up items from inbound during away mode  */
 /* ------------------------------------------------------------------ */
 
-const AWAY_NOTE_SYSTEM = `You are reviewing an iMessage that came in while the user was away. Their AI auto-replied to keep the conversation going. Now decide: is there something here the USER should personally follow up on when they're back?
+const AWAY_NOTE_SYSTEM = `You are reviewing an inbound iMessage and deciding whether the user should personally follow up on it. The user reviews the resulting notes later — this is a triage queue.
 
 Things that ARE worth a note:
 - Meeting / hangout requests (specific or vague)
@@ -548,21 +548,27 @@ Things that ARE worth a note:
 
 Things that are NOT worth a note:
 - Pleasantries, "lol", emoji-only replies, banter
-- Topics the AI's auto-reply already fully resolved
-- Generic small talk
+- Generic small talk with no actionable content
 - Stuff the user wouldn't recognize as actionable
 
 Be conservative — false positives clutter the note pile and train the user to ignore it. Only flag substantive items.
+
+CATEGORY (life domain — pick exactly one):
+- "urgent"   — time-sensitive or critical, needs attention soon (today/tomorrow). Emergencies, hard deadlines, anything where delay has real cost.
+- "business" — work, money, contracts, professional matters, vendors, clients, legal, anything career-related.
+- "personal" — friends, family, romance, social plans, hobbies, life logistics.
+
+Pick the dominant frame in THIS message. If genuinely ambiguous, default to "personal".
 
 Output ONLY JSON:
 {
   "should_note": boolean,
   "summary": "one short sentence in third person, e.g. 'Mallory wants to grab dinner Thursday' or 'Mike asked about the contract status'",
-  "category": "meet" | "discuss" | "request" | "urgent" | "other",
+  "category": "urgent" | "business" | "personal",
   "reasoning": "one short sentence explaining why this needs follow-up"
 }`;
 
-export type AwayNoteCategoryAI = 'meet' | 'discuss' | 'request' | 'urgent' | 'other';
+export type AwayNoteCategoryAI = 'urgent' | 'business' | 'personal';
 
 export interface AwayNoteExtract {
   shouldNote: boolean;
@@ -598,10 +604,10 @@ export async function extractAwayNote(input: {
   } catch {
     parsed = {};
   }
-  const validCats: AwayNoteCategoryAI[] = ['meet', 'discuss', 'request', 'urgent', 'other'];
+  const validCats: AwayNoteCategoryAI[] = ['urgent', 'business', 'personal'];
   const cat = (typeof parsed.category === 'string' && (validCats as string[]).includes(parsed.category))
     ? (parsed.category as AwayNoteCategoryAI)
-    : 'other';
+    : 'personal';
   return {
     shouldNote: parsed.should_note === true,
     summary: typeof parsed.summary === 'string' ? parsed.summary : '',
@@ -780,6 +786,10 @@ export interface DraftReplyInput {
   temperament?: Temperament;
   /** How many variants to generate (1..5). Defaults to 1. */
   count?: number;
+  /** When true, append a hard guardrail forbidding any commitment on the
+   *  user's behalf. Use this for fully-autonomous auto-reply paths (away
+   *  mode) where the draft is sent without the user's review. */
+  awayMode?: boolean;
 }
 
 export interface DraftVariant {
@@ -800,6 +810,7 @@ function buildSystemPrompt(
   addressBookContext: string | undefined,
   userAvailability: string | undefined,
   temperament: Temperament,
+  awayMode: boolean,
 ): string {
   const parts: string[] = [DRAFT_SYSTEM];
   if (voiceProfile && voiceProfile.trim()) {
@@ -837,6 +848,27 @@ function buildSystemPrompt(
   if (temperament !== 'normal' && guidance) {
     parts.push(`\nTEMPERAMENT FOR THIS DRAFT: ${temperament}\n${guidance}`);
   }
+  if (awayMode) {
+    parts.push(
+      `\nAWAY-MODE GUARDRAIL — CRITICAL. This draft will be sent automatically without the user's review. The user has not authorized any specific response.
+
+YOU MAY:
+- State factual availability the user's calendar shows ("calendar's blocked at 9am", "calendar's open Thursday evening").
+- Defer the decision back to the user ("he'll get back to you on that", "let me have him confirm when he's back", "I'll let him know").
+- Acknowledge the message conversationally without committing to anything.
+
+YOU MUST NOT:
+- Accept proposals or commit to plans. NEVER write "yes that works", "sounds good", "sure", "see you then", "locked in", or any other commitment phrase.
+- Decline definitively beyond a calendar fact. State "calendar's blocked" — do NOT say "no I can't" / "won't be able to" / "not gonna happen" — those are still commitments the user hasn't authorized.
+- Propose specific times or alternatives. NEVER write "how about Thursday at 3?", "let's do Friday instead", or any concrete counter-offer.
+- Confirm RSVPs, plans, prices, addresses, or decisions on the user's behalf.
+- Invent facts about the user's day, location, mood, or whereabouts.
+
+When the recipient asks you to commit to anything: state any factual availability you have, then defer to the user. The user reviews a notes queue later — anything you defer becomes their note to follow up on. That's the design.
+
+When in doubt: defer.`,
+    );
+  }
   return parts.join('\n');
 }
 
@@ -864,6 +896,7 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
     input.addressBookContext,
     input.userAvailability,
     temperament,
+    input.awayMode === true,
   );
   const requestedCount = Math.max(1, Math.min(5, Math.floor(input.count ?? 1)));
 
