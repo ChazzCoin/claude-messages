@@ -77,7 +77,7 @@ export function renderThreadToolbar(chatId) {
   const onRadar = !!radarHandlesCache.has(handle);
   return `
     <div class="thread-toolbar">
-      <button class="btn primary" data-action="ai-draft" data-chat-id="${chatId}">
+      <button class="btn primary" data-action="ai-draft" data-chat-id="${chatId}" title="Draft an AI reply using the last ${dflt} messages as context">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
         Draft AI reply
       </button>
@@ -89,9 +89,9 @@ export function renderThreadToolbar(chatId) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="${onRadar ? 'color: var(--green);' : ''}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="12" x2="20.5" y2="3.5"/></svg>
         ${onRadar ? 'On Radar' : 'Add to Radar'}
       </button>
-      <label>last
-        <input class="ctx-input" type="number" min="1" max="${max}" value="${dflt}" data-ctx-input />
-        msgs as context
+      <label>
+        <span>context window</span>
+        <input class="ctx-input" type="number" min="1" max="${max}" value="${dflt}" data-ctx-input title="How many recent messages to attach to AI calls" />
       </label>
       <span class="toolbar-status" data-toolbar-status></span>
     </div>

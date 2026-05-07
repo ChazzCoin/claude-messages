@@ -590,11 +590,31 @@ body::after {
   margin-bottom: 12px;
 }
 .notes-header {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
-  font-family: var(--mono); font-size: 11px; color: var(--text-faint);
-  text-transform: uppercase; letter-spacing: 0.6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
 }
-.notes-header .count { color: var(--cyan); text-transform: none; letter-spacing: 0; }
+.notes-header svg { color: var(--text-faint); flex-shrink: 0; }
+.notes-header .count {
+  margin-left: auto;
+  color: var(--cyan);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+}
+.notes-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
 .note-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
 .note-item {
   display: flex; gap: 10px; align-items: flex-start;
@@ -704,27 +724,60 @@ body::after {
 .compose-status.ok { color: var(--green); }
 .compose-status.err { color: var(--red); }
 
-/* AI thread toolbar (Draft AI / Summarize / Radar / ctx input) */
+/* AI thread toolbar (Draft AI / Summarize / Radar / ctx input).
+   In the right sidebar (320px) we stack vertically so each control fits on
+   its own row instead of wrapping awkwardly. The horizontal flex layout
+   below is kept for any future cases where the toolbar lives in a wider
+   container. */
 .thread-toolbar {
-  display: flex; align-items: center; gap: 8px;
-  margin-bottom: 12px; padding: 8px 12px;
-  background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }
-.thread-toolbar .btn { padding: 6px 12px; font-size: 12.5px; }
-.thread-toolbar .ctx-input {
-  width: 56px; padding: 4px 6px;
-  background: var(--bg-elev); color: var(--text);
-  border: 1px solid var(--border); border-radius: 5px;
-  font-family: var(--mono); font-size: 12px; text-align: right;
+.thread-toolbar .btn {
+  padding: 7px 12px;
+  font-size: 12.5px;
+  justify-content: flex-start;
+  width: 100%;
 }
 .thread-toolbar label {
-  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
-  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 2px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
 }
+.thread-toolbar .ctx-input {
+  width: 48px;
+  padding: 3px 6px;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+}
+.thread-toolbar .ctx-input:focus { outline: none; border-color: var(--cyan); }
 .thread-toolbar .toolbar-status {
-  margin-left: auto; font-family: var(--mono); font-size: 11px;
-  color: var(--text-dim); min-height: 14px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  min-height: 12px;
+  padding: 0 2px;
 }
 .toolbar-status.ok { color: var(--green); }
 .toolbar-status.err { color: var(--red); }

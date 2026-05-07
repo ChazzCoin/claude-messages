@@ -85,14 +85,14 @@ export function renderNotesBlock(handle, notes) {
   return `
     <div class="notes-block">
       <div class="notes-header">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        <span>Memory notes for this contact</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span>Memory notes</span>
         <span class="count">${notes.length}</span>
-        <span style="margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--text-faint);text-transform:none;letter-spacing:0;">// fed into every AI draft for this contact</span>
       </div>
+      <div class="notes-sub">// fed into every AI draft for this contact</div>
       <div class="note-list">${items}</div>
       <form class="note-add" data-form="contact-note" data-handle="${escapeHtml(handle)}">
-        <textarea name="body" rows="1" placeholder="Add a note about this contact (e.g. 'sister; mostly logistics for parents'). ⌘+Enter to save."></textarea>
+        <textarea name="body" rows="1" placeholder="Add a note (e.g. 'sister, mostly parent logistics'). ⌘+Enter to save."></textarea>
         <button type="submit" class="btn primary">Add</button>
       </form>
     </div>
