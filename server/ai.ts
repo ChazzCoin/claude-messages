@@ -1,18 +1,54 @@
 import OpenAI from 'openai';
 import { config } from './config.js';
+import { getSettings } from './db/app.js';
 import type { MessageRow } from './db/messages.js';
 
+/**
+ * The OpenAI API key can come from two places, settings wins:
+ *   1. app.db settings.openai_api_key  (set via the dashboard's Settings page)
+ *   2. process.env.OPENAI_API_KEY      (set via .env, picked up at boot)
+ *
+ * Source #1 lets users configure AI from the UI without editing files.
+ * Source #2 is the historical/dev path and a fallback if app.db is fresh.
+ */
+function effectiveApiKey(): string {
+  const fromSettings = getSettings().openai_api_key?.trim();
+  if (fromSettings) return fromSettings;
+  return config.openai.apiKey;
+}
+
+export function effectiveModel(): string {
+  const fromSettings = getSettings().openai_model?.trim();
+  if (fromSettings) return fromSettings;
+  return config.openai.model;
+}
+
+/** Where is the active key coming from? Useful for /api/health + UI. */
+export function apiKeySource(): 'settings' | 'env' | 'none' {
+  if (getSettings().openai_api_key?.trim()) return 'settings';
+  if (config.openai.apiKey) return 'env';
+  return 'none';
+}
+
+// Cache the OpenAI client per-key so a settings change invalidates it
+// without needing a service restart.
 let _client: OpenAI | null = null;
+let _clientForKey: string | null = null;
 
 export function isAIConfigured(): boolean {
-  return !!config.openai.apiKey;
+  return !!effectiveApiKey();
 }
 
 export function getOpenAI(): OpenAI {
-  if (!config.openai.apiKey) {
-    throw new Error('OPENAI_API_KEY is not set in .env');
+  const key = effectiveApiKey();
+  if (!key) {
+    throw new Error(
+      'OpenAI API key not configured. Add one in Settings → OpenAI, or set OPENAI_API_KEY in .env.',
+    );
   }
-  if (!_client) _client = new OpenAI({ apiKey: config.openai.apiKey });
+  if (_client && _clientForKey === key) return _client;
+  _client = new OpenAI({ apiKey: key });
+  _clientForKey = key;
   return _client;
 }
 
@@ -49,7 +85,7 @@ Respond ONLY with JSON of this exact shape:
 export async function classifyIncoming(text: string): Promise<ClassificationResult> {
   const client = getOpenAI();
   const resp = await client.chat.completions.create({
-    model: config.openai.model,
+    model: effectiveModel(),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: CLASSIFY_SYSTEM },
@@ -131,7 +167,7 @@ export async function generateVoiceProfile(input: VoiceProfileInput): Promise<Vo
   );
 
   const resp = await client.chat.completions.create({
-    model: config.openai.model,
+    model: effectiveModel(),
     messages: [
       { role: 'system', content: VOICE_PROFILE_SYSTEM },
       { role: 'user', content: sections.join('\n\n') },
@@ -150,7 +186,7 @@ export async function generateVoiceProfile(input: VoiceProfileInput): Promise<Vo
     : undefined;
   return {
     profile,
-    model: resp.model || config.openai.model,
+    model: resp.model || effectiveModel(),
     sampleCount: input.samples.length,
     usage,
   };
@@ -190,7 +226,7 @@ export async function summarizeThread(input: SummarizeInput): Promise<SummarizeR
     .join('\n');
 
   const resp = await client.chat.completions.create({
-    model: config.openai.model,
+    model: effectiveModel(),
     messages: [
       { role: 'system', content: SUMMARIZE_SYSTEM },
       { role: 'user', content: `Recent thread (oldest → newest):\n${threadText}\n\nSummarize.` },
@@ -207,7 +243,7 @@ export async function summarizeThread(input: SummarizeInput): Promise<SummarizeR
         total_tokens: resp.usage.total_tokens,
       }
     : undefined;
-  return { summary, model: resp.model || config.openai.model, usage };
+  return { summary, model: resp.model || effectiveModel(), usage };
 }
 
 /* ------------------------------------------------------------------ */
@@ -275,7 +311,7 @@ export async function extractRadarSignals(input: { sender: string; messageText: 
 }> {
   const client = getOpenAI();
   const resp = await client.chat.completions.create({
-    model: config.openai.model,
+    model: effectiveModel(),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: RADAR_EXTRACT_SYSTEM },
@@ -302,7 +338,7 @@ export async function extractRadarSignals(input: { sender: string; messageText: 
   }
   return {
     signals,
-    model: resp.model || config.openai.model,
+    model: resp.model || effectiveModel(),
     usage: resp.usage
       ? {
           prompt_tokens: resp.usage.prompt_tokens,
@@ -380,7 +416,7 @@ export async function distillRadarProfile(input: RadarProfileInput): Promise<{
   );
 
   const resp = await client.chat.completions.create({
-    model: config.openai.model,
+    model: effectiveModel(),
     messages: [
       { role: 'system', content: RADAR_PROFILE_SYSTEM },
       { role: 'user', content: sections.join('\n\n') },
@@ -392,7 +428,7 @@ export async function distillRadarProfile(input: RadarProfileInput): Promise<{
   const profile = (resp.choices[0]?.message?.content ?? '').trim();
   return {
     profile,
-    model: resp.model || config.openai.model,
+    model: resp.model || effectiveModel(),
     usage: resp.usage
       ? {
           prompt_tokens: resp.usage.prompt_tokens,
@@ -452,7 +488,7 @@ export async function extractCalendarEvent(input: {
 }): Promise<CalendarExtractResult> {
   const client = getOpenAI();
   const resp = await client.chat.completions.create({
-    model: config.openai.model,
+    model: effectiveModel(),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: CAL_EXTRACT_SYSTEM },
@@ -489,7 +525,7 @@ export async function extractCalendarEvent(input: {
     notes: typeof parsed.notes === 'string' ? parsed.notes : '',
     confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.5,
     reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
-    model: resp.model || config.openai.model,
+    model: resp.model || effectiveModel(),
     usage,
   };
 }
@@ -543,7 +579,7 @@ export async function extractAwayNote(input: {
 }): Promise<AwayNoteExtract> {
   const client = getOpenAI();
   const resp = await client.chat.completions.create({
-    model: config.openai.model,
+    model: effectiveModel(),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: AWAY_NOTE_SYSTEM },
@@ -571,7 +607,7 @@ export async function extractAwayNote(input: {
     summary: typeof parsed.summary === 'string' ? parsed.summary : '',
     category: cat,
     reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
-    model: resp.model || config.openai.model,
+    model: resp.model || effectiveModel(),
     usage: resp.usage
       ? {
           prompt_tokens: resp.usage.prompt_tokens,
@@ -615,7 +651,7 @@ export interface RuleEvalResult {
 export async function evaluateRuleAgainstMessage(input: RuleEvalInput): Promise<RuleEvalResult> {
   const client = getOpenAI();
   const resp = await client.chat.completions.create({
-    model: config.openai.model,
+    model: effectiveModel(),
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: MONITOR_EVAL_SYSTEM },
@@ -638,7 +674,7 @@ export async function evaluateRuleAgainstMessage(input: RuleEvalInput): Promise<
     match: parsed.match === true,
     confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
     reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
-    model: resp.model || config.openai.model,
+    model: resp.model || effectiveModel(),
     usage: resp.usage
       ? {
           prompt_tokens: resp.usage.prompt_tokens,
@@ -795,7 +831,7 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
   const requestedCount = Math.max(1, Math.min(5, Math.floor(input.count ?? 1)));
 
   const resp = await client.chat.completions.create({
-    model: config.openai.model,
+    model: effectiveModel(),
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userContent },
@@ -827,7 +863,7 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
         total_tokens: resp.usage.total_tokens,
       }
     : undefined;
-  const model = resp.model || config.openai.model;
+  const model = resp.model || effectiveModel();
 
   return { variants: dedup.length ? dedup : variants, model, usage };
 }

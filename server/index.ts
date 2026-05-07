@@ -128,6 +128,8 @@ function enrichDraft(d: Draft | null): EnrichedDraft | null {
 }
 import {
   isAIConfigured,
+  apiKeySource,
+  effectiveModel,
   classifyIncoming,
   draftReply,
   generateVoiceProfile,
@@ -179,8 +181,9 @@ app.get('/api/health', (_req, res) => {
     version: '0.1.0',
     chat_db: { path: config.chatDbPath, ok: chatDbOk, error: chatDbError },
     app_db: { path: config.appDbPath },
-    openai_configured: !!config.openai.apiKey,
-    openai_model: config.openai.model,
+    openai_configured: isAIConfigured(),
+    openai_model: effectiveModel(),
+    openai_key_source: apiKeySource(),
     watcher_running: messageWatcher.isRunning(),
     away_mode_enabled: !!getSettings().away_mode_enabled,
     away_active_sessions: countActiveAwaySessions(),
@@ -537,8 +540,29 @@ app.delete('/api/contacts/notes/:id', (req, res) => {
 
 /* ---------- routes: settings ---------- */
 
+/**
+ * Redact secrets before returning settings over the network. The raw OpenAI
+ * key NEVER leaves the server — UI gets a boolean + last-4 for display.
+ * Source tells the UI whether the active key comes from the DB (Settings UI)
+ * or .env, so it can surface that context.
+ */
+function redactSettingsForResponse(s: ReturnType<typeof getSettings>) {
+  const dbKey = s.openai_api_key?.trim() || '';
+  const envKey = config.openai.apiKey || '';
+  const effective = dbKey || envKey;
+  // Strip the raw key from the response object.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { openai_api_key, ...rest } = s;
+  return {
+    ...rest,
+    openai_api_key_set: !!effective,
+    openai_api_key_last4: effective ? effective.slice(-4) : '',
+    openai_api_key_source: apiKeySource(),
+  };
+}
+
 app.get('/api/settings', (_req, res) => {
-  res.json({ settings: getSettings(), bounds: SETTING_BOUNDS });
+  res.json({ settings: redactSettingsForResponse(getSettings()), bounds: SETTING_BOUNDS });
 });
 
 app.put('/api/settings', (req, res) => {
@@ -554,7 +578,7 @@ app.put('/api/settings', (req, res) => {
         sseBroadcast('away.mode_disabled', { ended_sessions: ended });
       }
     }
-    res.json({ settings, bounds: SETTING_BOUNDS });
+    res.json({ settings: redactSettingsForResponse(settings), bounds: SETTING_BOUNDS });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
   }
@@ -565,7 +589,7 @@ app.put('/api/settings', (req, res) => {
 function requireAI(_req: Request, res: Response): boolean {
   if (!isAIConfigured()) {
     res.status(503).json({
-      error: 'AI features unavailable: OPENAI_API_KEY is not set in .env. Add it and restart.',
+      error: 'AI features unavailable: no OpenAI API key configured. Add one in Settings → OpenAI, or set OPENAI_API_KEY in .env.',
     });
     return false;
   }

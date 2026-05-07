@@ -281,6 +281,13 @@ export interface AppSettings {
    *  This shapes how the AI BEHAVES while covering — banter level, deflection
    *  style, jokes, how to handle "are you really an AI?" etc. */
   away_persona: string;
+  /** OpenAI API key. When set, takes precedence over the OPENAI_API_KEY env
+   *  var. Stored locally in app.db so users can configure AI from the
+   *  Settings UI instead of editing .env. NEVER returned by /api/settings —
+   *  the route masks it. */
+  openai_api_key: string;
+  /** Model name. Defaults to env or 'gpt-4o-mini'. */
+  openai_model: string;
 }
 
 const SETTING_DEFAULTS: AppSettings = {
@@ -294,6 +301,8 @@ const SETTING_DEFAULTS: AppSettings = {
     "I'm currently away. — this is Chazz's AI, designed to mimic him while he's not here. Feel free to keep chatting and I'll do my best to keep things going in his voice. He'll catch up when he's back.",
   away_max_replies_per_session: 50,
   away_persona: '',
+  openai_api_key: '',
+  openai_model: '',
 };
 
 export const SETTING_BOUNDS = {
@@ -335,6 +344,8 @@ export function getSettings(): AppSettings {
       SETTING_DEFAULTS.away_max_replies_per_session,
     ),
     away_persona: getState('away_persona') ?? SETTING_DEFAULTS.away_persona,
+    openai_api_key: getState('openai_api_key') ?? SETTING_DEFAULTS.openai_api_key,
+    openai_model: getState('openai_model') ?? SETTING_DEFAULTS.openai_model,
   };
 }
 
@@ -374,6 +385,14 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.away_persona !== undefined) {
     setState('away_persona', String(patch.away_persona));
+  }
+  if (patch.openai_api_key !== undefined) {
+    // Trim whitespace; an empty string clears the key (falls back to env var).
+    const k = String(patch.openai_api_key).trim();
+    setState('openai_api_key', k);
+  }
+  if (patch.openai_model !== undefined) {
+    setState('openai_model', String(patch.openai_model).trim());
   }
   return getSettings();
 }
