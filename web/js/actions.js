@@ -886,7 +886,7 @@ async function onSubmit(e) {
         body: {
           summon_trigger_phrase: trigger,
           summon_end_phrase: endP,
-          summon_persona: data.summon_persona || '',
+          galt_voice_profile: data.galt_voice_profile || '',
           summon_system_prompt: data.summon_system_prompt || '',
           summon_max_replies_per_session: parseInt(data.summon_max_replies_per_session, 10),
           summon_idle_timeout_min: parseInt(data.summon_idle_timeout_min, 10),

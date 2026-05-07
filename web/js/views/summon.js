@@ -121,10 +121,10 @@ function renderConfigPanel() {
 
           <div class="config-field">
             <label class="config-label">
-              Persona
-              <span class="desc">how Galt should behave AS THEMSELVES while summoned. Distinct from away persona — here Galt is a third voice you pulled in, not pretending to be you. Appended to the built-in prompt; ignored when the custom prompt below is set.</span>
+              Galt voice profile
+              <span class="desc">Prose describing how Galt sounds when he's himself — voice, tone, register, length, quirks, what to avoid. Used here in summon mode (where Galt is a third voice). Distinct from your own voice profile (Settings → Voice profile), which Galt uses when impersonating you in away mode. User-written; no AI generation. Injected as the VOICE PROFILE in the AI's data-injection block.</span>
             </label>
-            <textarea name="summon_persona" rows="4" placeholder="e.g. 'be helpful but not stiff. crack a joke when it fits. keep replies short — iMessage register, not essay-length. push back if i'm being dumb.'">${escapeHtml(settingsCache.summon_persona || '')}</textarea>
+            <textarea name="galt_voice_profile" rows="4" placeholder="e.g. 'direct, no hedging. keep it iMessage-short — usually one line. light dry humor when it fits the moment. don't be a help desk. push back if i'm being dumb.'">${escapeHtml(settingsCache.galt_voice_profile || '')}</textarea>
           </div>
 
           <div class="config-field">

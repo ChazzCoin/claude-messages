@@ -882,15 +882,12 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
     })
     .join('\n');
   const note = input.contextNote?.trim();
-  const userContent = note
-    ? `Thread (oldest → newest):\n${threadText}\n\nUser's guidance for this specific reply (factor this in while still matching their voice): ${note}`
-    : `Thread (oldest → newest):\n${threadText}`;
 
   const temperament: Temperament =
     input.temperament && (TEMPERAMENTS as readonly string[]).includes(input.temperament)
       ? input.temperament
       : 'normal';
-  const systemPrompt = buildSystemPrompt(
+  const dataInjection = buildSystemPrompt(
     input.voiceProfile,
     input.contactNotes,
     input.contactProfile,
@@ -899,6 +896,16 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
     temperament,
     input.awayMode === true,
   );
+  // Standard prompt assembly across all auto-reply features:
+  //   1. customPrompt (feature instruction — what Galt is doing this turn)
+  //   2. dataInjection (voice profile + contact + calendar + temperament)
+  //   3. thread (last N messages, oldest → newest, newest at bottom)
+  // Custom prompt LEADS the system message so its identity/behavior rules
+  // anchor the model's reading of everything below it. Empty contextNote =
+  // dataInjection alone (used by the manual-draft endpoint when the user
+  // didn't supply a hint).
+  const systemPrompt = note ? `${note}\n\n${dataInjection}` : dataInjection;
+  const userContent = `Thread (oldest → newest):\n${threadText}`;
   const requestedCount = Math.max(1, Math.min(5, Math.floor(input.count ?? 1)));
 
   const resp = await client.chat.completions.create({

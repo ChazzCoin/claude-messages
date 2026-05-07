@@ -330,6 +330,31 @@ function migrate(db: DB) {
     `);
     console.log('[migrate] away_notes renamed to auto_notes');
   }
+
+  // Rename kv key summon_persona → galt_voice_profile. Galt's voice was
+  // promoted from a summon-only "persona" knob to a first-class voice
+  // profile parallel to the user's voice_profile (used wherever Galt is
+  // himself rather than impersonating the user). Idempotent: only acts
+  // when galt_voice_profile is unset and summon_persona has a value.
+  const oldRow = db
+    .prepare("SELECT value FROM state WHERE key='summon_persona'")
+    .get() as { value: string } | undefined;
+  const newRow = db
+    .prepare("SELECT 1 FROM state WHERE key='galt_voice_profile'")
+    .get();
+  if (oldRow && !newRow) {
+    db.exec('BEGIN');
+    db.prepare("INSERT INTO state(key, value) VALUES ('galt_voice_profile', ?)")
+      .run(oldRow.value);
+    db.prepare("DELETE FROM state WHERE key='summon_persona'").run();
+    db.exec('COMMIT');
+    console.log('[migrate] summon_persona renamed to galt_voice_profile');
+  } else if (oldRow && newRow) {
+    // Both keys present (race condition / manual edit) — drop the old one
+    // so the new one is the single source of truth going forward.
+    db.prepare("DELETE FROM state WHERE key='summon_persona'").run();
+    console.log('[migrate] dropped stale summon_persona key (galt_voice_profile already set)');
+  }
 }
 
 /* ---------- state helpers ---------- */
@@ -384,9 +409,13 @@ export interface AppSettings {
   summon_trigger_phrase: string;
   /** Phrase the USER types to dismiss Galt. Case-insensitive substring match. */
   summon_end_phrase: string;
-  /** Persona for Galt while summoned. Distinct from away_persona — summon =
-   *  Galt is themselves (a third voice), away = Galt is covering for the user. */
-  summon_persona: string;
+  /** Voice profile for Galt-as-himself — prose describing Galt's style,
+   *  tone, register, quirks. Used wherever Galt acts as the assistant
+   *  (currently summon mode). Parallel to user's voice_profile, which is
+   *  used wherever Galt impersonates the user (away mode, manual draft).
+   *  User-written; no AI generation. Was named summon_persona — migrated
+   *  at boot. */
+  galt_voice_profile: string;
   /** Per-session reply cap. Sessions auto-end when hit. */
   summon_max_replies_per_session: number;
   /** Auto-end after this many minutes with no messages in the chat. */
@@ -436,7 +465,7 @@ const SETTING_DEFAULTS: AppSettings = {
   summon_enabled: 1,
   summon_trigger_phrase: 'GALT!!',
   summon_end_phrase: 'go away galt',
-  summon_persona: '',
+  galt_voice_profile: '',
   summon_max_replies_per_session: 30,
   summon_idle_timeout_min: 30,
   summon_system_prompt: '',
@@ -501,7 +530,7 @@ export function getSettings(): AppSettings {
       getState('summon_trigger_phrase') ?? SETTING_DEFAULTS.summon_trigger_phrase,
     summon_end_phrase:
       getState('summon_end_phrase') ?? SETTING_DEFAULTS.summon_end_phrase,
-    summon_persona: getState('summon_persona') ?? SETTING_DEFAULTS.summon_persona,
+    galt_voice_profile: getState('galt_voice_profile') ?? SETTING_DEFAULTS.galt_voice_profile,
     summon_max_replies_per_session: parseIntOr(
       getState('summon_max_replies_per_session'),
       SETTING_DEFAULTS.summon_max_replies_per_session,
@@ -580,8 +609,8 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
     if (!v) throw new Error('summon_end_phrase cannot be empty');
     setState('summon_end_phrase', v);
   }
-  if (patch.summon_persona !== undefined) {
-    setState('summon_persona', String(patch.summon_persona));
+  if (patch.galt_voice_profile !== undefined) {
+    setState('galt_voice_profile', String(patch.galt_voice_profile));
   }
   if (patch.summon_max_replies_per_session !== undefined) {
     const { min, max } = SETTING_BOUNDS.summon_max_replies_per_session;

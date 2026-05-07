@@ -1812,7 +1812,6 @@ function buildAwayContextNote(persona: string, recipientName: string): string {
  * prompt is built to actively prevent that.
  */
 function buildSummonContextNote(opts: {
-  persona: string;
   userName: string;
   recipientName: string;
   triggerFromUser: boolean;
@@ -1867,11 +1866,9 @@ function buildSummonContextNote(opts: {
     `WHEN YOU GENUINELY DON'T KNOW something only ${opts.userName} can decide (their schedule, finances, commitments, personal feelings): defer briefly — "no idea, ask ${opts.userName}" / "above my pay grade" — and stop. Don't invent. Don't ramble. Don't ask follow-ups to fish for context — the context is the thread above; if it's not there, you don't know.`,
   );
 
-  if (opts.persona && opts.persona.trim()) {
-    sections.push(
-      `EXTRA PERSONA GUIDANCE FROM ${opts.userName} for how you should behave as Galt (apply on top of the above):\n"""\n${opts.persona.trim()}\n"""`,
-    );
-  }
+  // Galt's voice profile (galt_voice_profile setting) flows through
+  // draftReply's voiceProfile parameter — injected into the data-injection
+  // block as "VOICE PROFILE." No need to also append it here.
 
   sections.push(
     opts.isActivation
@@ -2268,7 +2265,6 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
           .replace(/\{userName\}/g, userName)
           .replace(/\{recipientName\}/g, recipientName)
       : buildSummonContextNote({
-          persona: settings.summon_persona,
           userName,
           recipientName,
           triggerFromUser: msg.is_from_me === 1,
@@ -2277,7 +2273,10 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
 
     const result = await draftReply({
       thread,
-      voiceProfile: settings.voice_profile,
+      // Summon = Galt is himself, NOT impersonating the user. Use Galt's
+      // own voice profile here. The user's voice_profile is for paths
+      // where Galt covers as the user (away mode, manual draft).
+      voiceProfile: settings.galt_voice_profile,
       contactNotes,
       contactProfile,
       addressBookContext,
