@@ -877,7 +877,7 @@ async function onSubmit(e) {
     } else if (kind === 'summon-config') {
       // The on/off master switch lives in the page header (toggle-summon-mode)
       // — this form only owns activation + safety knobs. Prompt content
-      // (persona, custom prompt override) lives on #/prompts.
+      // (persona, custom prompt override) lives on #/galt.
       const trigger = (data.summon_trigger_phrase || '').trim();
       const endP = (data.summon_end_phrase || '').trim();
       if (!trigger) throw new Error('Trigger phrase cannot be empty');

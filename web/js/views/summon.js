@@ -99,7 +99,7 @@ function renderConfigPanel() {
       <details class="away-collapsible" open>
         <summary>
           <span>Configuration</span>
-          <span class="config-summary-meta">trigger · end phrase · safety cap · idle timeout · prompts on <a href="#/prompts">Prompts</a></span>
+          <span class="config-summary-meta">trigger · end phrase · safety cap · idle timeout · prompts on <a href="#/galt">Galt</a></span>
         </summary>
 
         <form class="away-config-form" data-form="summon-config">
@@ -122,9 +122,9 @@ function renderConfigPanel() {
           <div class="config-field">
             <label class="config-label">
               Persona & custom prompt
-              <span class="desc">moved to the centralized <a href="#/prompts">Prompts</a> page so all custom prompting lives in one place</span>
+              <span class="desc">Galt's prompts live on the <a href="#/galt">Galt</a> page — the master config for the AI persona itself</span>
             </label>
-            <a href="#/prompts" class="btn ghost" style="align-self: flex-start;">Edit on Prompts →</a>
+            <a href="#/galt" class="btn ghost" style="align-self: flex-start;">Edit on Galt →</a>
           </div>
 
           <div class="config-field">

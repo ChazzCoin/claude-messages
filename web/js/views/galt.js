@@ -1,15 +1,24 @@
-// Prompts — centralized settings page for every user-editable prompt in the
-// system. Single source of truth: every prompt textarea Galt uses lives here.
-// Per-feature pages (Away, Summon, …) link out to this page for prompt edits.
+// Galt — the master config page for the AI persona itself. Galt is the
+// single voice that interacts across every mode (away, summon, future
+// modes); this page is where you configure who Galt is and how Galt
+// behaves. Per-feature pages (Away, Summon, …) own activation + safety
+// caps and link out here for any persona / prompt content edits.
 //
-// Architecture: a registry (PROMPT_REGISTRY) describes the page. Adding a new
-// prompt means adding an entry — no other changes to this file or actions.js
-// (the form handler passes everything through to PUT /api/settings, which
-// already silently ignores unknown keys via updateSettings's per-key gates).
+// Currently this page hosts the Prompts section (every user-editable
+// prompt textarea in the system). It's structured to grow — additional
+// Galt-config sections (identity, voice profile, AI defaults, …) can
+// land alongside Prompts.
 //
-// Out of scope (intentional): the hard-coded built-in prompts in server/ai.ts
-// (CLASSIFY_SYSTEM, DRAFT_SYSTEM, AUTO_NOTE_SYSTEM, etc.). Exposing those is a
-// separate decision, not "consolidation" of what's already user-editable.
+// Architecture: a registry (PROMPT_REGISTRY) describes the prompts
+// section. Adding a new prompt means appending an entry — no other
+// changes to this file or actions.js (the form handler passes everything
+// through to PUT /api/settings, which already silently ignores unknown
+// keys via updateSettings's per-key gates).
+//
+// Out of scope (intentional): the hard-coded built-in prompts in
+// server/ai.ts (CLASSIFY_SYSTEM, DRAFT_SYSTEM, AUTO_NOTE_SYSTEM, etc.).
+// Exposing those is a separate decision, not "consolidation" of what's
+// already user-editable.
 
 import { setMainHeader } from '../shell.js';
 import { escapeHtml } from '../utils.js';
@@ -130,19 +139,26 @@ function renderSection(sectionKey) {
   `;
 }
 
-export async function renderPromptsView() {
+export async function renderGaltView() {
   setMainHeader({
-    title: 'Prompts',
-    subHTML: '<span class="accent">centralized prompt config</span> · all custom prompting across the system',
+    title: 'Galt',
+    subHTML: '<span class="accent">the AI persona</span> · master config for who Galt is and how Galt behaves across every mode',
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;
 
   list.innerHTML = `
     <div class="desc" style="padding: 4px 0 18px 0; max-width: 720px;">
-      One place for every user-editable prompt Galt uses. Built-in prompts (classifier, drafting,
-      voice-profile generation, auto-note extraction) are still hard-coded in
-      <code>server/ai.ts</code> — exposing those here is a separate decision.
+      Galt is the AI persona that interacts across the system — covering for you in away mode,
+      joining you in summon mode, and (over time) any other surface where the assistant talks.
+      This page is Galt's home: every user-editable prompt lives here, and additional
+      identity / voice / behavior config will land alongside as it's needed. Built-in prompts
+      (classifier, drafting, voice-profile generation, auto-note extraction) are still
+      hard-coded in <code>server/ai.ts</code> — exposing those here is a separate decision.
+    </div>
+
+    <div class="desc" style="padding: 0 0 14px 0; font-weight: 600; color: var(--text); letter-spacing: 0.02em; text-transform: uppercase; font-size: 11px;">
+      Prompts
     </div>
     ${renderSection('away')}
     ${renderSection('summon')}

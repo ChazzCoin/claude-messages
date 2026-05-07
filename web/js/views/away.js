@@ -107,7 +107,7 @@ function renderConfigPanel(contacts) {
       <details class="away-collapsible">
         <summary>
           <span>Away mode configuration</span>
-          <span class="config-summary-meta">safety cap · ${contacts.length} contact${contacts.length === 1 ? '' : 's'} · prompts on <a href="#/prompts">Prompts</a></span>
+          <span class="config-summary-meta">safety cap · ${contacts.length} contact${contacts.length === 1 ? '' : 's'} · prompts on <a href="#/galt">Galt</a></span>
         </summary>
 
         <div class="away-config-grid">
@@ -115,9 +115,9 @@ function renderConfigPanel(contacts) {
             <div class="config-field">
               <label class="config-label">
                 Greeting & persona
-                <span class="desc">moved to the centralized <a href="#/prompts">Prompts</a> page so all custom prompting lives in one place</span>
+                <span class="desc">Galt's prompts live on the <a href="#/galt">Galt</a> page — the master config for the AI persona itself</span>
               </label>
-              <a href="#/prompts" class="btn ghost" style="align-self: flex-start;">Edit on Prompts →</a>
+              <a href="#/galt" class="btn ghost" style="align-self: flex-start;">Edit on Galt →</a>
             </div>
 
             <div class="config-field">
