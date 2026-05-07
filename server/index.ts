@@ -1335,6 +1335,26 @@ app.delete('/api/away/notes/:id', (req, res) => {
   return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
 });
 
+/**
+ * Dry-run the note-extraction model against a hand-crafted message. Useful
+ * for prompt iteration — does the extractor flag what we'd expect? Returns
+ * the model's raw decision without writing to the DB.
+ *
+ * POST /api/away/notes/test
+ * Body: { sender: string, message: string }
+ */
+app.post(
+  '/api/away/notes/test',
+  asyncHandler(async (req, res) => {
+    if (!requireAI(req, res)) return;
+    const sender = typeof req.body?.sender === 'string' ? req.body.sender : 'them';
+    const messageText = typeof req.body?.message === 'string' ? req.body.message : '';
+    if (!messageText) return res.status(400).json({ error: 'message required' });
+    const result = await extractAwayNote({ sender, messageText });
+    return res.json(result);
+  }),
+);
+
 /* ---------- watcher → away-mode auto-responder ---------- */
 
 /**
@@ -1418,13 +1438,27 @@ function buildAwayContextNote(persona: string, recipientName: string): string {
  * matches into away_notes. Idempotent on message_guid.
  */
 async function extractAwayNoteForMessage(sessionId: number | null, msg: MessageRow): Promise<void> {
-  if (!msg.text || !msg.handle || !msg.guid) return;
-  if (!isAIConfigured()) return;
-  if (awayNoteAlreadyExists(msg.guid)) return;
+  if (!msg.text || !msg.handle || !msg.guid) {
+    console.log(`[away:note] skipped (missing text/handle/guid) msg=${msg.guid ?? '?'}`);
+    return;
+  }
+  if (!isAIConfigured()) {
+    console.log('[away:note] skipped (no openai key)');
+    return;
+  }
+  if (awayNoteAlreadyExists(msg.guid)) {
+    console.log(`[away:note] skipped (already exists) guid=${msg.guid}`);
+    return;
+  }
 
   try {
     const sender = msg.contact_name || msg.handle || 'them';
     const result = await extractAwayNote({ sender, messageText: msg.text });
+    console.log(
+      `[away:note] decision shouldNote=${result.shouldNote} category=${result.category} ` +
+      `summary=${JSON.stringify((result.summary || '').slice(0, 80))} ` +
+      `from=${sender} text=${JSON.stringify(msg.text.slice(0, 80))}`,
+    );
     if (!result.shouldNote || !result.summary) return;
 
     const note = insertAwayNote({
