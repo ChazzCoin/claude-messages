@@ -307,20 +307,6 @@ export async function renderGaltView() {
     ${renderPromptSection('away', counts)}
     ${renderPromptSection('summon', counts)}
 
-    <section class="away-section">
-      <details class="away-collapsible">
-        <summary>
-          <span>Advanced</span>
-          <span class="config-summary-meta">universal base + data-injection wrappers · 7 fields total</span>
-        </summary>
-        <div class="desc" style="margin: 8px 0 0 0; max-width: 720px;">
-          The foundational prompt + the templates that frame each piece of
-          injected data. Most users never touch these — they're foundational
-          and breaking them affects every AI reply.
-        </div>
-      </details>
-    </section>
-
     ${renderCollapsedPromptSection('universal', counts)}
     ${renderCollapsedPromptSection('wrappers', counts)}
   `;
