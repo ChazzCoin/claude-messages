@@ -120,6 +120,7 @@ import { sendMessageViaAppleScript } from './send.js';
 import { messageWatcher } from './watcher.js';
 import { mirrorAutoNote, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
+import { startCommandListener, stopCommandListener } from './firebase-commands.js';
 import {
   listAllContacts,
   listContactsWithHandles,
@@ -2670,11 +2671,15 @@ const server = app.listen(config.port, config.host, () => {
   // Push initial state snapshot so the remote console reflects the live
   // server immediately on boot, not only after the first user mutation.
   void pushStateSnapshotNow();
+  // Start the RTDB command listener so the remote console can push
+  // intents back to this Mac.
+  startCommandListener();
 });
 
 function shutdown(signal: string) {
   console.log(`\n${signal} received, shutting down...`);
   clearInterval(schedulerInterval);
+  stopCommandListener();
   messageWatcher.stop();
   for (const c of sseClients) {
     try {
