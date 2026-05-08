@@ -95,6 +95,7 @@ import {
   markAutoNoteReviewed,
   markAllAutoNotesReviewed,
   removeAutoNote,
+  getAutoNote,
   countUnreviewedAutoNotes,
   // summon mode
   getActiveSummonSession,
@@ -117,7 +118,8 @@ import {
 } from './db/app.js';
 import { sendMessageViaAppleScript } from './send.js';
 import { messageWatcher } from './watcher.js';
-import { mirrorAutoNote } from './firebase.js';
+import { mirrorAutoNote, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
+import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
 import {
   listAllContacts,
   listContactsWithHandles,
@@ -819,6 +821,7 @@ app.put('/api/settings', (req, res) => {
         sseBroadcast('summon.globally_disabled', { ended_sessions: ended });
       }
     }
+    pushStateSnapshot();
     res.json({ settings: redactSettingsForResponse(settings), bounds: SETTING_BOUNDS });
   } catch (err) {
     res.status(400).json({ error: (err as Error).message });
@@ -1534,7 +1537,9 @@ app.post('/api/away/contacts', (req, res) => {
   const labelRaw = typeof req.body?.label === 'string' ? req.body.label.trim() : null;
   if (!handle) return res.status(400).json({ error: 'handle required' });
   const label = labelRaw || getContactNameForHandle(handle);
-  res.status(201).json({ contact: enrichAway(addAwayContact(handle, label)) });
+  const contact = addAwayContact(handle, label);
+  pushStateSnapshot();
+  res.status(201).json({ contact: enrichAway(contact) });
 });
 
 app.patch('/api/away/contacts/:id', (req, res) => {
@@ -1543,6 +1548,7 @@ app.patch('/api/away/contacts/:id', (req, res) => {
   if (typeof req.body?.enabled !== 'boolean')
     return res.status(400).json({ error: 'only `enabled: bool` supported here' });
   const ok = setAwayContactEnabled(id, req.body.enabled);
+  if (ok) pushStateSnapshot();
   return ok ? res.json({ ok: true }) : res.status(404).json({ error: 'not found' });
 });
 
@@ -1550,6 +1556,7 @@ app.delete('/api/away/contacts/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
   const ok = removeAwayContact(id);
+  if (ok) pushStateSnapshot();
   return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
 });
 
@@ -1590,18 +1597,36 @@ app.post('/api/auto-notes/:id/review', (req, res) => {
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
   const note = markAutoNoteReviewed(id);
   if (!note) return res.status(404).json({ error: 'not found' });
+  void mirrorUpdateNote(note.message_guid, { reviewed_at: note.reviewed_at });
+  pushStateSnapshot();
   res.json({ note: { ...note, contact_name: getContactNameForHandle(note.handle) } });
 });
 
 app.post('/api/auto-notes/review-all', (_req, res) => {
+  // Snapshot the unreviewed list BEFORE the bulk update so we can mirror
+  // each individually. SQLite is a single writer so reading-then-writing
+  // here is correct under the existing single-process model.
+  const unreviewed = listAutoNotes({ reviewed: false, limit: 500 });
   const n = markAllAutoNotesReviewed();
+  const reviewedAt = Date.now();
+  for (const note of unreviewed) {
+    void mirrorUpdateNote(note.message_guid, { reviewed_at: reviewedAt });
+  }
+  pushStateSnapshot();
   res.json({ marked_reviewed: n });
 });
 
 app.delete('/api/auto-notes/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  // Look up the note BEFORE deleting so we have the message_guid for
+  // the RTDB remove call.
+  const before = getAutoNote(id);
   const ok = removeAutoNote(id);
+  if (ok && before) {
+    void mirrorDeleteNote(before.message_guid);
+    pushStateSnapshot();
+  }
   return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
 });
 
@@ -2642,6 +2667,9 @@ const server = app.listen(config.port, config.host, () => {
   } catch (err) {
     console.warn(`  watcher: ${(err as Error).message}`);
   }
+  // Push initial state snapshot so the remote console reflects the live
+  // server immediately on boot, not only after the first user mutation.
+  void pushStateSnapshotNow();
 });
 
 function shutdown(signal: string) {
