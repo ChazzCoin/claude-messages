@@ -458,7 +458,9 @@ When making code changes for the user:
   not called from `index.ts` yet — needs a configurable flag once
   V1 step 2 wires the routing pipeline.
 - **RTDB rules are wide-open AND a remote-control surface now lives
-  on top of them.** `galt-messages` has `".read": true` /
+  on top of them.** Source of truth lives in
+  `database.galt-messages.rules.json` (deploy with
+  `npm run remote:deploy:rules`). Currently `".read": true` /
   `".write": true`. Combined with `frontend/galt-messages/`, that
   means anyone who knows the project ID + database URL can:
   - read the auto-notes feed (potentially private),

@@ -1,4 +1,10 @@
 {
+  "database": [
+    {
+      "target": "galt-messages",
+      "rules": "database.galt-messages.rules.json"
+    }
+  ],
   "hosting": {
     "target": "galt-messages",
     "public": "frontend/galt-messages",

@@ -14,7 +14,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "remote:serve": "./bin/firebase serve --only hosting:galt-messages --host 127.0.0.1 --port 5050",
-    "remote:deploy": "./bin/firebase deploy --only hosting:galt-messages"
+    "remote:deploy": "./bin/firebase deploy --only hosting:galt-messages",
+    "remote:deploy:rules": "./bin/firebase deploy --only database:galt-messages"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
