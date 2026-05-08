@@ -49,6 +49,15 @@ The audience is one user (the repo owner). No auth, no TLS, no
 multi-user, no cloud deploy. Every design call assumes the box runs
 on the owner's Mac and stays there.
 
+**One downstream cloud mirror exists.** `auto_notes` rows are mirrored
+to a Firebase Realtime Database (`galt-messages` instance, project
+`msb-logistics`) on insert, fire-and-forget, with the raw inbound
+`message_text` redacted to `null` by default. SQLite remains the
+source of truth. The mirror is for centrally viewing the AI follow-up
+queue from a small mobile-designed website hosted at the same Firebase
+project. RTDB rules are wide-open during dev — **lock them before
+shipping the public frontend**, see "Pause points" below.
+
 ## Platform
 
 **Platform:** `web` (Node backend + browser frontend, both local)
@@ -75,6 +84,11 @@ applies.
 - **Send path:** AppleScript via `osascript` shelled out from the
   backend. No npm dep.
 - **Watcher:** `node:fs.watch` on `chat.db-wal`.
+- **Firebase mirror:** `firebase-admin` SDK writes `auto_notes` to a
+  Realtime Database instance (`galt-messages`) under project
+  `msb-logistics`. Auth via Application Default Credentials at
+  `~/.config/gcloud/application_default_credentials.json` — no creds
+  file in the repo. Lazy-init, fire-and-forget. See `server/firebase.ts`.
 
 ## Commands
 
@@ -193,6 +207,14 @@ See `.env.example`. All are optional for V0:
 - `APP_DB_PATH` (default `./data/app.db`)
 - `OPENAI_API_KEY` — required once V1 step 3 (classification) lands
 - `OPENAI_MODEL` (default `gpt-4o-mini`)
+- `FIREBASE_MIRROR_ENABLED` (default `true`) — `false` to disable the
+  RTDB mirror without touching code. Mirror also lazy-disables itself
+  if `applicationDefault()` can't resolve credentials at first call.
+- `FIREBASE_DB_URL` (default `https://galt-messages.firebaseio.com/`)
+- `FIREBASE_MIRROR_INCLUDE_MESSAGE_TEXT` (default `false`) — when
+  `true`, writes the raw inbound iMessage body to RTDB alongside the
+  AI-extracted summary. Off by default; turn on only if you need the
+  raw text in the central viewer.
 
 ## Test infrastructure
 
@@ -387,3 +409,18 @@ When making code changes for the user:
 - **Watcher off by default at boot.** `messageWatcher.start()` is
   not called from `index.ts` yet — needs a configurable flag once
   V1 step 2 wires the routing pipeline.
+- **RTDB rules are wide-open.** `galt-messages` has `".read": true`
+  and `".write": true` (or equivalent test-mode) during dev. Anyone
+  who knows the project ID + database URL can read or overwrite every
+  mirrored note. Acceptable for a single-user dev phase; **lock down
+  before shipping the public mobile frontend**: backend already writes
+  via admin SDK so the rules can drop to `".write": false` + a
+  read rule scoped to your Google UID once Firebase Auth is added to
+  the frontend. Update this file when the rules tighten.
+- **Mirror only fires on insert, not on update.** `reviewed_at`
+  changes locally don't propagate to RTDB yet. Add an update path when
+  the mobile frontend needs to reflect "reviewed" state.
+- **`device_id` is generated lazily** on first auto-note insert and
+  persisted forever in `state`. If you need it earlier (e.g. for a
+  startup banner), call `getDeviceId()` from `server/db/app.ts` at
+  boot.

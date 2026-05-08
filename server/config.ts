@@ -29,4 +29,10 @@ export const config = {
     apiKey: process.env.OPENAI_API_KEY || '',
     model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   },
+
+  firebase: {
+    mirrorEnabled: process.env.FIREBASE_MIRROR_ENABLED !== 'false',
+    databaseUrl: process.env.FIREBASE_DB_URL || 'https://galt-messages.firebaseio.com/',
+    includeMessageText: process.env.FIREBASE_MIRROR_INCLUDE_MESSAGE_TEXT === 'true',
+  },
 } as const;

@@ -28,6 +28,7 @@ import {
   stampDraftStaged,
   getSettings,
   updateSettings,
+  getDeviceId,
   SETTING_BOUNDS,
   listNotesForHandle,
   addNoteForHandle,
@@ -116,6 +117,7 @@ import {
 } from './db/app.js';
 import { sendMessageViaAppleScript } from './send.js';
 import { messageWatcher } from './watcher.js';
+import { mirrorAutoNote } from './firebase.js';
 import {
   listAllContacts,
   listContactsWithHandles,
@@ -1995,9 +1997,12 @@ async function extractAutoNoteForMessage(sessionId: number | null, msg: MessageR
     });
     if (!note) return; // duplicate (race)
 
+    const contactName = getContactNameForHandle(msg.handle);
     sseBroadcast('autonote.created', {
-      note: { ...note, contact_name: getContactNameForHandle(msg.handle) },
+      note: { ...note, contact_name: contactName },
     });
+
+    void mirrorAutoNote({ note, contactName, deviceId: getDeviceId() });
   } catch (err) {
     console.error('[autonote] extraction failed:', (err as Error).message);
   }

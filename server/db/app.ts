@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import type { Database as DB } from 'better-sqlite3';
 import { config } from '../config.js';
@@ -372,6 +373,22 @@ export function setState(key: string, value: string): void {
   db.prepare(
     'INSERT INTO state(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
   ).run(key, value);
+}
+
+/** Stable per-install UUID. Generated on first call, persisted in the
+ *  state table forever. Used to identify which mac wrote a Firebase-
+ *  mirrored row when this app ever runs on more than one machine. */
+let _cachedDeviceId: string | null = null;
+export function getDeviceId(): string {
+  if (_cachedDeviceId) return _cachedDeviceId;
+  let id = getState('device_id');
+  if (!id) {
+    id = randomUUID();
+    setState('device_id', id);
+    console.log(`[device] generated device_id=${id}`);
+  }
+  _cachedDeviceId = id;
+  return id;
 }
 
 /* ---------- settings (typed wrapper around state) ---------- */
