@@ -116,7 +116,22 @@ applies.
 | **Test (parade — final review)** | manual: `npm run dev` + click through `http://127.0.0.1:3000` |
 | **Deploy (backend)** | `./bin/deploy` (LaunchAgent restart on this Mac — see Operations cheat sheet below) |
 | **Deploy (remote console)** | `npm run remote:deploy` → `https://galt-messages.web.app` |
-| **Serve remote console locally** | `npm run remote:serve` → `http://127.0.0.1:5000` (Firebase emulator, talks to live RTDB) |
+| **Serve remote console locally** | `npm run remote:serve` → `http://127.0.0.1:5050` (Firebase emulator, talks to live RTDB) |
+
+> **Two gotchas baked into the npm scripts above:**
+>
+> 1. The Firebase CLI requires Node ≥ 20 but the user's default shell
+>    is often on an older system Node. Both scripts go through
+>    `bin/firebase`, which sources `nvm`, honors the repo's `.nvmrc`,
+>    and execs the real `firebase` CLI. Same pattern as `bin/run`.
+>    Direct `firebase ...` calls from the wrong shell will fail with
+>    "Firebase CLI v15 is incompatible with Node.js v…".
+> 2. macOS AirPlay Receiver listens on port 5000 by default and
+>    returns 403 to non-AirPlay requests, which masks Firebase's port
+>    auto-increment with what looks like a server-not-running symptom.
+>    `remote:serve` therefore pins port 5050 and `--host 127.0.0.1`
+>    (Firebase's default `localhost` resolves IPv6-only on this Mac,
+>    which makes IPv4 curls hang).
 | **Rollback** | `git revert <sha>` |
 | **Dependency audit** | `npm audit` |
 

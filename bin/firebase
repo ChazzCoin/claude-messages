@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# Firebase CLI wrapper. Sources nvm so the pinned Node version is on PATH
+# before invoking firebase — the CLI requires Node >= 20 but the user's
+# default shell is often on an older system Node. Same pattern as bin/run.
+#
+# Pass any firebase args through:
+#   ./bin/firebase deploy --only hosting:galt-messages
+#   ./bin/firebase serve  --only hosting:galt-messages
+#   ./bin/firebase apps:sdkconfig WEB <app-id>
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_DIR"
+
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$NVM_DIR/nvm.sh"
+fi
+
+# Honor .nvmrc; install the version if missing.
+if command -v nvm >/dev/null 2>&1; then
+  nvm use --silent 2>/dev/null || nvm install
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "[bin/firebase] node not on PATH (after nvm) — aborting" >&2
+  exit 127
+fi
+
+if ! command -v firebase >/dev/null 2>&1; then
+  echo "[bin/firebase] firebase CLI not on PATH for node $(node -v)." >&2
+  echo "[bin/firebase] install with: npm install -g firebase-tools" >&2
+  exit 127
+fi
+
+exec firebase "$@"
