@@ -84,11 +84,26 @@ applies.
 - **Send path:** AppleScript via `osascript` shelled out from the
   backend. No npm dep.
 - **Watcher:** `node:fs.watch` on `chat.db-wal`.
-- **Firebase mirror:** `firebase-admin` SDK writes `auto_notes` to a
-  Realtime Database instance (`galt-messages`) under project
-  `msb-logistics`. Auth via Application Default Credentials at
+- **Firebase mirror:** `firebase-admin` SDK writes to a Realtime
+  Database instance (`galt-messages`) under project `msb-logistics`.
+  Auth via Application Default Credentials at
   `~/.config/gcloud/application_default_credentials.json` — no creds
-  file in the repo. Lazy-init, fire-and-forget. See `server/firebase.ts`.
+  file in the repo. Lazy-init, fire-and-forget. Three RTDB paths:
+  - `/notes/<message_guid>` — auto-notes feed (set/update/remove on
+    insert / review / delete).
+  - `/state` — single-key snapshot of settings + watched contacts +
+    health, repushed after every mutation.
+  - `/commands/<auto_id>` — frontend → backend intent bus; the
+    listener in `server/firebase-commands.ts` dispatches each
+    command through the same internal helpers the local HTTP routes
+    use, then writes a result and removes the entry after a 5s grace.
+- **Remote console (PWA):** `frontend/galt-messages/`, deployed to
+  `https://galt-messages.web.app` via Firebase Hosting (target
+  `galt-messages` on `msb-logistics`). Vanilla ES modules, Firebase
+  JS SDK v12 from gstatic CDN, no bundler. The frontend's
+  `databaseURL` is pinned to the *named* `galt-messages` RTDB —
+  the SDK auto-config returns the *default* `msb-logistics-default-rtdb`
+  which is wrong; see `frontend/galt-messages/js/firebase.js`.
 
 ## Commands
 
@@ -99,7 +114,9 @@ applies.
 | **Test (verification gate)** | `npm run typecheck` (no test framework yet — typecheck + boot is the gate) |
 | **Test (focused / watched)** | n/a |
 | **Test (parade — final review)** | manual: `npm run dev` + click through `http://127.0.0.1:3000` |
-| **Deploy** | n/a (local-only) |
+| **Deploy (backend)** | `./bin/deploy` (LaunchAgent restart on this Mac — see Operations cheat sheet below) |
+| **Deploy (remote console)** | `npm run remote:deploy` → `https://galt-messages.web.app` |
+| **Serve remote console locally** | `npm run remote:serve` → `http://127.0.0.1:5000` (Firebase emulator, talks to live RTDB) |
 | **Rollback** | `git revert <sha>` |
 | **Dependency audit** | `npm audit` |
 
@@ -126,9 +143,25 @@ claude-messages/                  # repo root (project name: galt)
 │   ├── attributedbody.ts         # naive typedstream → text fallback
 │   ├── watcher.ts                # fs.watch on chat.db-wal
 │   ├── send.ts                   # AppleScript wrapper (Messages.app)
-│   └── ai.ts                     # OpenAI client + classify/draft stubs
-├── web/                          # static frontend (artifact HTML lives here)
-│   └── index.html                # placeholder until artifact drop-in
+│   ├── ai.ts                     # OpenAI client + classify/draft stubs
+│   ├── firebase.ts               # RTDB mirror — admin SDK, fire-and-forget
+│   ├── firebase-state.ts         # /state snapshot builder (debounced push)
+│   └── firebase-commands.ts      # /commands listener — frontend → backend bus
+├── web/                          # local-only static frontend served by Express
+│   └── index.html                # the dashboard you open at 127.0.0.1:3000
+├── frontend/galt-messages/       # Firebase-hosted PWA "remote console"
+│   ├── index.html                # mobile + desktop layout
+│   ├── styles.css                # warm-dark, mobile-first
+│   ├── manifest.webmanifest      # PWA manifest
+│   ├── icon.svg                  # single SVG covers all icon sizes
+│   └── js/                       # ES modules (no bundler)
+│       ├── firebase.js           # SDK init — pinned to galt-messages RTDB
+│       ├── state.js              # /state + /notes subscriptions, sendCommand
+│       ├── render.js             # store → DOM
+│       ├── actions.js            # delegated click handler + command push
+│       └── main.js               # entry
+├── firebase.json                 # Hosting config (target = galt-messages)
+├── .firebaserc                   # project + hosting target mappings
 ├── data/                         # gitignored — app.db lives here
 ├── tasks/                        # PHASES, ROADMAP, AUDIT, backlog/active/done
 ├── docs/                         # decisions, postmortems, notes, audits, …
@@ -409,18 +442,41 @@ When making code changes for the user:
 - **Watcher off by default at boot.** `messageWatcher.start()` is
   not called from `index.ts` yet — needs a configurable flag once
   V1 step 2 wires the routing pipeline.
-- **RTDB rules are wide-open.** `galt-messages` has `".read": true`
-  and `".write": true` (or equivalent test-mode) during dev. Anyone
-  who knows the project ID + database URL can read or overwrite every
-  mirrored note. Acceptable for a single-user dev phase; **lock down
-  before shipping the public mobile frontend**: backend already writes
-  via admin SDK so the rules can drop to `".write": false` + a
-  read rule scoped to your Google UID once Firebase Auth is added to
-  the frontend. Update this file when the rules tighten.
-- **Mirror only fires on insert, not on update.** `reviewed_at`
-  changes locally don't propagate to RTDB yet. Add an update path when
-  the mobile frontend needs to reflect "reviewed" state.
+- **RTDB rules are wide-open AND a remote-control surface now lives
+  on top of them.** `galt-messages` has `".read": true` /
+  `".write": true`. Combined with `frontend/galt-messages/`, that
+  means anyone who knows the project ID + database URL can:
+  - read the auto-notes feed (potentially private),
+  - read your settings + watched contacts + voice profile,
+  - **flip Summon / Away on or off**,
+  - **edit your away message and voice profile**,
+  - **add or remove watched contacts** — meaning toggle who Galt is
+    allowed to auto-respond to,
+  - mark notes reviewed or delete them.
+  Authentication was deferred deliberately (single-user dev phase,
+  obscure project ID, no link sharing). Lock-down path when ready:
+  add Firebase Auth (Google sign-in) to `frontend/galt-messages/js/`,
+  grab your UID, then write RTDB rules of the shape
+  `".read": "auth.uid == '<UID>'", ".write": "auth.uid == '<UID>'"`.
+  Backend uses the admin SDK and bypasses rules, so server-side
+  mirroring keeps working untouched. Update this file when the
+  rules tighten.
+- **`reset_all_data` and `sign_out` are intentionally not in the
+  command listener whitelist.** The remote UI keeps the buttons for
+  visual parity but they show a toast pointing back to the local
+  Mac UI. Reason: cost of an accidental remote tap on "reset" is
+  hours of lost data. If we ever add auth + a confirmation flow, the
+  whitelist in `server/firebase-commands.ts::dispatch` is the place.
+- **Frontend `databaseURL` mismatch trap.** `firebase apps:sdkconfig
+  WEB ...` returns `https://msb-logistics-default-rtdb.firebaseio.com`
+  (the *default* RTDB instance for the project) but the backend
+  mirror writes to the *named* `galt-messages` instance at
+  `https://galt-messages.firebaseio.com`. Both clients must match.
+  The frontend init in `frontend/galt-messages/js/firebase.js`
+  pins the correct URL with a comment; if you ever copy that block
+  somewhere else, copy the comment too.
 - **`device_id` is generated lazily** on first auto-note insert and
   persisted forever in `state`. If you need it earlier (e.g. for a
   startup banner), call `getDeviceId()` from `server/db/app.ts` at
-  boot.
+  boot. The `/state` mirror also reads it, so on a fresh database
+  the boot snapshot will trigger generation.

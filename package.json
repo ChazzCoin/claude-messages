@@ -12,7 +12,9 @@
     "serve": "tsx server/index.ts",
     "start": "node dist/server/index.js",
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "remote:serve": "firebase serve --only hosting:galt-messages",
+    "remote:deploy": "firebase deploy --only hosting:galt-messages"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",

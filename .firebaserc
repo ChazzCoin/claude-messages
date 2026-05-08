@@ -1,5 +1,14 @@
 {
   "projects": {
     "default": "msb-logistics"
+  },
+  "targets": {
+    "msb-logistics": {
+      "hosting": {
+        "galt-messages": [
+          "galt-messages"
+        ]
+      }
+    }
   }
 }

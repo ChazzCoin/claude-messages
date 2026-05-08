@@ -1,0 +1,28 @@
+{
+  "hosting": {
+    "target": "galt-messages",
+    "public": "frontend/galt-messages",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "/manifest.webmanifest",
+        "headers": [
+          { "key": "Content-Type", "value": "application/manifest+json" }
+        ]
+      },
+      {
+        "source": "**/*.@(js|css|svg|webmanifest|html)",
+        "headers": [
+          { "key": "Cache-Control", "value": "public, max-age=300, must-revalidate" }
+        ]
+      }
+    ],
+    "rewrites": [
+      { "source": "**", "destination": "/index.html" }
+    ]
+  }
+}
