@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#15110f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Galt" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Galt</title>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- DESKTOP LAYOUT -->
+  <div class="desktop-layout">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <button class="brand" data-action="refresh">Galt</button>
+        <button class="health-btn" data-id="d-health-btn">
+          <span class="health-dot"></span>
+          <span data-id="d-health-text">—</span>
+        </button>
+      </div>
+      <div class="sidebar-scroll">
+        <div class="toggles">
+          <button class="toggle" data-id="d-summon-toggle" data-toggle="summon">
+            <div class="toggle-top">
+              <div class="toggle-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 12a10 10 0 0 1 20 0"/><path d="M5 12a7 7 0 0 1 14 0"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+              </div>
+              <div class="toggle-state-badge" data-id="d-summon-badge">—</div>
+            </div>
+            <div class="toggle-label">Summon</div>
+          </button>
+          <button class="toggle" data-id="d-away-toggle" data-toggle="away">
+            <div class="toggle-top">
+              <div class="toggle-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              </div>
+              <div class="toggle-state-badge" data-id="d-away-badge">—</div>
+            </div>
+            <div class="toggle-label">Away</div>
+          </button>
+        </div>
+
+        <button class="away-box" data-id="d-away-edit-btn" data-action="edit-away">
+          <div class="away-box-content">
+            <div class="away-label">Away message</div>
+            <div class="away-text" data-id="d-away-display"></div>
+          </div>
+          <div class="away-edit-icon">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          </div>
+        </button>
+
+        <div class="sidebar-stats" data-id="d-status-panel">
+          <!-- populated by render.js from getStatus() -->
+        </div>
+
+        <button class="settings-btn" data-action="open-settings">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="main-header">
+        <div class="main-header-title">Notes</div>
+        <div class="main-header-meta" data-id="d-notes-count">—</div>
+      </div>
+      <div class="main-scroll">
+        <div data-id="d-notes-list"></div>
+      </div>
+    </main>
+  </div>
+
+  <!-- MOBILE / TABLET LAYOUT -->
+  <div class="mobile-layout">
+    <div class="header">
+      <button class="brand" data-action="refresh">Galt</button>
+      <button class="health-btn" data-id="m-health-btn" data-action="open-status">
+        <span class="health-dot"></span>
+        <span data-id="m-health-text">—</span>
+      </button>
+      <button class="icon-btn" data-action="open-settings" aria-label="Settings">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+
+    <div class="scroll" data-id="m-scroll">
+      <div class="ptr" data-id="ptr">
+        <span class="ptr-spinner"></span>Syncing
+      </div>
+
+      <div class="controls">
+        <div class="toggles">
+          <button class="toggle" data-id="m-summon-toggle" data-toggle="summon">
+            <div class="toggle-top">
+              <div class="toggle-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 12a10 10 0 0 1 20 0"/><path d="M5 12a7 7 0 0 1 14 0"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>
+              </div>
+              <div class="toggle-state-badge" data-id="m-summon-badge">—</div>
+            </div>
+            <div class="toggle-label">Summon</div>
+          </button>
+          <button class="toggle" data-id="m-away-toggle" data-toggle="away">
+            <div class="toggle-top">
+              <div class="toggle-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              </div>
+              <div class="toggle-state-badge" data-id="m-away-badge">—</div>
+            </div>
+            <div class="toggle-label">Away</div>
+          </button>
+        </div>
+
+        <button class="away-box" data-id="m-away-edit-btn" data-action="edit-away">
+          <div class="away-box-content">
+            <div class="away-label">Away message</div>
+            <div class="away-text" data-id="m-away-display"></div>
+          </div>
+          <div class="away-edit-icon">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+          </div>
+        </button>
+      </div>
+
+      <div class="notes-section">
+        <div class="notes-head">
+          <div class="notes-title">Notes</div>
+          <div class="notes-count" data-id="m-notes-count">—</div>
+        </div>
+        <div data-id="m-notes-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast" data-id="toast"></div>
+
+  <!-- SETTINGS PANEL -->
+  <div class="sheet-backdrop" data-id="settings-backdrop" data-close="settings"></div>
+  <div class="sheet" data-id="settings-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <button class="sheet-action cancel" data-close="settings">Close</button>
+      <div class="sheet-title">Settings</div>
+      <span class="sheet-action spacer">.</span>
+    </div>
+    <div class="sheet-body">
+      <div class="field-group">
+        <div class="field-label">Voice profile</div>
+        <textarea class="field-textarea" data-id="voice-profile" placeholder="Describe how Galt should write in your voice…"></textarea>
+        <div class="field-help">Galt drafts replies in this voice. Saves as you type.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Watched contacts</div>
+        <div data-id="contacts-list"></div>
+        <div class="add-contact-row">
+          <input class="field-input" data-id="new-contact-name" placeholder="Add contact by name…" />
+          <button class="add-btn" data-action="add-contact">Add</button>
+        </div>
+        <div class="field-help">Tap a status to mute or unmute. Only watched contacts get drafted replies.</div>
+      </div>
+
+      <div class="field-group">
+        <div class="field-label">Default away message</div>
+        <textarea class="field-textarea" data-id="default-away" style="min-height:70px;" placeholder="Heads down today…"></textarea>
+        <div class="field-help">Used as the starting point when you turn Away on.</div>
+      </div>
+
+      <button class="danger-btn" data-action="reset">Reset all data</button>
+      <button class="danger-btn" data-action="sign-out" style="margin-top:6px;">Sign out</button>
+    </div>
+  </div>
+
+  <!-- STATUS SHEET (mobile/tablet only) -->
+  <div class="sheet-backdrop mobile-only" data-id="status-backdrop" data-close="status"></div>
+  <div class="sheet mobile-only" data-id="status-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <button class="sheet-action cancel" data-close="status">Close</button>
+      <div class="sheet-title">Status</div>
+      <span class="sheet-action spacer">.</span>
+    </div>
+    <div class="sheet-body" data-id="m-status-panel">
+      <!-- populated by render.js from getStatus() -->
+    </div>
+  </div>
+
+  <!-- AWAY MESSAGE EDITOR -->
+  <div class="sheet-backdrop" data-id="away-backdrop" data-close="away"></div>
+  <div class="sheet" data-id="away-sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <button class="sheet-action cancel" data-close="away">Cancel</button>
+      <div class="sheet-title">Away message</div>
+      <button class="sheet-action primary" data-action="save-away">Save</button>
+    </div>
+    <div class="sheet-body">
+      <div class="field-group">
+        <div class="field-label">Message</div>
+        <textarea class="field-textarea" data-id="away-input" style="min-height:120px;" placeholder="Heads down today — I'll catch up tonight."></textarea>
+        <div class="field-help">Sent automatically to watched contacts when Away is on.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOOT SCREEN -->
+  <div class="boot" data-id="boot"><div class="boot-mark">Galt</div></div>
+
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
