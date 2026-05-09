@@ -1,28 +1,28 @@
-import { watch, type FSWatcher } from 'node:fs';
-import path from 'node:path';
-import { config } from './config.js';
 import { getMaxMessageRowid, listRecentMessages, type MessageRow } from './db/messages.js';
 import { getState, setState } from './db/app.js';
 
 /**
- * Watch chat.db-wal for write events and emit any new messages whose
- * ROWID exceeds the last-seen value. The last-seen value is persisted
- * in app.db so restarts don't reprocess history.
+ * Poll chat.db for new messages. Originally used fs.watch on chat.db-wal,
+ * but that's unreliable on macOS — SQLite checkpoints recreate the WAL
+ * file (inode changes), and FDA-protected filesystem events under
+ * ~/Library/Messages/ behave inconsistently across machines. Symptom:
+ * watcher boots cleanly, isRunning() returns true, but never emits — and
+ * every message-driven feature (away, summon, auto-notes, radar, flags)
+ * silently dies. Polling at 1.5s is essentially free (one indexed
+ * MAX(ROWID) query per tick) and feels live at human typing speed.
  *
- * V0 wiring: started by index.ts when ENABLE_WATCHER=1 (off by default).
- * V1 step 2 will route emitted messages into the rule engine + AI
- * classifier and the live SSE stream to the browser.
+ * Last-seen ROWID is persisted in app.db so restarts don't reprocess
+ * history.
  */
 
 const STATE_KEY_LAST_ROWID = 'watcher.last_message_rowid';
-const DEBOUNCE_MS = 250;
+const POLL_INTERVAL_MS = 1500;
 
 type Listener = (msgs: MessageRow[]) => void;
 
 export class MessageWatcher {
-  private fsw: FSWatcher | null = null;
+  private pollTimer: NodeJS.Timeout | null = null;
   private listeners = new Set<Listener>();
-  private debounceTimer: NodeJS.Timeout | null = null;
   private lastRowid = 0;
   private started = false;
 
@@ -38,22 +38,15 @@ export class MessageWatcher {
     this.lastRowid = persisted ? parseInt(persisted, 10) : getMaxMessageRowid();
     if (!persisted) setState(STATE_KEY_LAST_ROWID, String(this.lastRowid));
 
-    const walPath = path.join(path.dirname(config.chatDbPath), 'chat.db-wal');
-    try {
-      this.fsw = watch(walPath, () => this.scheduleDrain());
-    } catch (err) {
-      console.warn(
-        `[watcher] could not watch ${walPath}: ${(err as Error).message}. ` +
-          `Watcher disabled. Grant Full Disk Access if this is permission-related.`,
-      );
-      this.started = false;
-    }
+    this.pollTimer = setInterval(() => this.drain(), POLL_INTERVAL_MS);
+    // Don't keep the event loop alive just for the watcher — let the
+    // HTTP server / Firebase listener decide when to exit.
+    this.pollTimer.unref?.();
   }
 
   stop(): void {
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.fsw?.close();
-    this.fsw = null;
+    if (this.pollTimer) clearInterval(this.pollTimer);
+    this.pollTimer = null;
     this.started = false;
   }
 
@@ -62,21 +55,17 @@ export class MessageWatcher {
     return () => this.listeners.delete(fn);
   }
 
-  private scheduleDrain() {
-    if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => this.drain(), DEBOUNCE_MS);
-  }
-
   private drain() {
     try {
+      const rawMax = getMaxMessageRowid();
+      if (rawMax <= this.lastRowid) return;
+
       const fresh = listRecentMessages(this.lastRowid, 200);
       // Advance the watermark off the RAW max so tapbacks don't get re-processed
       // every poll (listRecentMessages filters them out of the returned list).
-      const rawMax = getMaxMessageRowid();
-      if (rawMax > this.lastRowid) {
-        this.lastRowid = rawMax;
-        setState(STATE_KEY_LAST_ROWID, String(rawMax));
-      }
+      this.lastRowid = rawMax;
+      setState(STATE_KEY_LAST_ROWID, String(rawMax));
+
       if (fresh.length === 0) return;
       const ascending = fresh.slice().reverse();
       for (const fn of this.listeners) {

@@ -47,7 +47,10 @@ approval. Web UI is served from the same Node process at
 
 The audience is one user (the repo owner). No auth, no TLS, no
 multi-user, no cloud deploy. Every design call assumes the box runs
-on the owner's Mac and stays there.
+on the owner's Mac. The dashboard may bind beyond loopback when the
+LAN is trusted (see Conventions → "Bind is per-deployment") so the
+owner can hit it from another Mac on the same network, but it never
+faces the public internet.
 
 **One downstream cloud mirror exists.** `auto_notes` rows are mirrored
 to a Firebase Realtime Database (`galt-messages` instance, project
@@ -70,7 +73,7 @@ applies.
 
 ## Tech stack
 
-- **Runtime:** Node.js ≥ 20 (native fetch, ESM, `fs.watch`)
+- **Runtime:** Node.js ≥ 20 (native fetch, ESM)
 - **Language:** TypeScript 5 (ESM, `NodeNext`)
 - **Dev runner:** `tsx` (no build step in dev — runs `.ts` directly)
 - **Server:** Express 4
@@ -83,7 +86,12 @@ applies.
 - **AI:** `openai` SDK, default model `gpt-4o-mini` (configurable)
 - **Send path:** AppleScript via `osascript` shelled out from the
   backend. No npm dep.
-- **Watcher:** `node:fs.watch` on `chat.db-wal`.
+- **Watcher:** 1.5s polling loop on `MAX(message.ROWID)`. Was
+  `fs.watch` on `chat.db-wal` originally; switched to polling because
+  fs.watch silently stops firing on macOS (SQLite WAL checkpoints
+  recreate the file → inode changes → events lost), which kills every
+  message-driven feature without any visible error. Polling is one
+  indexed query per tick — essentially free.
 - **Firebase mirror:** `firebase-admin` SDK writes to a Realtime
   Database instance (`galt-messages`) under project `msb-logistics`.
   Auth via Application Default Credentials at
@@ -154,16 +162,27 @@ claude-messages/                  # repo root (project name: galt)
 │   ├── config.ts                 # env + path resolution
 │   ├── db/
 │   │   ├── messages.ts           # read-only chat.db reader
-│   │   └── app.ts                # app.db (drafts, watched, rules, state)
+│   │   ├── app.ts                # app.db (drafts, watched, rules, state, …)
+│   │   └── contacts.ts           # AddressBook .abcddb reader (read-only)
+│   ├── integrations/
+│   │   └── calendar.ts           # Calendar.app .ics write via `open`
 │   ├── attributedbody.ts         # naive typedstream → text fallback
-│   ├── watcher.ts                # fs.watch on chat.db-wal
+│   ├── watcher.ts                # 1.5s polling loop on MAX(ROWID)
 │   ├── send.ts                   # AppleScript wrapper (Messages.app)
-│   ├── ai.ts                     # OpenAI client + classify/draft stubs
+│   ├── ai.ts                     # OpenAI client + pipeline assembly
 │   ├── firebase.ts               # RTDB mirror — admin SDK, fire-and-forget
 │   ├── firebase-state.ts         # /state snapshot builder (debounced push)
 │   └── firebase-commands.ts      # /commands listener — frontend → backend bus
 ├── web/                          # local-only static frontend served by Express
-│   └── index.html                # the dashboard you open at 127.0.0.1:3000
+│   ├── index.html                # shell — hash-routed SPA
+│   ├── css/main.css
+│   └── js/                       # vanilla ES modules, no bundler
+│       ├── {api,actions,main,router,shell,sse,state,utils}.js
+│       ├── components/{autocomplete,datepicker,modal,session-card}.js
+│       └── views/                # one file per route (home, inbox, thread,
+│                                 #   away, galt, calendar, flags, radar,
+│                                 #   scheduled, search, settings, rules,
+│                                 #   auto-notes)
 ├── frontend/galt-messages/       # Firebase-hosted PWA "remote console"
 │   ├── index.html                # mobile + desktop layout
 │   ├── styles.css                # warm-dark, mobile-first
@@ -213,6 +232,11 @@ NOT EXISTS`, etc.).
   for `chat.db` elsewhere.
 - **app.db queries** — all SQL against the project's own database
   lives in `server/db/app.ts`. Same rule.
+- **AddressBook (.abcddb) queries** — all SQL against macOS Contacts
+  lives in `server/db/contacts.ts`. The reader recursively walks
+  `~/Library/Application Support/AddressBook/` and unions every
+  per-source DB it finds. Read-only. Same "don't sprinkle queries"
+  rule.
 
 ## Gated files (project-specific extensions)
 
@@ -373,6 +397,7 @@ errors don't pollute the output).
 
 | intent | command |
 |---|---|
+| First-run install (Node + deps + LaunchAgent + FDA prompt) | `./bin/setup` |
 | Install LaunchAgent (auto-start at login) | `./bin/install` |
 | Remove LaunchAgent | `./bin/uninstall` |
 | Force fresh `npm install` | `rm -rf node_modules && npm install` |
@@ -381,6 +406,7 @@ errors don't pollute the output).
 
 | symptom | diagnostic |
 |---|---|
+| anything off, you don't know what | `./bin/doctor` (checks 10 things, points at the fix) |
 | dashboard not loading | `./bin/status` first |
 | `chat.db FAIL: EPERM` | macOS Full Disk Access for the Node binary — see Deploy section above |
 | `EADDRINUSE :3000` | another process owns port 3000: `lsof -i :3000` |
@@ -429,9 +455,15 @@ When making code changes for the user:
 - **Never auto-send.** Drafts always require explicit user approval
   via `POST /api/drafts/:id/approve`. The send wrapper is intentionally
   decoupled from any AI path.
-- **Bind to 127.0.0.1.** This is single-user local-only. If a future
-  decision opens it up (e.g. Tailscale + shared-secret), update this
-  file.
+- **Bind is per-deployment.** Default in `.env.example` is
+  `HOST=127.0.0.1` (single-user, loopback-only). This deployment runs
+  `HOST=0.0.0.0` to serve the dashboard to other Macs on the trusted
+  LAN — there is still no auth, so the security boundary is the LAN
+  itself. Anyone on the same network can read all chats, toggle
+  Away/Summon, approve drafts (which sends iMessage), and see the
+  OpenAI key in Settings. Don't flip to `0.0.0.0` on an untrusted
+  network. Tailscale + UID-scoped Firebase Auth would be the proper
+  hardening path before public-network exposure.
 - **No frontend framework.** `web/` is static HTML/JS/CSS that the
   Express server hands out. The artifact HTML drops directly in.
 
@@ -454,9 +486,6 @@ When making code changes for the user:
 - **OpenAI cost control.** Two-tier (regex pre-filter then LLM) is
   the design intent. Concrete budget caps and per-rule cooldowns
   not yet implemented.
-- **Watcher off by default at boot.** `messageWatcher.start()` is
-  not called from `index.ts` yet — needs a configurable flag once
-  V1 step 2 wires the routing pipeline.
 - **RTDB rules are wide-open AND a remote-control surface now lives
   on top of them.** Source of truth lives in
   `database.galt-messages.rules.json` (deploy with
