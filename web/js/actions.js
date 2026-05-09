@@ -6,19 +6,16 @@
 import { api } from './api.js';
 import { escapeHtml } from './utils.js';
 import { openForm, closeForm } from './shell.js';
-import { openModal } from './components/modal.js';
-import { mountDatePicker } from './components/datepicker.js';
 import { navigate } from './router.js';
 import {
   chatsCache, settingsCache, radarHandlesCache,
   flagsTab, calendarTab, currentView, currentChatId, currentRadarHandle,
-  pendingVariants, scheduleFormPicker,
+  scheduleFormPicker,
   setSettingsCache, setFlagsTab, setCalendarTab, setRadarSignalsTab,
-  setQueueTab, setPendingVariants,
+  setQueueTab,
 } from './state.js';
 
-import { refreshDrafts } from './views/drafts.js';
-import { renderThreadToolbar, renderVariantCards } from './views/thread.js';
+import { renderThreadToolbar } from './views/thread.js';
 import { loadAndRenderNotes, loadAndRenderProfile } from './views/inbox.js';
 import { renderSettingsView } from './views/settings.js';
 import { refreshFlagsList, renderFlagsView } from './views/flags.js';
@@ -96,7 +93,28 @@ async function onClick(e) {
   if (action === 'open-summon')     { navigate('summon'); return; }
   if (action === 'open-auto-notes') { navigate('auto-notes'); return; }
   if (action === 'open-calendar')   { setQueueTab('calendar'); navigate('queue'); return; }
+  if (action === 'open-flags')      { setQueueTab('flags'); navigate('queue'); return; }
+  if (action === 'open-scheduled')  { setQueueTab('scheduled'); navigate('queue'); return; }
   if (action === 'open-queue')      { navigate('queue'); return; }
+  if (action === 'open-settings')   { navigate('settings'); return; }
+
+  /* ---------- Reset prompt-card override ---------- */
+  // Clears the override (sends empty string) so the built-in default runs
+  // again. Triggered by the "Reset" button on each Galt prompt card.
+  if (action === 'reset-prompt-card') {
+    const key = btn.dataset.key;
+    if (!key) return;
+    if (!confirm(`Reset ${key} to the built-in default? Your custom text will be cleared.`)) return;
+    try {
+      const r = await api('/api/settings', { method: 'PUT', body: { [key]: '' } });
+      if (r.settings) setSettingsCache(r.settings);
+      if (currentView === 'galt' || currentView === 'prompts') {
+        const { renderGaltView } = await import('./views/galt.js');
+        await renderGaltView();
+      }
+    } catch (err) { alert(`reset failed: ${err.message}`); }
+    return;
+  }
 
   if (action === 'open-thread-by-handle') {
     const handle = btn.dataset.handle;
@@ -228,6 +246,10 @@ async function onClick(e) {
       const r = await api('/api/settings', { method: 'PUT', body: { auto_notes_enabled: next } });
       if (r.settings) setSettingsCache(r.settings);
       if (currentView === 'auto-notes') await renderAutoNotesView();
+      else if (currentView === 'home') {
+        const { renderHomeView } = await import('./views/home.js');
+        await renderHomeView();
+      }
     } catch (err) { alert(`toggle failed: ${err.message}`); }
     return;
   }
@@ -242,7 +264,13 @@ async function onClick(e) {
       const r = await api('/api/settings', { method: 'PUT', body: { away_mode_enabled: next } });
       if (r.settings) setSettingsCache(r.settings);
       updateAwayPill();
-      await renderAwayView();
+      // Re-render whichever view shows this toggle. Away view gets its own
+      // detailed render; Home gets the Switches grid refreshed.
+      if (currentView === 'away') await renderAwayView();
+      else if (currentView === 'home') {
+        const { renderHomeView } = await import('./views/home.js');
+        await renderHomeView();
+      }
     } catch (err) { alert(`toggle failed: ${err.message}`); }
     return;
   }
@@ -479,78 +507,11 @@ async function onClick(e) {
     return;
   }
 
-  /* ---------- Drafts ---------- */
-  if (action === 'schedule') {
-    const id = btn.dataset.id;
-    if (!id) return;
-    const card = btn.closest('.draft');
-    const recipient = card?.querySelector('.draft-name')?.textContent?.trim() || 'this contact';
-    const pickerEl = document.createElement('div');
-    let modalPicker = null;
-    openModal({
-      title: `Schedule send to ${recipient}`,
-      contentEl: pickerEl,
-      confirmLabel: 'Schedule',
-      onConfirm: async () => {
-        const ts = modalPicker?.getMs();
-        if (!Number.isFinite(ts)) throw new Error('pick a date and time first');
-        if (ts <= Date.now()) throw new Error('that time is in the past');
-        await api(`/api/drafts/${id}/schedule`, { method: 'POST', body: { send_at: ts } });
-        refreshScheduledCount();
-        await refreshDrafts();
-      },
-    });
-    modalPicker = mountDatePicker(pickerEl);
-    return;
-  }
-
-  // One-click predict from the inbox row (last N msgs, no extra prompt).
-  if (action === 'ai-draft-row') {
-    const chatId = parseInt(btn.dataset.chatId, 10);
-    if (!Number.isFinite(chatId)) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.classList.remove('ok', 'err');
-    btn.classList.add('busy');
-
-    const ctxCount = settingsCache.ai_context_count;
-    const titleBase = `Predict and draft a reply (last ${ctxCount} messages)`;
-
-    try {
-      const r = await api('/api/ai/draft', {
-        method: 'POST', body: { chat_id: chatId, save: true },
-      });
-      btn.classList.remove('busy');
-      if (r.skipped) {
-        btn.classList.add('err');
-        btn.title = 'model returned SKIP — no draft saved';
-      } else {
-        btn.classList.add('ok');
-        btn.title = `draft saved · ${r.thread.length} turns of context${r.usage ? ' · ' + r.usage.total_tokens + ' tok' : ''}`;
-        await refreshDrafts();
-      }
-      setTimeout(() => {
-        btn.classList.remove('ok', 'err');
-        btn.title = titleBase;
-        btn.innerHTML = original;
-        btn.disabled = false;
-      }, 2500);
-    } catch (err) {
-      btn.classList.remove('busy');
-      btn.classList.add('err');
-      btn.title = err.message;
-      setTimeout(() => {
-        btn.classList.remove('err');
-        btn.title = titleBase;
-        btn.innerHTML = original;
-        btn.disabled = false;
-      }, 3000);
-    }
-    return;
-  }
+  // Manual AI draft flow ('ai-draft-row', 'ai-draft', 'ai-draft-variants',
+  // 'save-variant', 'dismiss-variants', 'vp-regenerate', 'stage',
+  // 'schedule' on a draft) was retired when Galt became the system-wide
+  // AI. Server endpoints /api/drafts/:id/* still exist (orphaned) but
+  // no UI feeds them. Direct send below is preserved.
 
   // Direct send — what the user typed, no AI involvement. Empty body is a no-op.
   if (action === 'send-direct') {
@@ -571,119 +532,13 @@ async function onClick(e) {
       await api('/api/send', { method: 'POST', body: { chat_id: chatId, body } });
       if (ta) ta.value = '';
       if (status) { status.className = 'compose-status ok'; status.textContent = '✓ sent'; }
-      // Optimistic refresh — the watcher will also fire message.new SSE shortly.
-      await refreshDrafts();
+      // Watcher will fire message.new SSE shortly to reflect the send.
     } catch (err) {
       if (status) { status.className = 'compose-status err'; status.textContent = err.message; }
     } finally {
       btn.disabled = false;
       btn.innerHTML = originalLabel;
     }
-    return;
-  }
-
-  if (action === 'ai-draft-variants') {
-    const chatId = parseInt(btn.dataset.chatId, 10);
-    if (!Number.isFinite(chatId)) return;
-    const ta = document.querySelector('[data-compose-input]');
-    const tempSel = document.querySelector('[data-temperament-input]');
-    const status = document.querySelector('[data-compose-status]');
-    const variantsEl = document.querySelector('[data-variants]');
-    const note = (ta?.value || '').trim();
-    const temperament = tempSel?.value || 'normal';
-
-    btn.disabled = true;
-    const originalLabel = btn.innerHTML;
-    btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Generating 3…';
-    if (status) { status.className = 'compose-status'; status.textContent = ''; }
-
-    try {
-      const r = await api('/api/ai/draft', {
-        method: 'POST',
-        body: { chat_id: chatId, save: false, count: 3, context_note: note, temperament },
-      });
-      const next = {
-        variants: r.variants,
-        chat_id: r.chat_id,
-        handle: r.handle,
-        contact_name: r.contact_name,
-        source_msg_guid: r.source_msg_guid,
-        model: r.model,
-        usage: r.usage,
-        temperament: r.temperament,
-        contextNote: note,
-        voice_profile_applied: r.voice_profile_applied,
-        thread_turns: r.thread_turns,
-      };
-      setPendingVariants(next);
-      if (variantsEl) variantsEl.innerHTML = renderVariantCards(next);
-      if (status) {
-        status.className = 'compose-status ok';
-        const tokens = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
-        status.textContent = `${r.variants.filter((v) => !v.skipped).length} of ${r.variants.length} usable${tokens} · pick one`;
-      }
-    } catch (err) {
-      if (status) { status.className = 'compose-status err'; status.textContent = err.message; }
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = originalLabel;
-    }
-    return;
-  }
-
-  if (action === 'save-variant') {
-    if (!pendingVariants) return;
-    const idx = parseInt(btn.dataset.index, 10);
-    const usable = pendingVariants.variants.filter((v) => !v.skipped && v.body.trim().length > 0);
-    const chosen = usable[idx];
-    if (!chosen) return;
-
-    btn.disabled = true;
-    const originalLabel = btn.textContent;
-    btn.textContent = 'Saving…';
-
-    try {
-      const tokenLine = pendingVariants.usage
-        ? `tokens: ${pendingVariants.usage.prompt_tokens}+${pendingVariants.usage.completion_tokens}`
-        : 'tokens: ?';
-      const tempLine = pendingVariants.temperament && pendingVariants.temperament !== 'normal'
-        ? ` · temperament: ${pendingVariants.temperament}` : '';
-      const noteLine = pendingVariants.contextNote ? ` · note: ${JSON.stringify(pendingVariants.contextNote)}` : '';
-      const vpLine = pendingVariants.voice_profile_applied ? ' · voice-profile: applied' : '';
-      const variantLine = ` · variant ${idx + 1} of ${usable.length}`;
-
-      await api('/api/drafts', {
-        method: 'POST',
-        body: {
-          chat_id: pendingVariants.chat_id,
-          handle: pendingVariants.handle,
-          body: chosen.body,
-          source_msg_guid: pendingVariants.source_msg_guid,
-          reasoning: `AI · model=${pendingVariants.model} · context=${pendingVariants.thread_turns} turns · ${tokenLine}${vpLine}${tempLine}${noteLine}${variantLine}`,
-        },
-      });
-      const variantsEl = document.querySelector('[data-variants]');
-      const status = document.querySelector('[data-compose-status]');
-      const ta = document.querySelector('[data-compose-input]');
-      if (variantsEl) variantsEl.innerHTML = '';
-      if (ta) ta.value = '';
-      if (status) { status.className = 'compose-status ok'; status.textContent = '✓ saved to drafts'; }
-      setPendingVariants(null);
-      await refreshDrafts();
-    } catch (err) {
-      alert(`save failed: ${err.message}`);
-      btn.disabled = false;
-      btn.textContent = originalLabel;
-    }
-    return;
-  }
-
-  if (action === 'dismiss-variants') {
-    const variantsEl = document.querySelector('[data-variants]');
-    if (variantsEl) variantsEl.innerHTML = '';
-    setPendingVariants(null);
-    const status = document.querySelector('[data-compose-status]');
-    if (status) { status.className = 'compose-status'; status.textContent = ''; }
     return;
   }
 
@@ -701,74 +556,6 @@ async function onClick(e) {
     return;
   }
 
-  /* ---------- Voice profile regenerate ---------- */
-  if (action === 'vp-regenerate') {
-    const form = btn.closest('form[data-form="voice-profile"]');
-    if (!form) return;
-    const sample = parseInt(form.querySelector('[name="voice_profile_sample_count"]').value, 10);
-    const userContext = form.querySelector('[name="voice_profile_user_context"]').value;
-    const errEl = form.querySelector('[data-error]');
-    if (errEl) { errEl.classList.remove('ok', 'err'); errEl.textContent = ''; }
-
-    const original = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Reading chat.db & calling model…';
-    try {
-      const r = await api('/api/ai/voice-profile/regenerate', {
-        method: 'POST',
-        body: { sample_count: sample, user_context: userContext },
-      });
-      if (r.settings) setSettingsCache(r.settings);
-      await renderSettingsView();
-      const newErr = document.querySelector('form[data-form="voice-profile"] [data-error]');
-      if (newErr) {
-        newErr.classList.add('ok');
-        const tok = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
-        newErr.textContent = `✓ regenerated · ${r.sample_count} samples${tok}`;
-      }
-    } catch (err) {
-      if (errEl) { errEl.classList.add('err'); errEl.textContent = err.message; }
-      btn.disabled = false;
-      btn.innerHTML = original;
-    }
-    return;
-  }
-
-  /* ---------- Thread AI draft ---------- */
-  if (action === 'ai-draft') {
-    const chatId = parseInt(btn.dataset.chatId, 10);
-    if (!Number.isFinite(chatId)) return;
-    const ctxInput = document.querySelector('[data-ctx-input]');
-    const status = document.querySelector('[data-toolbar-status]');
-    const ctx = parseInt(ctxInput?.value, 10);
-    const contextCount = Number.isFinite(ctx) ? Math.max(1, Math.min(50, ctx)) : 10;
-
-    btn.disabled = true;
-    const originalLabel = btn.innerHTML;
-    btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Drafting…';
-    if (status) { status.className = 'toolbar-status'; status.textContent = ''; }
-
-    try {
-      const r = await api('/api/ai/draft', {
-        method: 'POST',
-        body: { chat_id: chatId, context_count: contextCount, save: true },
-      });
-      if (r.skipped) {
-        if (status) { status.className = 'toolbar-status err'; status.textContent = 'model returned SKIP — no draft saved'; }
-      } else {
-        const tokens = r.usage ? ` · ${r.usage.total_tokens} tok` : '';
-        if (status) { status.className = 'toolbar-status ok'; status.textContent = `✓ saved · ${r.thread.length} turns of context${tokens}`; }
-        await refreshDrafts();
-      }
-    } catch (err) {
-      if (status) { status.className = 'toolbar-status err'; status.textContent = err.message; }
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = originalLabel;
-    }
-    return;
-  }
-
   /* ---------- Thread notes ---------- */
   if (action === 'remove-note') {
     const id = parseInt(btn.dataset.id, 10);
@@ -781,53 +568,9 @@ async function onClick(e) {
     return;
   }
 
-  /* ---------- Stage in Messages ---------- */
-  if (action === 'stage') {
-    const id = btn.dataset.id;
-    if (!id) return;
-    btn.disabled = true;
-    const orig = btn.innerHTML;
-    btn.innerHTML = '<span style="margin-right:6px;">⠋</span>Opening Messages…';
-    try {
-      await api(`/api/drafts/${id}/stage`, { method: 'POST', body: {} });
-      await refreshDrafts();
-    } catch (err) {
-      alert(`stage failed: ${err.message}`);
-      btn.disabled = false;
-      btn.innerHTML = orig;
-    }
-    return;
-  }
-
-  /* ---------- Approve / discard (id-based draft actions) ---------- */
-  const id = btn.dataset.id;
-  if (!id) return;
-
-  if (action === 'approve') {
-    const card = btn.closest('.draft');
-    const handle = card?.querySelector('.draft-name')?.textContent || 'this contact';
-    if (!confirm(`Send this reply to ${handle}?`)) return;
-  }
-
-  btn.disabled = true;
-  const originalText = btn.textContent;
-  if (action === 'approve') btn.textContent = 'Sending…';
-  if (action === 'discard') btn.textContent = 'Dismissing…';
-
-  try {
-    if (action === 'approve') {
-      await api(`/api/drafts/${id}/approve`, { method: 'POST', body: {} });
-    } else if (action === 'discard') {
-      await api(`/api/drafts/${id}/discard`, { method: 'POST', body: {} });
-    } else {
-      return;
-    }
-    await refreshDrafts();
-  } catch (err) {
-    alert(`${action} failed: ${err.message}`);
-    btn.disabled = false;
-    btn.textContent = originalText;
-  }
+  // 'stage' / 'approve' / 'discard' draft-queue handlers retired with
+  // the rest of the manual AI draft flow. Server endpoints still exist
+  // but no UI feeds them.
 }
 
 async function onSubmit(e) {
@@ -914,16 +657,31 @@ async function onSubmit(e) {
         setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
       }
     } else if (kind === 'prompts-away' || kind === 'prompts-summon' || kind === 'prompts-universal' || kind === 'prompts-wrappers') {
-      // Centralized prompts page. Each form's FormData is exactly the prompt
-      // fields owned by that section, keyed by AppSettings column name —
-      // pass through to PUT /api/settings, which gates each known key.
-      // Adding a prompt to the registry "just works" with no change here.
+      // Legacy section-level prompts form. Kept for compatibility — current
+      // Galt page renders per-card forms (see kind === 'prompt-card' below).
       const r = await api('/api/settings', { method: 'PUT', body: { ...data } });
       if (r.settings) setSettingsCache(r.settings);
       if (errEl) {
         errEl.classList.add('ok');
         errEl.textContent = '✓ saved';
         setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+      }
+    } else if (kind === 'prompt-card') {
+      // Per-card prompt save. The form has a single named textarea whose
+      // name matches the AppSettings column. PUT /api/settings gates each
+      // known key, so adding a prompt to the registry "just works" without
+      // any change here. After save, re-render Galt so the override-state
+      // pill flips and the type-stripe lights up.
+      const r = await api('/api/settings', { method: 'PUT', body: { ...data } });
+      if (r.settings) setSettingsCache(r.settings);
+      if (errEl) {
+        errEl.classList.add('ok');
+        errEl.textContent = '✓ saved';
+        setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
+      }
+      if (currentView === 'galt' || currentView === 'prompts') {
+        const { renderGaltView } = await import('./views/galt.js');
+        await renderGaltView();
       }
     } else if (kind === 'auto-notes-config') {
       // Excluded handles textarea: one per line, trim, drop blanks.
@@ -967,13 +725,6 @@ async function onSubmit(e) {
       });
       closeForm('form-schedule');
       await refreshScheduledList();
-    } else if (kind === 'draft') {
-      await api('/api/drafts', {
-        method: 'POST',
-        body: { chat_id: parseInt(data.chat_id, 10), body: data.body },
-      });
-      closeForm('form-draft');
-      await refreshDrafts();
     } else if (kind === 'settings') {
       const r = await api('/api/settings', {
         method: 'PUT',
@@ -1031,21 +782,6 @@ async function onSubmit(e) {
           newErr.textContent = '✓ saved';
           setTimeout(() => { newErr.classList.remove('ok'); newErr.textContent = ''; }, 2500);
         }
-      }
-    } else if (kind === 'voice-profile') {
-      const r = await api('/api/settings', {
-        method: 'PUT',
-        body: {
-          voice_profile: data.voice_profile ?? '',
-          voice_profile_sample_count: parseInt(data.voice_profile_sample_count, 10),
-          voice_profile_user_context: data.voice_profile_user_context ?? '',
-        },
-      });
-      if (r.settings) setSettingsCache(r.settings);
-      if (errEl) {
-        errEl.classList.add('ok');
-        errEl.textContent = '✓ voice profile saved';
-        setTimeout(() => { errEl.classList.remove('ok'); errEl.textContent = ''; }, 2500);
       }
     }
   } catch (err) {

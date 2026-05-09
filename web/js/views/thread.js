@@ -1,12 +1,16 @@
-// Thread view — message bubbles, plus the toolbar/compose UI in the right panel.
-// renderVariantCards is called from the click-handler when /api/ai/draft returns 3 options.
+// Thread view — message bubbles + the right-panel toolbar (Summarize +
+// Radar) and the bottom compose bar (direct send only).
+//
+// The "Draft AI reply", "3 AI options", "tone" temperament selector, and
+// the variants UI were retired when manual AI draft generation was
+// removed from the system. Galt's only AI generation paths now are
+// away mode and summon mode auto-replies.
 
 import { api } from '../api.js';
 import { setMainHeader } from '../shell.js';
 import { escapeHtml, relTime, fmtBytes } from '../utils.js';
 import {
-  chatsCache, settingsCache, settingsBounds,
-  radarHandlesCache, TEMPERAMENTS,
+  chatsCache, radarHandlesCache,
 } from '../state.js';
 import { loadAndRenderNotes, loadAndRenderProfile } from './inbox.js';
 
@@ -70,17 +74,11 @@ function renderMessageBubble(m) {
 }
 
 export function renderThreadToolbar(chatId) {
-  const max = settingsBounds.ai_context_count?.max || 100;
-  const dflt = settingsCache.ai_context_count;
   const meta = chatsCache.find((c) => c.id === chatId);
   const handle = meta?.identifier || '';
   const onRadar = !!radarHandlesCache.has(handle);
   return `
     <div class="thread-toolbar">
-      <button class="btn primary" data-action="ai-draft" data-chat-id="${chatId}" title="Draft an AI reply using the last ${dflt} messages as context">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
-        Draft AI reply
-      </button>
       <button class="btn" data-action="ai-summarize" data-chat-id="${chatId}" title="Quick AI summary of recent messages">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         Summarize
@@ -89,10 +87,6 @@ export function renderThreadToolbar(chatId) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="${onRadar ? 'color: var(--green);' : ''}"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/><line x1="12" y1="12" x2="20.5" y2="3.5"/></svg>
         ${onRadar ? 'On Radar' : 'Add to Radar'}
       </button>
-      <label>
-        <span>context window</span>
-        <input class="ctx-input" type="number" min="1" max="${max}" value="${dflt}" data-ctx-input title="How many recent messages to attach to AI calls" />
-      </label>
       <span class="toolbar-status" data-toolbar-status></span>
     </div>
     <div class="summary-panel" data-summary-panel hidden></div>
@@ -100,58 +94,18 @@ export function renderThreadToolbar(chatId) {
 }
 
 export function renderThreadCompose(chatId) {
-  const tempOpts = TEMPERAMENTS.map(
-    (t) => `<option value="${t}">${t}</option>`,
-  ).join('');
-  const vpApplied = (settingsCache.voice_profile || '').trim().length > 0;
   return `
     <div class="compose-bar">
-      <textarea data-compose-input placeholder="Type a message — or a hint for the AI (e.g. 'be warm but brief', 'ask for the address'). ⌘+Enter sends."></textarea>
+      <textarea data-compose-input placeholder="Type a message. ⌘+Enter sends."></textarea>
       <div class="compose-actions">
-        <button class="btn primary" data-action="send-direct" data-chat-id="${chatId}" title="Send what you typed directly. No AI.">
+        <button class="btn primary" data-action="send-direct" data-chat-id="${chatId}" title="Send what you typed directly.">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
           Send
         </button>
-        <button class="btn" data-action="ai-draft-variants" data-chat-id="${chatId}" title="Generate 3 alternative AI drafts, pick one to save">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
-          3 AI options
-        </button>
-        <label class="compose-tone">
-          <span>tone</span>
-          <select data-temperament-input>${tempOpts}</select>
-        </label>
-        <span class="compose-meta">last ${settingsCache.ai_context_count} msgs${vpApplied ? ' + voice profile' : ''} as context</span>
         <span class="compose-status" data-compose-status></span>
       </div>
-      <div class="variants" data-variants></div>
     </div>
   `;
-}
-
-export function renderVariantCards(state) {
-  const usable = state.variants.filter((v) => !v.skipped && v.body.trim().length > 0);
-  if (usable.length === 0) {
-    return '<div class="empty-row" style="padding:8px 0;">model returned SKIP for all variants — try adjusting your prompt or temperament</div>';
-  }
-  const tempBadge = state.temperament && state.temperament !== 'normal'
-    ? `<span class="badge">tone: ${escapeHtml(state.temperament)}</span>` : '';
-  const tokens = state.usage ? `${state.usage.total_tokens} tok total` : '';
-  const noteBadge = state.contextNote ? '<span class="badge">+ context</span>' : '';
-  return usable.map((v, i) => `
-    <div class="variant-card" data-variant-index="${i}">
-      <div class="variant-meta">
-        <span class="badge">variant ${i + 1} of ${usable.length}</span>
-        ${tempBadge}
-        ${noteBadge}
-        <span style="margin-left:auto;">${escapeHtml(tokens)}</span>
-      </div>
-      <div class="variant-body">${escapeHtml(v.body)}</div>
-      <div class="variant-actions">
-        <button class="btn primary" data-action="save-variant" data-index="${i}">Use this →</button>
-        <button class="btn ghost" data-action="dismiss-variants" style="margin-left:auto;">Discard all</button>
-      </div>
-    </div>
-  `).join('');
 }
 
 export async function renderThreadView(chatId) {

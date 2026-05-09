@@ -6,10 +6,6 @@ export let chatsCache = [];
 export let contactsCache = []; // [{full_name, first_name, last_name, organization, handles: [...]}]
 export let settingsCache = {
   ai_context_count: 20,
-  voice_profile: '',
-  voice_profile_sample_count: 200,
-  voice_profile_user_context: '',
-  voice_profile_updated_at: 0,
   away_mode_enabled: 0,
   away_message: '',
   away_max_replies_per_session: 50,
@@ -20,7 +16,6 @@ export let settingsCache = {
 };
 export let settingsBounds = {
   ai_context_count: { min: 1, max: 100 },
-  voice_profile_sample_count: { min: 50, max: 2000 },
   away_max_replies_per_session: { min: 1, max: 200 },
 };
 export let radarHandlesCache = new Set();
@@ -41,15 +36,11 @@ export let flagsTab = 'unreviewed';
 export let queueTab = 'calendar'; // which Queue sub-tab is active (calendar|flags|scheduled)
 
 // Transient state.
-export let pendingVariants = null; // { variants, chat_id, handle, source_msg_guid, model, usage, temperament, contextNote }
+// pendingVariants and TEMPERAMENTS were retired with the manual AI draft
+// flow. (TEMPERAMENTS still lives server-side in ai.ts for future internal
+// use; nothing in the frontend references it today.)
 export let scheduleFormPicker = null; // returned by mountDatePicker for the inline schedule form
 export let autoUnreviewedNotes = 0;
-
-// Constants.
-export const TEMPERAMENTS = [
-  'normal', 'warm', 'casual', 'professional', 'enthusiastic', 'apologetic',
-  'snarky', 'blunt', 'angry', 'sad', 'aggressive',
-];
 
 // --- mutators (so importing modules can update without reassigning bindings) ---
 // ES module exports are live read-only bindings; consumers can read but the
@@ -72,6 +63,5 @@ export function setCalendarTab(v) { calendarTab = v; }
 export function setFlagsTab(v) { flagsTab = v; }
 export function setQueueTab(v) { queueTab = v; }
 
-export function setPendingVariants(v) { pendingVariants = v; }
 export function setScheduleFormPicker(v) { scheduleFormPicker = v; }
 export function setAutoUnreviewedNotes(n) { autoUnreviewedNotes = n; }

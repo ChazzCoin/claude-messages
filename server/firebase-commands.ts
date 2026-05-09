@@ -159,11 +159,10 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       return { away_message: after.away_message };
     }
 
-    case 'set_voice_profile': {
-      const text = typeof p.text === 'string' ? p.text : '';
-      const after = updateSettings({ voice_profile: text });
-      return { voice_profile: after.voice_profile };
-    }
+    // 'set_voice_profile' (the old user voice profile) was retired when
+    // Galt became the system-wide AI voice. Companion clients calling
+    // this command on this build get an error and should switch to
+    // set_galt_voice_profile.
 
     case 'set_galt_voice_profile': {
       const text = typeof p.text === 'string' ? p.text : '';

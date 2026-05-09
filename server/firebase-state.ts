@@ -39,7 +39,6 @@ interface StateSnapshot {
     summon_enabled: boolean;
     away_mode_enabled: boolean;
     away_message: string;
-    voice_profile: string;
     galt_voice_profile: string;
     auto_notes_enabled: boolean;
   };
@@ -86,7 +85,6 @@ function buildSnapshot(): StateSnapshot {
       summon_enabled: !!s.summon_enabled,
       away_mode_enabled: !!s.away_mode_enabled,
       away_message: s.away_message,
-      voice_profile: s.voice_profile,
       galt_voice_profile: s.galt_voice_profile,
       auto_notes_enabled: !!s.auto_notes_enabled,
     },

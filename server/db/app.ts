@@ -396,24 +396,23 @@ export function getDeviceId(): string {
 export interface AppSettings {
   /** Number of recent messages to attach to AI prompts as context. */
   ai_context_count: number;
-  /** Distilled prose describing how the user writes — fed into draft prompts. */
-  voice_profile: string;
-  /** How many recent sent messages to sample on regeneration. */
-  voice_profile_sample_count: number;
-  /** Optional user-supplied guidance, used at regeneration time. */
-  voice_profile_user_context: string;
-  /** Last regeneration timestamp (unix ms), 0 if never. */
-  voice_profile_updated_at: number;
+  // The user's voice_profile / voice_profile_sample_count /
+  // voice_profile_user_context / voice_profile_updated_at fields were
+  // removed when Galt became the system-wide AI voice. Old data stays
+  // in the kv store on disk (orphan keys) so it can be recovered if
+  // the concept is ever rebuilt. Galt's own voice lives in
+  // galt_voice_profile below.
   /** Away mode: when on, opted-in contacts get auto-replies. 0/1 (treated as bool). */
   away_mode_enabled: number;
   /** The greeting sent on the FIRST incoming message in away mode. */
   away_message: string;
   /** Per-session AI reply cap (safety against runaway). */
   away_max_replies_per_session: number;
-  /** Free-text personality / behavior guidance for the AI WHILE in away mode.
-   *  Distinct from voice_profile (which captures how the user writes).
-   *  This shapes how the AI BEHAVES while covering — banter level, deflection
-   *  style, jokes, how to handle "are you really an AI?" etc. */
+  /** Free-text behavior guidance for Galt while in away mode.
+   *  Distinct from galt_voice_profile (which captures Galt's voice for ALL
+   *  modes). This shapes how Galt BEHAVES specifically while covering —
+   *  banter level, deflection style, jokes, how to handle "are you really
+   *  the AI?" etc. Wrapped by wrapper_away_persona before injection. */
   away_persona: string;
   /** Insert a humanizing pause before each away-mode auto-send so replies
    *  don't feel robotically instant. 0/1 (treated as bool). Default 1. */
@@ -426,12 +425,12 @@ export interface AppSettings {
   summon_trigger_phrase: string;
   /** Phrase the USER types to dismiss Galt. Case-insensitive substring match. */
   summon_end_phrase: string;
-  /** Voice profile for Galt-as-himself — prose describing Galt's style,
-   *  tone, register, quirks. Used wherever Galt acts as the assistant
-   *  (currently summon mode). Parallel to user's voice_profile, which is
-   *  used wherever Galt impersonates the user (away mode, manual draft).
+  /** Voice profile for Galt — prose describing Galt's style, tone,
+   *  register, quirks. This is the SYSTEM-WIDE AI VOICE: every AI call
+   *  (away mode, summon mode, manual draft) speaks in this voice.
    *  User-written; no AI generation. Was named summon_persona — migrated
-   *  at boot. */
+   *  at boot. The user's old `voice_profile` setting is deprecated; Galt
+   *  no longer impersonates the user. */
   galt_voice_profile: string;
   /** Per-session reply cap. Sessions auto-end when hit. */
   summon_max_replies_per_session: number;
@@ -487,17 +486,18 @@ export interface AppSettings {
   wrapper_contact_notes: string;
   /** Wrapper for temperament. {temperament} + {guidance} substitutions. */
   wrapper_temperament: string;
+  /** Wrapper for the away_persona block. {body} = the persona text. Only
+   *  injected when in away mode and away_persona is non-empty. Promotes
+   *  persona from "data fed to {persona} placeholder" to a first-class
+   *  injection stage in the Away lane of the pipeline. */
+  wrapper_away_persona: string;
 }
 
 const SETTING_DEFAULTS: AppSettings = {
   ai_context_count: 20,
-  voice_profile: '',
-  voice_profile_sample_count: 200,
-  voice_profile_user_context: '',
-  voice_profile_updated_at: 0,
   away_mode_enabled: 0,
   away_message:
-    "I'm currently away. — this is Chazz's AI, designed to mimic him while he's not here. Feel free to keep chatting and I'll do my best to keep things going in his voice. He'll catch up when he's back.",
+    "Hey, this is Galt — Chazz's AI assistant. He's away right now, but I can keep things moving in the meantime. Anything that needs his actual call I'll flag for him; he'll catch up properly when he's back.",
   away_max_replies_per_session: 50,
   away_persona: '',
   away_send_delay_enabled: 1,
@@ -522,11 +522,11 @@ const SETTING_DEFAULTS: AppSettings = {
   wrapper_calendar: '',
   wrapper_contact_notes: '',
   wrapper_temperament: '',
+  wrapper_away_persona: '',
 };
 
 export const SETTING_BOUNDS = {
   ai_context_count: { min: 1, max: 100 },
-  voice_profile_sample_count: { min: 50, max: 2000 },
   away_max_replies_per_session: { min: 1, max: 200 },
   summon_max_replies_per_session: { min: 1, max: 200 },
   summon_idle_timeout_min: { min: 1, max: 720 },
@@ -544,17 +544,6 @@ export function getSettings(): AppSettings {
     ai_context_count: parseIntOr(
       getState('ai_context_count'),
       SETTING_DEFAULTS.ai_context_count,
-    ),
-    voice_profile: getState('voice_profile') ?? SETTING_DEFAULTS.voice_profile,
-    voice_profile_sample_count: parseIntOr(
-      getState('voice_profile_sample_count'),
-      SETTING_DEFAULTS.voice_profile_sample_count,
-    ),
-    voice_profile_user_context:
-      getState('voice_profile_user_context') ?? SETTING_DEFAULTS.voice_profile_user_context,
-    voice_profile_updated_at: parseIntOr(
-      getState('voice_profile_updated_at'),
-      SETTING_DEFAULTS.voice_profile_updated_at,
     ),
     away_mode_enabled: parseIntOr(
       getState('away_mode_enabled'),
@@ -610,6 +599,7 @@ export function getSettings(): AppSettings {
     wrapper_calendar: getState('wrapper_calendar') ?? SETTING_DEFAULTS.wrapper_calendar,
     wrapper_contact_notes: getState('wrapper_contact_notes') ?? SETTING_DEFAULTS.wrapper_contact_notes,
     wrapper_temperament: getState('wrapper_temperament') ?? SETTING_DEFAULTS.wrapper_temperament,
+    wrapper_away_persona: getState('wrapper_away_persona') ?? SETTING_DEFAULTS.wrapper_away_persona,
   };
 }
 
@@ -619,21 +609,6 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
     const n = Math.max(min, Math.min(max, Math.floor(Number(patch.ai_context_count))));
     if (!Number.isFinite(n)) throw new Error('ai_context_count must be an integer');
     setState('ai_context_count', String(n));
-  }
-  if (patch.voice_profile !== undefined) {
-    setState('voice_profile', String(patch.voice_profile));
-  }
-  if (patch.voice_profile_sample_count !== undefined) {
-    const { min, max } = SETTING_BOUNDS.voice_profile_sample_count;
-    const n = Math.max(min, Math.min(max, Math.floor(Number(patch.voice_profile_sample_count))));
-    if (!Number.isFinite(n)) throw new Error('voice_profile_sample_count must be an integer');
-    setState('voice_profile_sample_count', String(n));
-  }
-  if (patch.voice_profile_user_context !== undefined) {
-    setState('voice_profile_user_context', String(patch.voice_profile_user_context));
-  }
-  if (patch.voice_profile_updated_at !== undefined) {
-    setState('voice_profile_updated_at', String(Math.floor(Number(patch.voice_profile_updated_at))));
   }
   if (patch.away_mode_enabled !== undefined) {
     setState('away_mode_enabled', String(patch.away_mode_enabled ? 1 : 0));
@@ -727,6 +702,7 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
     'wrapper_calendar',
     'wrapper_contact_notes',
     'wrapper_temperament',
+    'wrapper_away_persona',
   ] as const) {
     if (patch[key] !== undefined) {
       setState(key, String(patch[key]));

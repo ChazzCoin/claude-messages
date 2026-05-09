@@ -1,15 +1,18 @@
-// Inbox view — the chat list with a Drafts queue rendered at the top
-// (Drafts used to be its own page; folded in during the sidebar cleanup).
-// Also exposes the per-thread "memory notes" block that the thread view
-// re-uses.
+// Inbox view — the chat list. Also exposes the per-thread "memory notes"
+// block that the thread view re-uses.
+//
+// The Drafts queue panel + per-row "AI draft" button were retired when
+// manual AI generation was removed from the system (Galt's only AI paths
+// are now away mode and summon mode auto-replies). The /api/drafts CRUD
+// endpoints still exist on the server in case anyone wants to rebuild a
+// drafts UI later — but nothing in the frontend feeds them today.
 
 import { api } from '../api.js';
 import { setMainHeader } from '../shell.js';
 import { escapeHtml, initials, avatarClass, relTime } from '../utils.js';
 import {
-  chatsCache, settingsCache, setChatsCache,
+  chatsCache, setChatsCache,
 } from '../state.js';
-import { refreshDrafts, renderNewDraftToolbar } from './drafts.js';
 
 export function renderChatRow(c) {
   // Prefer contact_name (resolved from macOS Contacts) → group display_name → handle.
@@ -34,9 +37,6 @@ export function renderChatRow(c) {
         <div class="row-preview">${escapeHtml(previewText)}</div>
       </div>
       <div class="row-meta">${escapeHtml(time)}</div>
-      <button class="row-ai" data-action="ai-draft-row" data-chat-id="${c.id}" title="Predict and draft a reply (last ${settingsCache.ai_context_count} messages)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z"/></svg>
-      </button>
     </div>
   `;
 }
@@ -44,12 +44,11 @@ export function renderChatRow(c) {
 export async function renderInboxView() {
   setMainHeader({
     title: 'Inbox',
-    subHTML: '<span class="accent" id="main-pending-count">— chats</span> · drafts at top · live read of chat.db',
+    subHTML: '<span class="accent" id="main-pending-count">— chats</span> · live read of chat.db',
   });
   const list = document.getElementById('drafts-list');
   if (list) list.innerHTML = '<div class="empty"><div class="empty-title">loading…</div></div>';
 
-  // Pull chats first so the drafts toolbar's "+ new draft" picker has them.
   let loadErr = null;
   try {
     const { chats } = await api('/api/chats?limit=200');
@@ -72,21 +71,11 @@ export async function renderInboxView() {
     return;
   }
 
-  // Two-section layout: Drafts up top (toolbar + list, target ID is the
-  // refreshDrafts target), then the chat list. The drafts list populates
-  // via refreshDrafts() right after this render fires.
   const chatRows = chatsCache.length
     ? chatsCache.map(renderChatRow).join('')
     : '<div class="empty"><div class="empty-title">No chats found.</div></div>';
 
   list.innerHTML = `
-    <section class="inbox-drafts-section">
-      <div class="inbox-section-head">
-        <h3>Drafts</h3>
-      </div>
-      <div id="inbox-drafts-toolbar">${renderNewDraftToolbar()}</div>
-      <div id="inbox-drafts-list"><div class="empty-row" style="padding:6px 0;color:var(--text-faint);">loading drafts…</div></div>
-    </section>
     <section class="inbox-chats-section">
       <div class="inbox-section-head">
         <h3>Chats</h3>
@@ -95,9 +84,6 @@ export async function renderInboxView() {
       <div id="inbox-chats-list">${chatRows}</div>
     </section>
   `;
-
-  // Populate drafts. Doesn't block the inbox render — drafts arrive shortly.
-  refreshDrafts();
 }
 
 /* ---------- per-contact profile (long-form prose, top of thread sidebar) ---------- */

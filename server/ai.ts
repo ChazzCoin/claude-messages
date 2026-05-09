@@ -106,91 +106,11 @@ export async function classifyIncoming(text: string): Promise<ClassificationResu
   return parsed as ClassificationResult;
 }
 
-/* ------------------------------------------------------------------ */
-/* voice profile — incremental refinement of the user's writing style */
-/* ------------------------------------------------------------------ */
-
-const VOICE_PROFILE_SYSTEM = `You are profiling how a specific user writes iMessages so that an AI can later draft replies in their voice. Output a concise prose voice profile (300–600 words) — no JSON, no preamble, no headers required, no markdown bullets unless they help. Be specific and evidence-based. Do NOT invent traits not visible in the data.
-
-Cover (where the data supports it):
-- Capitalization habits (all-lowercase, sentence case, mixed)
-- Punctuation tendencies (periods? ellipses? em dashes? exclamations?)
-- Length / brevity preferences (one-liners vs. paragraphs; per-context)
-- Vocabulary, slang, catchphrases, acronyms, signature words
-- Profanity usage and which words appear
-- Emoji density and which emoji actually show up
-- Tone (humor, sarcasm, warmth, terseness, formality)
-- Greeting / signoff habits (or absence thereof)
-- Per-context shifts you can observe (work vs. friends vs. family)
-- Anything else distinctive
-
-When given an EXISTING profile, treat it as prior knowledge: preserve well-grounded observations, refine when new evidence sharpens or contradicts them, and add new patterns visible in the recent sample. Do not throw away good prior insights just because the recent sample is small.`;
-
-export interface VoiceProfileInput {
-  /** Current voice profile, if any. Empty string = fresh generation. */
-  existing: string;
-  /** Optional user-supplied context/guidance (e.g. background, accents, regional notes). */
-  userContext: string;
-  /** Recent sent messages from the user, oldest first. Used as the evidence corpus. */
-  samples: string[];
-}
-
-export interface VoiceProfileResult {
-  profile: string;
-  model: string;
-  sampleCount: number;
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-}
-
-export async function generateVoiceProfile(input: VoiceProfileInput): Promise<VoiceProfileResult> {
-  const client = getOpenAI();
-  const corpus = input.samples
-    .map((s, i) => `[${i + 1}] ${s.replace(/\n+/g, ' ').trim()}`)
-    .join('\n');
-
-  const sections: string[] = [];
-  if (input.existing && input.existing.trim()) {
-    sections.push(
-      `EXISTING PROFILE (refine, don't replace cold — preserve what holds up, sharpen what new evidence supports):\n"""\n${input.existing.trim()}\n"""`,
-    );
-  }
-  if (input.userContext && input.userContext.trim()) {
-    sections.push(`USER-SUPPLIED CONTEXT:\n"""\n${input.userContext.trim()}\n"""`);
-  }
-  sections.push(
-    `RECENT SAMPLE (${input.samples.length} of the user's most recent sent messages, oldest first):\n${corpus}`,
-  );
-  sections.push(
-    `Now output the UPDATED voice profile in concise prose. ${
-      input.existing ? 'Build on the existing profile; do not start over.' : 'Generate a fresh profile.'
-    }`,
-  );
-
-  const resp = await client.chat.completions.create({
-    model: effectiveModel(),
-    messages: [
-      { role: 'system', content: VOICE_PROFILE_SYSTEM },
-      { role: 'user', content: sections.join('\n\n') },
-    ],
-    max_tokens: 900,
-    temperature: 0.3,
-  });
-
-  const profile = (resp.choices[0]?.message?.content ?? '').trim();
-  const usage = resp.usage
-    ? {
-        prompt_tokens: resp.usage.prompt_tokens,
-        completion_tokens: resp.usage.completion_tokens,
-        total_tokens: resp.usage.total_tokens,
-      }
-    : undefined;
-  return {
-    profile,
-    model: resp.model || effectiveModel(),
-    sampleCount: input.samples.length,
-    usage,
-  };
-}
+/* generateVoiceProfile and the user-voice-distillation feature were
+   retired when Galt became the system-wide AI voice. The Galt voice is
+   now user-written prose (galt_voice_profile setting) — no AI
+   distillation. Old voice_profile data still on disk in app.db; see
+   CLAUDE.md and server/db/app.ts. */
 
 /* ------------------------------------------------------------------ */
 /* summarize — quick TL;DR of a thread                                 */
@@ -704,28 +624,23 @@ export async function evaluateRuleAgainstMessage(input: RuleEvalInput): Promise<
 /* prompts) and wrapper_* (templates around data-injection blocks).    */
 /* ------------------------------------------------------------------ */
 
-export const DEFAULT_DRAFT_SYSTEM = `You are predicting the user's most likely next reply in this iMessage thread. You are writing AS the user — match their voice exactly. Don't draft what a generic helpful person would say; draft what THIS specific user would actually type.
+export const DEFAULT_DRAFT_SYSTEM = `You are GALT — an AI assistant acting on behalf of the user in this iMessage thread. The runtime auto-prefixes everything you say with "Galt: " before sending, so the recipient knows when they're hearing from the AI vs. from the user directly. Speak in Galt's voice (see voice profile below); do NOT impersonate the user.
 
-Study the user's prior messages (lines starting with "me:") to learn their style:
-- Capitalization habits (all lowercase, Title case, mixed, sentence case)
-- Reply length (terse one-liners vs. longer messages)
-- Punctuation (periods or none, ellipses, dashes, exclamations)
-- Emoji density and which ones they actually use
-- Casual quirks (slang, abbreviations, "lol", "haha", "lmao", swears)
-- Tone toward THIS specific contact (warm, dry, sarcastic, businesslike)
+The user typed messages in this thread are labeled "me:" — those are the user, in their own voice. Lines that look like "me: Galt: ..." are YOUR previous turns in this thread (the runtime prefixed them on send). Use them to track what you've already said.
 
 Constraints:
 - Plain text only — no quoting, no JSON, no commentary.
-- Length should match the user's typical reply length in this thread.
-- No greetings or signoffs unless the user uses them.
-- Don't fabricate specific facts (times, addresses, numbers, names) the thread doesn't establish — write what the user would write while deferring on the unknowns ("let me check and get back to you").
-- Don't be more polite or formal than the user is. Don't sound like a customer-service bot.
+- Match the rhythm of an iMessage chat — usually short, occasionally longer when the topic earns it. Don't lecture, don't pad.
+- Don't open with "Hi [name]" or close with sign-offs. iMessage doesn't work like email.
+- Don't fabricate specific facts (times, addresses, numbers, names) the thread doesn't establish. When you don't know, say so plainly and offer to follow up — "I'll check with him" / "let me get back to you on that."
+- Don't sound like customer service. No "happy to help", no "thank you for reaching out", no "apologies for the inconvenience".
+- Match the contact's energy: playful with playful, direct with direct, terse with terse.
 
-If you genuinely cannot predict an appropriate reply (sensitive topic, missing personal info, recipient asked for something only the user can decide), respond with literally: SKIP
+If you genuinely cannot draft an appropriate reply (sensitive topic, missing personal info, recipient asked for something only the user can decide), respond with literally: SKIP
 
-Output ONLY the predicted reply text — no preamble, no quotes, no explanation.`;
+Output ONLY the reply text — no "Galt: " prefix (the runtime adds it), no preamble, no quotes, no explanation.`;
 
-export const DEFAULT_WRAPPER_VOICE_PROFILE = `\nVOICE PROFILE — the user's general writing style, established from prior analysis. Apply throughout (the immediate thread can refine, but this is the baseline):\n"""\n{body}\n"""`;
+export const DEFAULT_WRAPPER_VOICE_PROFILE = `\nGALT'S VOICE — how Galt sounds when speaking. Apply throughout. This is the baseline tone; the immediate thread can adjust register (more casual with friends, more measured in serious moments) but the voice underneath stays Galt:\n"""\n{body}\n"""`;
 
 export const DEFAULT_WRAPPER_CONTACT_PROFILE = `\nWHO YOU'RE TALKING TO — the user's own description of this contact: relationship, identity, sensitivities, and how they want you to interact with this person. This OVERRIDES generic defaults — match the tone and posture this profile implies, even when the voice profile would suggest otherwise:\n"""\n{body}\n"""`;
 
@@ -736,6 +651,8 @@ export const DEFAULT_WRAPPER_CALENDAR = `\nUSER'S CALENDAR (from macOS Calendar.
 export const DEFAULT_WRAPPER_CONTACT_NOTES = `\nNOTES ABOUT THIS CONTACT (recent atomic facts — apply when drafting; the most recent notes near the bottom are most current):\n{body}`;
 
 export const DEFAULT_WRAPPER_TEMPERAMENT = `\nTEMPERAMENT FOR THIS DRAFT: {temperament}\n{guidance}`;
+
+export const DEFAULT_WRAPPER_AWAY_PERSONA = `\nCOVER-MODE BEHAVIOR HINTS — explicit guidance from the user for how Galt should behave while covering (apply on top of Galt's voice profile — these tune banter level, deflection style, jokes for this user's preferred cover-mode feel):\n"""\n{body}\n"""`;
 
 export const DEFAULT_AWAY_GUARDRAIL = `\nAWAY-MODE GUARDRAIL — CRITICAL. This draft will be sent automatically without the user's review. The user has not authorized any specific response.
 
@@ -833,6 +750,7 @@ export const PROMPT_DEFAULTS = {
   wrapper_calendar: DEFAULT_WRAPPER_CALENDAR,
   wrapper_contact_notes: DEFAULT_WRAPPER_CONTACT_NOTES,
   wrapper_temperament: DEFAULT_WRAPPER_TEMPERAMENT,
+  wrapper_away_persona: DEFAULT_WRAPPER_AWAY_PERSONA,
 } as const;
 
 export const TEMPERAMENTS = [
@@ -885,7 +803,9 @@ export interface DraftReplyInput {
   thread: ThreadTurn[];
   /** User's freeform hint for THIS draft (e.g. "tell them I'm running 15 min late"). */
   contextNote?: string;
-  /** Distilled prose voice profile from generateVoiceProfile(). Empty / undefined = skip. */
+  /** Galt's voice profile (galt_voice_profile setting) — user-written prose
+   *  describing how Galt sounds. Used by every AI call (away · summon ·
+   *  manual). Empty / undefined = skip the wrapper. */
   voiceProfile?: string;
   /** Per-contact memory notes (relationship intel for THIS recipient). Each is a separate note. */
   contactNotes?: string[];
@@ -949,6 +869,7 @@ export interface PromptOverrides {
   wrapper_calendar?: string;
   wrapper_contact_notes?: string;
   wrapper_temperament?: string;
+  wrapper_away_persona?: string;
 }
 
 /** Pick the override if non-empty, else the code default. Trims so a
@@ -971,21 +892,179 @@ function resolveTemplates(overrides: PromptOverrides) {
     calendar:           pickPrompt(overrides.wrapper_calendar,          DEFAULT_WRAPPER_CALENDAR),
     contact_notes:      pickPrompt(overrides.wrapper_contact_notes,     DEFAULT_WRAPPER_CONTACT_NOTES),
     temperament:        pickPrompt(overrides.wrapper_temperament,       DEFAULT_WRAPPER_TEMPERAMENT),
+    away_persona:       pickPrompt(overrides.wrapper_away_persona,      DEFAULT_WRAPPER_AWAY_PERSONA),
   };
 }
 
+/** Lane for a pipeline stage in the runtime + visualization.
+ *   - 'universal': always runs (every AI reply).
+ *   - 'away':      only when awayMode === true.
+ *   - 'summon':    only when awayMode === false (current call site convention).
+ *   - 'shared':    runs for both modes (the data wrappers).
+ */
+export type PipelineLane = 'universal' | 'away' | 'summon' | 'shared';
+
+/** Visual "shape" of a pipeline stage — drives the Galt page node shape +
+ *  icon. 'context' = the mode-specific contextNote (system prompt). */
+export type PipelineStageType =
+  | 'prompt'      // universal draft_system
+  | 'context'     // mode-specific contextNote (replaces buildAwayContextNote / buildSummonContextNote default)
+  | 'persona'     // wrapper_away_persona
+  | 'wrapper'     // standard data-injection wrapper
+  | 'guardrail';  // away_guardrail
+
+/** A single named stage in the prompt-injection pipeline. The runtime
+ *  (`buildSystemPrompt`) iterates this list in order; the Galt page reads
+ *  the same list to render the visualization. Single source of truth. */
+export interface PipelineStage {
+  /** Stable id — matches a setting key when one exists. */
+  id: string;
+  lane: PipelineLane;
+  type: PipelineStageType;
+  /** Short label for the visualization. */
+  label: string;
+  /** One-sentence description. */
+  desc: string;
+  /** When the stage's runtime injection conditions on data presence
+   *  (e.g. wrappers only fire when their data is non-empty), name the
+   *  ctx field here. The visualization uses this to dim the node when
+   *  the data is empty. Empty string = unconditional. */
+  conditionField?: string;
+}
+
+/** Ordered list of every stage in the actual prompt-injection pipeline.
+ *  This matches what `buildSystemPrompt` does at runtime. The Galt page
+ *  reads this and renders the same order in the workflow visualization,
+ *  so what the user sees IS what runs. */
+export const PIPELINE_STAGES: readonly PipelineStage[] = [
+  {
+    id: 'prompt_draft_system',
+    lane: 'universal',
+    type: 'prompt',
+    label: 'Universal base',
+    desc: '"Writing AS the user" guidance injected on every AI reply.',
+  },
+  {
+    id: 'context_away',
+    lane: 'away',
+    type: 'context',
+    label: 'Away contextNote',
+    desc: 'Per-turn instruction for the AI while covering for the user. prompt_away_system override or built-in default.',
+  },
+  {
+    id: 'context_summon',
+    lane: 'summon',
+    type: 'context',
+    label: 'Summon contextNote',
+    desc: 'Per-turn instruction for Galt-as-Galt joining the conversation. summon_system_prompt override or built-in default.',
+  },
+  {
+    id: 'wrapper_away_persona',
+    lane: 'away',
+    type: 'persona',
+    label: 'Persona',
+    desc: 'Wraps the away_persona text. Only injected when away_persona is non-empty.',
+    conditionField: 'persona',
+  },
+  {
+    id: 'wrapper_voice_profile',
+    lane: 'shared',
+    type: 'wrapper',
+    label: 'Voice profile',
+    desc: "Wraps the user's voice profile (Away) or Galt's voice profile (Summon). Mode-aware via data swap.",
+    conditionField: 'voice_profile',
+  },
+  {
+    id: 'wrapper_contact_profile',
+    lane: 'shared',
+    type: 'wrapper',
+    label: 'Contact profile',
+    desc: 'Wraps the per-contact prose profile.',
+    conditionField: 'contact_profile',
+  },
+  {
+    id: 'wrapper_address_book',
+    lane: 'shared',
+    type: 'wrapper',
+    label: 'Address book',
+    desc: 'Wraps the macOS Contacts.app block.',
+    conditionField: 'address_book',
+  },
+  {
+    id: 'wrapper_calendar',
+    lane: 'shared',
+    type: 'wrapper',
+    label: 'Calendar',
+    desc: 'Wraps the macOS Calendar.app availability block.',
+    conditionField: 'calendar',
+  },
+  {
+    id: 'wrapper_contact_notes',
+    lane: 'shared',
+    type: 'wrapper',
+    label: 'Contact notes',
+    desc: 'Wraps per-contact note bullets.',
+    conditionField: 'contact_notes',
+  },
+  {
+    id: 'wrapper_temperament',
+    lane: 'shared',
+    type: 'wrapper',
+    label: 'Temperament',
+    desc: 'Wraps the temperament-override block. Only injected when temperament ≠ normal.',
+    conditionField: 'guidance',
+  },
+  {
+    id: 'prompt_away_guardrail',
+    lane: 'away',
+    type: 'guardrail',
+    label: 'Guardrail',
+    desc: 'Hard rule forbidding commitments on the user\'s behalf. Only injected when awayMode is on. Runs LAST so it\'s freshest in the model\'s reading.',
+  },
+];
+
+/** Build the system prompt for one AI call. Order matches PIPELINE_STAGES
+ *  exactly — universal base first, then the mode-specific contextNote,
+ *  then mode-specific persona (away only), then the shared data wrappers
+ *  (each conditional on data presence), then the guardrail (away only).
+ *
+ *  contextNoteRaw is the per-turn instruction passed by the caller — either
+ *  the user's prompt_away_system / summon_system_prompt override, or the
+ *  built-in default produced by buildAwayContextNote / buildSummonContextNote
+ *  in server/index.ts. It's substituted with the same ctx as everything else.
+ */
 function buildSystemPrompt(
   overrides: PromptOverrides,
   ctx: Record<string, string>,
   awayMode: boolean,
+  contextNoteRaw: string,
 ): string {
   const t = resolveTemplates(overrides);
   const parts: string[] = [];
-  // Base draft system prompt — substituted with the full context so the user
-  // can reference any placeholder ({recipientName}, {messages}, etc.) here too.
+
+  // 1. Universal base — establishes "you are writing AS the user, in this
+  //    voice." Persistent identity layer; everything below specializes.
   parts.push(applyTemplate(t.draft_system, ctx));
-  // Wrappers — each only injected when its data is non-empty. The wrapper
-  // template gets the full context PLUS body=<the wrapped data>.
+
+  // 2. Mode contextNote — what Galt is doing THIS turn (covering, joining,
+  //    drafting). The caller passes raw template; we substitute here so
+  //    {recipientName}, {persona}, etc. all resolve in one place.
+  if (contextNoteRaw && contextNoteRaw.trim()) {
+    parts.push(applyTemplate(contextNoteRaw, ctx));
+  }
+
+  // 3. Persona (away-only) — the user's "how you should cover for me"
+  //    style guidance, wrapped as its own stage. Only injected when in
+  //    away mode AND away_persona has content AND the contextNote doesn't
+  //    already substitute {persona} explicitly. Old custom prompts that
+  //    reference {persona} keep working through the placeholder path
+  //    without double-injecting; new ones use the wrapper stage.
+  if (awayMode && ctx.persona && !contextNoteRaw.includes('{persona}')) {
+    parts.push(applyTemplate(t.away_persona, { ...ctx, body: ctx.persona }));
+  }
+
+  // 4. Shared data wrappers — each only injected when its data is non-empty.
+  //    The wrapper template gets the full context PLUS body=<the wrapped data>.
   if (ctx.voice_profile) {
     parts.push(applyTemplate(t.voice_profile,   { ...ctx, body: ctx.voice_profile }));
   }
@@ -1004,9 +1083,13 @@ function buildSystemPrompt(
   if (ctx.temperament !== 'normal' && ctx.guidance) {
     parts.push(applyTemplate(t.temperament,     ctx));
   }
+
+  // 5. Guardrail (away-only) — hard rule forbidding commitments. Last so
+  //    it's the freshest thing the model reads before generating.
   if (awayMode) {
     parts.push(applyTemplate(t.away_guardrail,  ctx));
   }
+
   return parts.join('\n');
 }
 
@@ -1033,8 +1116,9 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
   // thread goes as the user message (default behavior).
   const t = resolveTemplates(overrides);
   const allTemplates = [
-    noteRaw,
     t.draft_system,
+    noteRaw,
+    t.away_persona,
     t.voice_profile,
     t.contact_profile,
     t.address_book,
@@ -1062,18 +1146,14 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
     guidance: TEMPERAMENT_GUIDANCE[temperament],
   });
 
-  // Substitute the contextNote (custom prompt or built-in default) with the
-  // full context. Caller passes raw template; we own substitution.
-  const note = noteRaw ? applyTemplate(noteRaw, ctx) : '';
-  const dataInjection = buildSystemPrompt(overrides, ctx, awayMode);
-  // Standard prompt assembly across all auto-reply features:
-  //   1. customPrompt (feature instruction — what Galt is doing this turn)
-  //   2. dataInjection (voice profile + contact + calendar + temperament)
-  //   3. thread (last N messages — either via {messages} substitution
-  //      inside the system message, or as the user message if not used)
-  // Custom prompt LEADS the system message so its identity/behavior rules
-  // anchor the model's reading of everything below it.
-  const systemPrompt = note ? `${note}\n\n${dataInjection}` : dataInjection;
+  // Single-pass system prompt assembly — order is now the canonical pipeline:
+  //   1. universal base prompt
+  //   2. mode contextNote (per-turn instruction)
+  //   3. wrapper_away_persona (away only, when persona present)
+  //   4. shared data wrappers (each conditional on its data being present)
+  //   5. away_guardrail (away only, last so it's freshest)
+  // PIPELINE_STAGES exports this same order for the visualization to read.
+  const systemPrompt = buildSystemPrompt(overrides, ctx, awayMode, noteRaw);
   const userContent = usesMessagesPlaceholder
     ? 'Reply now.'
     : `Thread (oldest → newest):\n${threadText}`;

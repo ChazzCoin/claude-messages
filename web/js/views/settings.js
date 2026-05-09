@@ -35,7 +35,7 @@ const SECTION_HEADER_STYLE =
 export async function renderSettingsView() {
   setMainHeader({
     title: 'Settings',
-    subHTML: '<span class="accent">system &amp; account</span> · OpenAI · AI behavior · voice profile · system status · prompts on <a href="#/galt">Galt</a>',
+    subHTML: '<span class="accent">system &amp; account</span> · OpenAI · AI behavior · system status · Galt\'s voice + prompts on <a href="#/galt">Galt</a>',
   });
   const list = document.getElementById('drafts-list');
   if (!list) return;
@@ -58,12 +58,10 @@ export async function renderSettingsView() {
   const oaModel = settingsCache.openai_model || '';
   const oaModelEffective = (health && health.openai_model) || 'gpt-4o-mini';
 
-  // ----- Voice profile section data -----
-  const vpUpdated = settingsCache.voice_profile_updated_at;
-  const vpUpdatedLabel = vpUpdated > 0
-    ? new Date(vpUpdated).toLocaleString()
-    : 'never';
-  const vpSampleBounds = settingsBounds.voice_profile_sample_count || { min: 50, max: 2000 };
+  // The user's voice_profile concept was retired when Galt became the
+  // system-wide AI voice — see CLAUDE.md and server/db/app.ts. No UI
+  // section in Settings for it anymore. Galt's voice is edited on the
+  // Galt page (#/galt).
 
   // ----- System status data -----
   const fmtBool = (b, okLabel, warnLabel) =>
@@ -154,46 +152,6 @@ export async function renderSettingsView() {
       <div class="settings-actions">
         <button type="submit" class="btn primary">Save</button>
         <button type="button" class="btn ghost" data-action="reset-settings">Reset to defaults</button>
-        <span class="settings-status" data-error></span>
-      </div>
-    </form>
-
-    <div style="${SECTION_HEADER_STYLE}">Voice</div>
-    <form class="settings-section" data-form="voice-profile">
-      <h3>Voice profile</h3>
-
-      <div class="settings-row">
-        <label class="field-label" for="vp-sample">
-          Sample size
-          <span class="desc">How many of your most recent sent messages to read when (re)generating. Larger = more evidence, more tokens. Range ${vpSampleBounds.min}–${vpSampleBounds.max}.</span>
-        </label>
-        <div class="field-input">
-          <input id="vp-sample" type="number" name="voice_profile_sample_count" min="${vpSampleBounds.min}" max="${vpSampleBounds.max}" value="${settingsCache.voice_profile_sample_count}" />
-          <span class="unit">messages</span>
-        </div>
-      </div>
-
-      <div class="settings-row">
-        <label class="field-label" for="vp-context">
-          Your context
-          <span class="desc">Optional guidance the model should know when profiling you (e.g. "I'm 30, work in tech, southern, casual"). Persists across regenerations. Leave blank to skip.</span>
-        </label>
-        <textarea id="vp-context" name="voice_profile_user_context" rows="3" placeholder="Optional…">${escapeHtml(settingsCache.voice_profile_user_context || '')}</textarea>
-      </div>
-
-      <div class="settings-row" style="grid-template-columns: 1fr;">
-        <div>
-          <div class="voice-meta">Voice profile <span class="accent">// fed into every AI draft prompt</span> · last updated: ${escapeHtml(vpUpdatedLabel)}</div>
-          <textarea name="voice_profile" class="mono" rows="14" placeholder="Empty. Click 'Regenerate from chat.db' to produce one, or paste/edit your own.">${escapeHtml(settingsCache.voice_profile || '')}</textarea>
-        </div>
-      </div>
-
-      <div class="settings-actions">
-        <button type="submit" class="btn primary">Save edits</button>
-        <button type="button" class="btn" data-action="vp-regenerate">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><polyline points="21 3 21 8 16 8"/></svg>
-          Regenerate from chat.db
-        </button>
         <span class="settings-status" data-error></span>
       </div>
     </form>

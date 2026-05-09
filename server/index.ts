@@ -15,7 +15,6 @@ import {
   listChats,
   listMessagesForChat,
   listRecentMessages,
-  listSentMessages,
   appleDateToUnixMs,
 } from './db/messages.js';
 import {
@@ -154,7 +153,6 @@ import {
   effectiveModel,
   classifyIncoming,
   draftReply,
-  generateVoiceProfile,
   buildThreadFromMessages,
   summarizeThread,
   evaluateRuleAgainstMessage,
@@ -162,10 +160,10 @@ import {
   distillRadarProfile,
   extractCalendarEvent,
   extractAutoNote,
-  TEMPERAMENTS,
-  type Temperament,
   type PromptOverrides,
   PROMPT_DEFAULTS,
+  PIPELINE_STAGES,
+  applyTemplate,
 } from './ai.js';
 
 /** Pull the prompt/wrapper override fields out of full settings so AI calls
@@ -180,6 +178,7 @@ function pickPromptOverrides(s: ReturnType<typeof getSettings>): PromptOverrides
     wrapper_calendar: s.wrapper_calendar,
     wrapper_contact_notes: s.wrapper_contact_notes,
     wrapper_temperament: s.wrapper_temperament,
+    wrapper_away_persona: s.wrapper_away_persona,
   };
 }
 
@@ -786,10 +785,10 @@ app.get('/api/settings', (_req, res) => {
     prompt_defaults: {
       ...PROMPT_DEFAULTS,
       // Static template version of the away prompt (with {recipientName}
-      // and {persona} placeholders left in). Renders the SAME 9 sections
-      // buildAwayContextNote builds, just without runtime substitution
-      // applied. Generated lazily so the UI sees a stable string.
-      prompt_away_system: buildAwayContextNote('{persona}', '{recipientName}'),
+      // placeholder left in). Renders the SAME sections buildAwayContextNote
+      // builds, just without runtime substitution applied. Generated lazily
+      // so the UI sees a stable string.
+      prompt_away_system: buildAwayContextNote('{recipientName}'),
       prompt_summon_system: buildSummonContextNote({
         userName: '{userName}',
         recipientName: '{recipientName}',
@@ -797,6 +796,10 @@ app.get('/api/settings', (_req, res) => {
         isActivation: true,
       }),
     },
+    // Ordered list of every pipeline stage the AI layer runs. The Galt
+    // page renders the visualization from this list — single source of
+    // truth: what the user sees IS what runs at request time.
+    pipeline_stages: PIPELINE_STAGES,
   });
 });
 
@@ -852,156 +855,12 @@ app.post(
   }),
 );
 
-/**
- * POST /api/ai/draft
- * Body: {
- *   chat_id,
- *   context_count?: 1..100  (default = settings.ai_context_count)
- *   context_note?: string   (optional user hint for THIS draft)
- *   temperament?: enum      (defaults to "normal"; see TEMPERAMENTS)
- *   count?: 1..5            (number of variants to generate; default 1)
- *   save?: boolean          (auto-save to drafts queue when count == 1, default true.
- *                            When count > 1, returns variants without auto-saving.)
- * }
- *
- * Always returns { variants: [{body, skipped}], source_msg_guid, ... }.
- * When count == 1 and save is true, also persists the saved Draft row.
- */
-app.post(
-  '/api/ai/draft',
-  asyncHandler(async (req, res) => {
-    if (!requireAI(req, res)) return;
-
-    const chatId = parseInt(req.body?.chat_id, 10);
-    if (!Number.isFinite(chatId)) return res.status(400).json({ error: 'chat_id required' });
-
-    const settings = getSettings();
-    const ccRaw = parseInt(req.body?.context_count, 10);
-    const contextCount = Number.isFinite(ccRaw)
-      ? Math.max(1, Math.min(SETTING_BOUNDS.ai_context_count.max, ccRaw))
-      : settings.ai_context_count;
-
-    const contextNote =
-      typeof req.body?.context_note === 'string' && req.body.context_note.trim().length > 0
-        ? req.body.context_note.trim()
-        : undefined;
-
-    const tempRaw = typeof req.body?.temperament === 'string' ? req.body.temperament : '';
-    const temperament: Temperament = (TEMPERAMENTS as readonly string[]).includes(tempRaw)
-      ? (tempRaw as Temperament)
-      : 'normal';
-
-    const variantRaw = parseInt(req.body?.count, 10);
-    const variantCount = Number.isFinite(variantRaw) ? Math.max(1, Math.min(5, variantRaw)) : 1;
-
-    const save = req.body?.save !== false && variantCount === 1; // never auto-save when caller asked for multiple
-
-    const messagesDesc = listMessagesForChat(chatId, 0, contextCount);
-    if (messagesDesc.length === 0) {
-      return res.status(400).json({ error: `chat ${chatId} has no messages` });
-    }
-
-    const sourceMsg = messagesDesc.find((m) => m.is_from_me === 0 && (m.text ?? '').trim() !== '');
-    if (!sourceMsg) {
-      return res
-        .status(400)
-        .json({ error: 'no incoming message in the recent window — nothing to reply to' });
-    }
-
-    const thread = buildThreadFromMessages(messagesDesc);
-    if (thread.length === 0) {
-      return res
-        .status(400)
-        .json({ error: 'no decodable text in the recent window (attachments only?)' });
-    }
-
-    // Look up recipient handle now so we can also pull per-contact notes.
-    const chatDb = getChatDb();
-    const chatRow = chatDb
-      .prepare('SELECT chat_identifier FROM chat WHERE ROWID = ?')
-      .get(chatId) as { chat_identifier: string } | undefined;
-    if (!chatRow) return res.status(404).json({ error: `chat ${chatId} not found` });
-
-    const contactNotes = listNotesForHandle(chatRow.chat_identifier).map((n) => n.body);
-    const contactProfile = getContactProfile(chatRow.chat_identifier).profile;
-    const { addressBookContext, userAvailability } = await resolveDraftContext(
-      chatRow.chat_identifier,
-    );
-
-    // Resolve a display name for the recipient so {recipientName} works
-    // in any prompt the user authored. Source has no contact_name on
-    // sourceMsg, so fall back to the chat_identifier (handle).
-    const manualRecipientName = sourceMsg.contact_name || chatRow.chat_identifier;
-    const result = await draftReply({
-      thread,
-      contextNote,
-      voiceProfile: settings.voice_profile,
-      contactNotes,
-      contactProfile,
-      addressBookContext,
-      userAvailability,
-      temperament,
-      count: variantCount,
-      promptOverrides: pickPromptOverrides(settings),
-      templateVars: {
-        recipientName: manualRecipientName,
-        persona: settings.away_persona || '',
-      },
-    });
-
-    // System-wide rule: every AI-generated message gets the "Galt: " prefix.
-    // Apply to every non-skipped variant in-place — the saved draft body
-    // and the variants returned to the frontend are all prefixed from here on.
-    for (const v of result.variants) {
-      if (!v.skipped && v.body.trim().length > 0) {
-        v.body = withGaltPrefix(v.body);
-      }
-    }
-
-    const usage = result.usage ?? null;
-    const usableVariants = result.variants.filter((v) => !v.skipped && v.body.trim().length > 0);
-
-    let draftRecord = null;
-    if (save && usableVariants.length > 0) {
-      const tokenLine = usage
-        ? `tokens: ${usage.prompt_tokens}+${usage.completion_tokens}`
-        : 'tokens: ?';
-      const tempLine = temperament !== 'normal' ? ` · temperament: ${temperament}` : '';
-      const noteLine = contextNote ? ` · note: ${JSON.stringify(contextNote)}` : '';
-      const profileLine = settings.voice_profile ? ' · voice-profile: applied' : '';
-      const memoryLine = contactNotes.length > 0 ? ` · contact-notes: ${contactNotes.length}` : '';
-      const contactProfileLine = contactProfile ? ' · contact-profile: applied' : '';
-      const abLine = addressBookContext ? ' · addressbook: applied' : '';
-      const calLine = userAvailability ? ' · calendar: applied' : '';
-      draftRecord = createDraft({
-        source_msg_guid: sourceMsg.guid,
-        chat_id: chatId,
-        handle: chatRow.chat_identifier,
-        body: usableVariants[0]!.body,
-        reasoning: `AI · model=${result.model} · context=${thread.length} turns · ${tokenLine}${profileLine}${contactProfileLine}${abLine}${calLine}${tempLine}${memoryLine}${noteLine} · galt-prefix: applied`,
-      });
-    }
-
-    return res.json({
-      variants: result.variants,
-      skipped: usableVariants.length === 0,
-      thread_turns: thread.length,
-      source_msg_guid: sourceMsg.guid,
-      handle: chatRow.chat_identifier,
-      contact_name: getContactNameForHandle(chatRow.chat_identifier),
-      chat_id: chatId,
-      temperament,
-      voice_profile_applied: !!settings.voice_profile,
-      contact_notes_applied: contactNotes.length,
-      contact_profile_applied: !!contactProfile,
-      addressbook_applied: !!addressBookContext,
-      calendar_applied: !!userAvailability,
-      model: result.model,
-      usage,
-      draft: enrichDraft(draftRecord),
-    });
-  }),
-);
+// /api/ai/draft REMOVED — manual AI draft generation (the "3 AI options"
+// flow that suggested replies for the user to edit before sending) was
+// retired when Galt became the system-wide AI. Galt's only AI generation
+// paths now are away mode and summon mode auto-replies. Drafts CRUD
+// endpoints below stay for historical/scratch use; they're not fed by
+// any AI flow anymore.
 
 /**
  * POST /api/ai/summarize
@@ -1038,64 +897,11 @@ app.post(
   }),
 );
 
-/**
- * POST /api/ai/voice-profile/regenerate
- * Body: { sample_count?: 50..2000, user_context?: string }
- * Reads the user's most recent sent messages from chat.db, optionally
- * blends with the existing voice_profile setting, runs the AI, and
- * persists the result. Returns the updated profile + sample stats.
- */
-app.post(
-  '/api/ai/voice-profile/regenerate',
-  asyncHandler(async (req, res) => {
-    if (!requireAI(req, res)) return;
-
-    const settings = getSettings();
-    const sampleRaw = parseInt(req.body?.sample_count, 10);
-    const { min, max } = SETTING_BOUNDS.voice_profile_sample_count;
-    const sampleCount = Number.isFinite(sampleRaw)
-      ? Math.max(min, Math.min(max, sampleRaw))
-      : settings.voice_profile_sample_count;
-
-    const userContext =
-      typeof req.body?.user_context === 'string'
-        ? req.body.user_context
-        : settings.voice_profile_user_context;
-
-    const sentDesc = listSentMessages(sampleCount);
-    const samples = sentDesc
-      .map((m) => m.text ?? '')
-      .filter((t) => t.trim().length > 0)
-      .reverse(); // chronological for the prompt
-
-    if (samples.length === 0) {
-      return res
-        .status(400)
-        .json({ error: 'no sent messages found in chat.db — cannot generate a voice profile' });
-    }
-
-    const result = await generateVoiceProfile({
-      existing: settings.voice_profile,
-      userContext,
-      samples,
-    });
-
-    const updatedAt = Date.now();
-    const updated = updateSettings({
-      voice_profile: result.profile,
-      voice_profile_sample_count: sampleCount,
-      voice_profile_user_context: userContext,
-      voice_profile_updated_at: updatedAt,
-    });
-
-    return res.json({
-      settings: updated,
-      sample_count: result.sampleCount,
-      model: result.model,
-      usage: result.usage ?? null,
-    });
-  }),
-);
+// /api/ai/voice-profile/regenerate REMOVED — the user's voice profile
+// concept was retired when Galt became the system-wide AI voice. The
+// only voice profile that matters now is galt_voice_profile, which is
+// user-written prose (no AI distillation needed). Old voice_profile
+// data still on disk in app.db; see CLAUDE.md.
 
 /* ---------- routes: monitor rules + flagged messages ---------- */
 
@@ -1750,7 +1556,6 @@ function sleep(ms: number): Promise<void> {
  * messages (Direct Send compose, manual + new draft) are NEVER prefixed.
  *
  * Applied at every AI-generation chokepoint:
- *   - /api/ai/draft  (single-shot + 3 options)
  *   - away mode: greeting + continuation sends
  *   - summon mode: every reply
  */
@@ -1841,23 +1646,30 @@ async function aiAutoSend(opts: {
   return { sent: true, aborted: false, prefixedBody };
 }
 
-function buildAwayContextNote(persona: string, recipientName: string): string {
+/**
+ * Per-turn instruction for away-mode replies. The persona used to be folded
+ * into this string; it's now its own pipeline stage (wrapper_away_persona
+ * in ai.ts), so this function no longer takes a persona arg. Single source
+ * of truth for the away contextNote default — kept here (not in ai.ts)
+ * because it composes recipientName at call time.
+ */
+function buildAwayContextNote(recipientName: string): string {
   const sections: string[] = [];
 
   sections.push(
-    `You are responding to: ${recipientName}. Use their name naturally when it actually fits the conversation — but DON'T shoehorn it. Don't address them by name in every message; that gets robotic fast. A casual reply usually has no name in it at all; reserve it for moments where calling someone by name actually adds warmth or clarity (e.g. opening a slightly serious thought, getting their attention, checking in). When their name does fit, use it the way the user normally would — first name, in the user's case.`,
+    `You are GALT, the user's AI assistant. The user is currently away. You are covering for them in this iMessage conversation — handling routine back-and-forth so the user can catch up later. The recipient (${recipientName}) was told earlier in this thread that they're chatting with Chazz's AI; the runtime prefixes every message you send with "Galt: " so identity stays explicit. You speak as Galt, in Galt's voice (see voice profile above) — NOT as the user.`,
   );
 
   sections.push(
-    "You are continuing this iMessage conversation while the user is away — they've turned on \"away mode\" and the contact has ALREADY been told (in the greeting message earlier in this thread) that they're chatting with the user's AI. Don't re-announce that fact unless they explicitly ask.",
+    `You are responding to: ${recipientName}. Use their name naturally when it actually fits — but don't shoehorn it. A casual reply usually has no name in it; reserve it for moments where calling someone by name adds warmth or clarity.`,
   );
 
   sections.push(
-    "Behave like a friend who's covering — not like customer service. Keep the conversation natural, varied, and alive.",
+    "Behave like a friend's AI who's covering, not like customer service. Keep the conversation natural, varied, and alive. The recipient knows you're the AI — they don't need you to act human, but you also shouldn't make a thing of it every turn.",
   );
 
   sections.push(
-    "Read your OWN previous replies in the thread (the 'me:' lines that already exist) and DO NOT repeat their phrasings, openings, or hedges. Vary turn-to-turn — different opener, different rhythm, different vocabulary. If your last reply started with 'yeah', don't start with 'yeah' again. If you already used a deflection phrase once, find a different way to say it.",
+    'Read your OWN previous replies in the thread (the "me: Galt: ..." lines) and DO NOT repeat their phrasings, openings, or hedges. Vary turn-to-turn — different opener, different rhythm, different vocabulary. If your last reply started with "yeah", don\'t start with "yeah" again. If you already used a deflection phrase once, find a different way to say it.',
   );
 
   sections.push(
@@ -1865,20 +1677,14 @@ function buildAwayContextNote(persona: string, recipientName: string): string {
   );
 
   sections.push(
-    'When you genuinely cannot know something (specific times/places/money/promises the user has not confirmed in the thread, personal details about the user\'s day, anything only the real user can decide): deflect IN THE USER\'S VOICE. Examples — "lol no idea, you\'ll have to wait on him for that" / "lemme have him hit you when he\'s up" / "that one\'s above my pay grade haha". Do NOT say "let me check with him" every time — that\'s the butler reflex; vary it. Only deflect when you actually need to.',
+    'When you genuinely cannot know something (specific times/places/money/promises the user has not confirmed in the thread, personal details about the user\'s day, anything only the real user can decide): defer back to the user. Examples — "no idea, I\'ll have him reach out about that" / "let me flag this so he can confirm when he\'s back" / "above my pay grade — he\'ll have to weigh in". Vary your phrasing; don\'t default to the same deflection every time.',
   );
 
   sections.push(
-    "What you should NOT do: re-announce being AI every turn; use customer-service phrasings ('apologies for the inconvenience', 'thank you for reaching out'); make up commitments; sound robotic or formal beyond the user's baseline.",
+    "What you should NOT do: pretend you ARE the user; use customer-service phrasings (\"apologies for the inconvenience\", \"thank you for reaching out\", \"how can I help\"); make up commitments; sound robotic.",
   );
 
-  if (persona && persona.trim()) {
-    sections.push(
-      `EXTRA GUIDANCE FROM THE USER FOR HOW YOU SHOULD BEHAVE WHILE COVERING (apply this on top of the voice profile — these are explicit personality instructions for away mode):\n"""\n${persona.trim()}\n"""`,
-    );
-  }
-
-  sections.push('Output only the reply text. No quotes, no preamble, no explanation.');
+  sections.push('Output only the reply text. No "Galt: " prefix (the runtime adds it). No quotes, no preamble, no explanation.');
 
   return sections.join('\n\n');
 }
@@ -1903,7 +1709,7 @@ function buildSummonContextNote(opts: {
   const lastSpeaker = opts.triggerFromUser ? opts.userName : opts.recipientName;
 
   sections.push(
-    `IDENTITY: You are GALT, an AI assistant ${opts.userName} summoned into this iMessage conversation. You are NOT pretending to be ${opts.userName} — you're a third voice they pulled in. Use ${opts.userName}'s voice profile (above) for STYLE (tone, vocabulary, casualness) so you sound like ${opts.userName}'s AI rather than a corporate bot. NEVER claim to BE ${opts.userName}. The runtime auto-adds a "Galt: " prefix to your sent messages so identity is unambiguous — you don't need to introduce yourself.`,
+    `IDENTITY: You are GALT, ${opts.userName}'s AI assistant, who they summoned into this iMessage conversation. You are NOT pretending to be ${opts.userName} — you're a third voice they pulled in. Speak in your own voice (see voice profile above). NEVER claim to BE ${opts.userName}. The runtime auto-adds a "Galt: " prefix to your sent messages so identity is unambiguous — you don't need to introduce yourself.`,
   );
 
   sections.push(
@@ -2092,7 +1898,14 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
 
   // FIRST contact in this away period → send the canned greeting.
   if (!session) {
-    const greeting = (settings.away_message || '').trim();
+    // Run the user's greeting through the universal placeholder substitutor
+    // so {recipientName} / {userName} expand. Most greetings have no
+    // placeholders and pass through unchanged. (This is the ONLY pre-AI
+    // step in away mode — the greeting is sent as a literal text on first
+    // contact; subsequent replies go through the full AI pipeline below.)
+    const recipientName = msg.contact_name || msg.handle || 'them';
+    const greetingTemplate = (settings.away_message || '').trim();
+    const greeting = applyTemplate(greetingTemplate, { recipientName, userName: 'the user' });
     if (!greeting) {
       console.warn('[away] enabled but away_message is empty — skipping greeting');
       return;
@@ -2157,11 +1970,15 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     // in one place using the universal context.
     const awayPromptOverride = settings.prompt_away_system.trim();
     const awayContextNote = awayPromptOverride
-      || buildAwayContextNote(settings.away_persona, recipientName);
+      || buildAwayContextNote(recipientName);
 
     const result = await draftReply({
       thread,
-      voiceProfile: settings.voice_profile,
+      // Galt is the system-wide AI voice. Pass galt_voice_profile here
+      // — the recipient already sees "Galt:" on every reply, so the AI
+      // should speak in Galt's voice rather than mimicking the user.
+      // (Used to be settings.voice_profile; that's deprecated.)
+      voiceProfile: settings.galt_voice_profile,
       contactNotes,
       contactProfile,
       addressBookContext,
@@ -2367,9 +2184,9 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
 
     const result = await draftReply({
       thread,
-      // Summon = Galt is himself, NOT impersonating the user. Use Galt's
-      // own voice profile here. The user's voice_profile is for paths
-      // where Galt covers as the user (away mode, manual draft).
+      // Galt's voice (the system-wide AI voice). All AI calls use this
+      // — away, summon, manual. (The user's old voice_profile concept
+      // was retired; see CLAUDE.md.)
       voiceProfile: settings.galt_voice_profile,
       contactNotes,
       contactProfile,
