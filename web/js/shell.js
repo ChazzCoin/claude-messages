@@ -39,23 +39,24 @@ export function clearThreadNotes() {
 }
 
 /** mode: 'thread' | 'collapsed'
- *  Adds .thread-spatial to .app when entering thread view — that class
- *  drives the floating-ecosystem layout (no panel borders, soft ambient
- *  background, free-floating chat column with workbench cards staggered
- *  on the right). Removed when leaving thread view so other pages stay
- *  on the standard grid layout. */
+ *  In thread mode the standard 3-column grid is in effect (sidebar +
+ *  chat + rightpanel) and the rightpanel hosts the workbench cards
+ *  stacked vertically. In collapsed mode the rightpanel hides
+ *  entirely (other views don't need it).
+ *
+ *  An earlier "spatial canvas" experiment overlaid cards on top of
+ *  the chat at fixed positions; that's been retired in favor of the
+ *  classic two-column readout (chat left, cards right). */
 export function setRightPanelMode(mode) {
   const app = document.querySelector('.app');
   const rp = document.querySelector('.rightpanel');
   const def = document.getElementById('rightpanel-default');
   if (mode === 'thread') {
     app?.classList.remove('no-rightpanel');
-    app?.classList.add('thread-spatial');
     rp?.classList.add('thread-mode');
     if (def) def.style.display = 'none';
   } else {
     app?.classList.add('no-rightpanel');
-    app?.classList.remove('thread-spatial');
     rp?.classList.remove('thread-mode');
     if (def) def.style.display = '';
     clearThreadTools();
