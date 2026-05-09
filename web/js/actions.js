@@ -316,6 +316,47 @@ async function onClick(e) {
     } catch (err) { alert(`remove failed: ${err.message}`); }
     return;
   }
+  if (action === 'toggle-away-chat') {
+    const id = parseInt(btn.dataset.id, 10);
+    const wasEnabled = btn.dataset.enabled === '1';
+    if (!Number.isFinite(id)) return;
+    try {
+      await api(`/api/away/chats/${id}`, { method: 'PATCH', body: { enabled: !wasEnabled } });
+      await renderAwayView();
+    } catch (err) { alert(`toggle failed: ${err.message}`); }
+    return;
+  }
+  if (action === 'remove-away-chat') {
+    const id = parseInt(btn.dataset.id, 10);
+    if (!Number.isFinite(id)) return;
+    try {
+      await api(`/api/away/chats/${id}`, { method: 'DELETE' });
+      await renderAwayView();
+    } catch (err) { alert(`remove failed: ${err.message}`); }
+    return;
+  }
+  if (action === 'add-current-chat-to-away') {
+    const chatId = parseInt(btn.dataset.chatId, 10);
+    if (!Number.isFinite(chatId)) return;
+    try {
+      await api('/api/away/chats', { method: 'POST', body: { chat_id: chatId } });
+      // Refresh the workbench Identity card so the button flips state.
+      const { refreshWorkbenchPanel } = await import('./views/thread.js');
+      await refreshWorkbenchPanel('identity', null, chatId);
+    } catch (err) { alert(`add failed: ${err.message}`); }
+    return;
+  }
+  if (action === 'remove-current-chat-from-away') {
+    const id = parseInt(btn.dataset.id, 10);
+    const chatId = parseInt(btn.dataset.chatId, 10);
+    if (!Number.isFinite(id) || !Number.isFinite(chatId)) return;
+    try {
+      await api(`/api/away/chats/${id}`, { method: 'DELETE' });
+      const { refreshWorkbenchPanel } = await import('./views/thread.js');
+      await refreshWorkbenchPanel('identity', null, chatId);
+    } catch (err) { alert(`remove failed: ${err.message}`); }
+    return;
+  }
   if (action === 'end-away-session') {
     const id = parseInt(btn.dataset.id, 10);
     if (!Number.isFinite(id)) return;

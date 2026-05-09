@@ -81,7 +81,14 @@ import {
   addAwayContact,
   setAwayContactEnabled,
   removeAwayContact,
+  // away mode — group-chat watch list (Stage 2 of group support)
+  listAwayChats,
+  isAwayChatWatched,
+  addAwayChat,
+  setAwayChatEnabled,
+  removeAwayChat,
   getActiveAwaySession,
+  getActiveAwaySessionForChat,
   createAwaySession,
   bumpAwaySession,
   endAwaySession,
@@ -1391,6 +1398,57 @@ app.delete('/api/away/sessions/:id', (req, res) => {
   res.json({ session: enrichAway(ended) });
 });
 
+/* ---------- routes: away mode — group chat watch list ---------- */
+
+// Enrich an away_chats row with the live group title from chat.db so the
+// UI can show "Family Chat" instead of just "chat<id>". Falls back to
+// chat.chat_identifier when no title is set on the group.
+function enrichAwayChat(c: { id: number; chat_id: number; label: string | null; enabled: 0 | 1; created_at: number }) {
+  const target = getChatTarget(c.chat_id);
+  return {
+    ...c,
+    chat_guid: target?.chatGuid ?? null,
+    chat_identifier: target?.chatIdentifier ?? null,
+    group_title: target?.groupTitle ?? null,
+    participant_count: target?.participantCount ?? 0,
+    is_group: target?.isGroup ?? false,
+  };
+}
+
+app.get('/api/away/chats', (_req, res) => {
+  res.json({ chats: listAwayChats().map(enrichAwayChat) });
+});
+
+app.post('/api/away/chats', (req, res) => {
+  const chatId = parseInt(req.body?.chat_id, 10);
+  if (!Number.isFinite(chatId)) return res.status(400).json({ error: 'chat_id required' });
+  const target = getChatTarget(chatId);
+  if (!target) return res.status(404).json({ error: `chat ${chatId} not found` });
+  const labelRaw = typeof req.body?.label === 'string' ? req.body.label.trim() : null;
+  const label = labelRaw || target.groupTitle || target.chatIdentifier;
+  const chat = addAwayChat(chatId, label);
+  pushStateSnapshot();
+  res.status(201).json({ chat: enrichAwayChat(chat) });
+});
+
+app.patch('/api/away/chats/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  if (typeof req.body?.enabled !== 'boolean')
+    return res.status(400).json({ error: 'only `enabled: bool` supported here' });
+  const ok = setAwayChatEnabled(id, req.body.enabled);
+  if (ok) pushStateSnapshot();
+  return ok ? res.json({ ok: true }) : res.status(404).json({ error: 'not found' });
+});
+
+app.delete('/api/away/chats/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  const ok = removeAwayChat(id);
+  if (ok) pushStateSnapshot();
+  return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
+});
+
 /* ---------- routes: auto notes (24/7 inbound triage queue) ---------- */
 
 app.get('/api/auto-notes', (req, res) => {
@@ -1872,6 +1930,10 @@ async function triageInboundMessage(msg: MessageRow): Promise<void> {
   if (msg.is_from_me === 1) return;
   if (!msg.text || msg.text.trim().length === 0) return;
   if (!msg.handle) return;
+  // Skip when an active Away session covers this conversation — the away
+  // path will extract with session_id. Group sessions are chat-keyed,
+  // 1:1 sessions are handle-keyed; check both.
+  if (msg.chat_id != null && getActiveAwaySessionForChat(msg.chat_id)) return;
   if (getActiveAwaySession(msg.handle)) return;
   await extractAutoNoteForMessage(null, msg);
 }
@@ -1880,6 +1942,16 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
   const settings = getSettings();
   if (!settings.away_mode_enabled) return;
   if (!msg.handle) return;
+  if (!msg.chat_id) return;
+
+  // Resolve the chat target up front so the rest of the handler can
+  // dispatch on isGroup. 1:1 sessions are keyed by recipient handle;
+  // group sessions by chat_id.
+  const target = getChatTarget(msg.chat_id);
+  if (!target) return;
+  const isGroup = target.isGroup;
+  const sessionHere = (): ReturnType<typeof getActiveAwaySession> =>
+    isGroup ? getActiveAwaySessionForChat(msg.chat_id!) : getActiveAwaySession(msg.handle!);
 
   // ECHO GUARD — applies to both directions. iMessage round-trips our auto-send
   // through chat.db: 1× outgoing (is_from_me=1) and, when the recipient is
@@ -1890,13 +1962,14 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     return;
   }
 
-  // OUTBOUND user-typed reply (echo already ruled out) → end the session.
+  // OUTBOUND user-typed reply (echo already ruled out) → end the session
+  // for THIS conversation (chat-keyed in groups, handle-keyed in 1:1).
   if (msg.is_from_me === 1) {
-    const session = getActiveAwaySession(msg.handle);
+    const session = sessionHere();
     if (session) {
       const ended = endAwaySession(session.id, 'user_replied');
       if (ended) {
-        console.log(`[away] session ${session.id} ended (user replied to ${msg.handle})`);
+        console.log(`[away] session ${session.id} ended (user replied in ${isGroup ? `group chat ${msg.chat_id}` : msg.handle})`);
         sseBroadcast('away.session_ended', {
           session: enrichAway(ended),
           reason: 'user_replied',
@@ -1906,12 +1979,16 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     return;
   }
 
-  // INBOUND: only handle opted-in contacts.
-  const allowed = listEnabledAwayHandles();
-  if (!allowed.has(msg.handle)) return;
+  // INBOUND: opt-in is per-chat for groups, per-contact for 1:1.
+  if (isGroup) {
+    if (!isAwayChatWatched(msg.chat_id)) return;
+  } else {
+    const allowed = listEnabledAwayHandles();
+    if (!allowed.has(msg.handle)) return;
+  }
   if (!msg.text || msg.text.trim().length === 0) return;
 
-  const session = getActiveAwaySession(msg.handle);
+  const session = sessionHere();
 
   // FIRST contact in this away period → send the canned greeting.
   if (!session) {
@@ -1928,21 +2005,27 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       return;
     }
     try {
-      // Abort if a session was created for this handle in the meantime
-      // (parallel inbound) or away mode was toggled off during the delay.
+      // Abort if a session was created for this conversation in the
+      // meantime (parallel inbound) or away mode was toggled off during
+      // the delay. Group sessions are chat-keyed; 1:1 by handle.
       const handle = msg.handle; // capture for closure (TS narrowing is lost in arrow fn)
+      const chatId = msg.chat_id; // same — narrowing is lost in the arrow
       const result = await aiAutoSend({
         handle,
-        chat_id: msg.chat_id ?? undefined,
+        chat_id: chatId,
         body: greeting,
         delayProfile: settings.away_send_delay_enabled ? 'away' : 'off',
-        abortIf: () => !!getActiveAwaySession(handle) || !getSettings().away_mode_enabled,
-        logTag: `[away] greeting to ${handle}`,
+        abortIf: () => !!sessionHere() || !getSettings().away_mode_enabled,
+        logTag: `[away] greeting to ${isGroup ? `group ${chatId}` : handle}`,
       });
       if (!result.sent) return;
 
-      const newSession = createAwaySession(msg.handle);
-      console.log(`[away] greeting sent to ${msg.handle}, session ${newSession.id} opened`);
+      // For groups, store the session keyed by chat_id (handle column
+      // gets the chat.chat_identifier for display); for 1:1, handle is
+      // the canonical key (chat_id stays null).
+      const sessionHandle = isGroup ? target.chatIdentifier : msg.handle;
+      const newSession = createAwaySession(sessionHandle, isGroup ? chatId : null);
+      console.log(`[away] greeting sent to ${isGroup ? `group ${chatId} (${target.chatIdentifier})` : msg.handle}, session ${newSession.id} opened`);
       sseBroadcast('away.greeting_sent', {
         session: enrichAway(newSession),
         message: result.prefixedBody,
@@ -2018,22 +2101,25 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     }
 
     // Abort if user replied themselves during delay (session ends), or away
-    // mode was toggled off, or session ended for any reason.
+    // mode was toggled off, or session ended for any reason. Group/1:1
+    // session lookup uses the same `sessionHere()` helper as everywhere
+    // else in this handler.
     const handle = msg.handle; // capture for closure (TS narrowing is lost in arrow fn)
+    const chatId = msg.chat_id; // same
     const sessionId = session.id;
     const send = await aiAutoSend({
       handle,
-      chat_id: msg.chat_id ?? undefined,
+      chat_id: chatId,
       body: usable.body,
       delayProfile: settings.away_send_delay_enabled ? 'away' : 'off',
       abortIf: () => {
-        const current = getActiveAwaySession(handle);
+        const current = sessionHere();
         return !current
           || current.id !== sessionId
           || current.status === 'ended'
           || !getSettings().away_mode_enabled;
       },
-      logTag: `[away] continuation to ${handle} (session ${sessionId})`,
+      logTag: `[away] continuation to ${isGroup ? `group ${chatId}` : handle} (session ${sessionId})`,
     });
     if (!send.sent) return;
 

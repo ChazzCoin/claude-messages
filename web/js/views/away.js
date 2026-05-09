@@ -93,8 +93,32 @@ function renderPastSessionsPanel(past) {
   `;
 }
 
+/* ---------- group-chat watch row ---------- */
+function renderAwayChat(c) {
+  const title = c.label || c.group_title || c.chat_identifier || `chat ${c.chat_id}`;
+  const sub = `${c.participant_count || 0} participant${c.participant_count === 1 ? '' : 's'}`;
+  return `
+    <div class="contact-row" data-away-chat-id="${c.id}">
+      <div class="avatar group">${escapeHtml(initialsFromTitle(title))}</div>
+      <div class="contact-name">
+        ${escapeHtml(title)}
+        <span class="group-sub">${escapeHtml(sub)}</span>
+      </div>
+      <span class="contact-toggle ${c.enabled ? 'on' : 'off'}" data-action="toggle-away-chat" data-id="${c.id}" data-enabled="${c.enabled}" title="click to toggle">${c.enabled ? 'on' : 'off'}</span>
+      <span class="row-remove" data-action="remove-away-chat" data-id="${c.id}" title="remove">✕</span>
+    </div>
+  `;
+}
+
+function initialsFromTitle(title) {
+  const words = String(title || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '·';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
 /* ---------- configuration (collapsed by default) ---------- */
-function renderConfigPanel(contacts) {
+function renderConfigPanel(contacts, chats) {
   const max = settingsBounds.away_max_replies_per_session?.max || 200;
   const min = settingsBounds.away_max_replies_per_session?.min || 1;
 
@@ -151,7 +175,7 @@ function renderConfigPanel(contacts) {
           <div class="away-contacts-block">
             <div class="config-label">
               Whitelisted contacts
-              <span class="desc">only these get auto-responded</span>
+              <span class="desc">only these 1:1 contacts get auto-responded</span>
             </div>
             <div id="away-contacts-list" class="away-contacts-list">${contactList}</div>
             <button class="add-btn" data-action="show-form" data-target="form-away-contact">+ add contact</button>
@@ -164,6 +188,18 @@ function renderConfigPanel(contacts) {
               </div>
               <div class="form-error" data-error></div>
             </form>
+          </div>
+
+          <div class="away-contacts-block">
+            <div class="config-label">
+              Whitelisted group chats
+              <span class="desc">groups need explicit opt-in — adding a contact does NOT auto-include groups they're in</span>
+            </div>
+            <div id="away-chats-list" class="away-contacts-list">${
+              chats.length === 0
+                ? '<div class="empty-row">no group chats opted in. opt in from a group thread\'s identity card.</div>'
+                : chats.map(renderAwayChat).join('')
+            }</div>
           </div>
         </div>
       </details>
@@ -183,13 +219,16 @@ export async function renderAwayView() {
   if (!list) return;
 
   let contacts = [];
+  let chats = [];
   let sessions = [];
   try {
-    const [c, s] = await Promise.all([
+    const [c, ch, s] = await Promise.all([
       api('/api/away/contacts'),
+      api('/api/away/chats'),
       api('/api/away/sessions?limit=100'),
     ]);
     contacts = c.contacts || [];
+    chats = ch.chats || [];
     sessions = s.sessions || [];
   } catch (err) {
     list.innerHTML = `<div class="empty"><div class="empty-title">Failed to load.</div><div class="empty-sub">${escapeHtml(err.message)}</div></div>`;
@@ -203,7 +242,7 @@ export async function renderAwayView() {
     ${renderStatusBanner(enabled, activeSessions.length)}
     ${renderActiveSessionsPanel(activeSessions)}
     ${renderPastSessionsPanel(pastSessions)}
-    ${renderConfigPanel(contacts)}
+    ${renderConfigPanel(contacts, chats)}
   `;
 }
 

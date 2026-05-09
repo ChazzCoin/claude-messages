@@ -384,22 +384,48 @@ function wbCard({ icon, title, meta = '', body, open = false, mode = 'neutral', 
 
 /* ─── Identity card (always at top, default-open) ───────────────── */
 
-function renderIdentityCard(meta, handle) {
+// Apple stores `chat.chat_identifier` as `chat<numeric>` for group chats
+// and as the recipient handle for 1:1 chats — useful for a synchronous
+// group/1:1 check at render time without any API fetch.
+function isGroupChatMeta(meta) {
+  const id = meta?.identifier ?? '';
+  return /^chat\d+$/i.test(id);
+}
+
+// awayChat: { id, enabled } if this chat is currently in the away_chats
+// watch list, null otherwise. Populated async by mountWorkbench.
+function renderIdentityCard(meta, handle, awayChat = null) {
+  const isGroup = isGroupChatMeta(meta);
   const name = meta?.contact_name || meta?.display_name || meta?.identifier || '(unknown)';
   const seed = handle || meta?.identifier || meta?.guid || `${meta?.id ?? ''}`;
   const av = avatarClass(seed);
-  const init = initials(meta?.contact_name, meta?.display_name, meta?.identifier);
-  const onRadar = !!radarHandlesCache.has(handle);
-  const subline = handle && handle !== name
-    ? `${escapeHtml(handle)}${meta?.service_name ? ' · ' + escapeHtml(meta.service_name) : ''}`
-    : (meta?.service_name ? escapeHtml(meta.service_name) : '');
+  const init = isGroup
+    ? (meta?.display_name
+        ? meta.display_name.split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase()
+        : 'GR')
+    : initials(meta?.contact_name, meta?.display_name, meta?.identifier);
+  const onRadar = !isGroup && !!radarHandlesCache.has(handle);
+  const subline = isGroup
+    ? `group chat${meta?.service_name ? ' · ' + escapeHtml(meta.service_name) : ''}`
+    : handle && handle !== name
+      ? `${escapeHtml(handle)}${meta?.service_name ? ' · ' + escapeHtml(meta.service_name) : ''}`
+      : (meta?.service_name ? escapeHtml(meta.service_name) : '');
 
-  // Status pills — show radar toggle prominently. Profile/notes
-  // indicators populate after their fetches resolve (renderWorkbench
-  // re-runs them once data arrives).
-  const radarPill = onRadar
-    ? `<button class="wb-pill on" data-action="toggle-radar" data-handle="${escapeHtml(handle)}" title="On radar — click to remove"><span class="wb-pill-dot"></span>Radar on</button>`
-    : `<button class="wb-pill" data-action="toggle-radar" data-handle="${escapeHtml(handle)}" title="Add to radar — start tracking signals from this contact">+ Add to Radar</button>`;
+  // Pills:
+  //   1:1 chat   → Radar toggle (existing)
+  //   group chat → Away watch toggle (new in Stage 2)
+  // Radar today is per-handle (per-contact), so it doesn't make sense
+  // for groups — hide the radar pill on group threads.
+  let pills = '';
+  if (isGroup) {
+    pills = awayChat
+      ? `<button class="wb-pill on" data-action="remove-current-chat-from-away" data-id="${awayChat.id}" data-chat-id="${meta.id}" title="Galt covers this group when Away — click to remove"><span class="wb-pill-dot"></span>Away watching</button>`
+      : `<button class="wb-pill" data-action="add-current-chat-to-away" data-chat-id="${meta.id}" title="Opt this group into Away mode so Galt auto-replies here when you're out">+ Add to Away</button>`;
+  } else {
+    pills = onRadar
+      ? `<button class="wb-pill on" data-action="toggle-radar" data-handle="${escapeHtml(handle)}" title="On radar — click to remove"><span class="wb-pill-dot"></span>Radar on</button>`
+      : `<button class="wb-pill" data-action="toggle-radar" data-handle="${escapeHtml(handle)}" title="Add to radar — start tracking signals from this contact">+ Add to Radar</button>`;
+  }
 
   const body = `
     <div class="wb-identity">
@@ -411,14 +437,14 @@ function renderIdentityCard(meta, handle) {
         </div>
       </div>
       <div class="wb-identity-pills">
-        ${radarPill}
+        ${pills}
       </div>
     </div>
   `;
 
   return wbCard({
     icon: ICONS.identity,
-    title: 'Contact',
+    title: isGroup ? 'Group chat' : 'Contact',
     meta: '',
     body,
     open: true,
@@ -541,9 +567,20 @@ function renderToolsCard(chatId) {
 async function mountWorkbench(meta, chatId, handle) {
   const slot = (id) => document.getElementById(id);
 
-  // Identity is always synchronous — render immediately.
+  // Identity renders immediately with no away-chat info; if the chat is
+  // a group, we fetch /api/away/chats next and re-render with the watch
+  // status so the pill shows correct state.
   if (slot('workbench-identity')) {
-    slot('workbench-identity').innerHTML = renderIdentityCard(meta, handle);
+    slot('workbench-identity').innerHTML = renderIdentityCard(meta, handle, null);
+  }
+  if (isGroupChatMeta(meta)) {
+    api('/api/away/chats')
+      .then((r) => {
+        const match = (r.chats || []).find((c) => c.chat_id === chatId);
+        const el = slot('workbench-identity');
+        if (el) el.innerHTML = renderIdentityCard(meta, handle, match || null);
+      })
+      .catch((e) => console.warn('[workbench] away/chats fetch failed:', e));
   }
 
   // Tools are also synchronous (just buttons + a summary target).
@@ -629,8 +666,22 @@ export async function refreshWorkbenchPanel(kind, handle, chatId) {
   } else if (kind === 'identity') {
     if (chatId == null) return;
     const meta = chatsCache.find((c) => c.id === chatId);
-    if (slot('workbench-identity') && meta) {
-      slot('workbench-identity').innerHTML = renderIdentityCard(meta, handle);
+    if (!meta) return;
+    if (!slot('workbench-identity')) return;
+    // Group chats need an awayChat lookup before re-render so the pill
+    // reflects the new state. 1:1 has no equivalent (radar pill is
+    // always-correct from radarHandlesCache which is updated by the
+    // radar toggle handler).
+    if (isGroupChatMeta(meta)) {
+      try {
+        const r = await api('/api/away/chats');
+        const match = (r.chats || []).find((c) => c.chat_id === chatId);
+        slot('workbench-identity').innerHTML = renderIdentityCard(meta, handle, match || null);
+      } catch {
+        slot('workbench-identity').innerHTML = renderIdentityCard(meta, handle, null);
+      }
+    } else {
+      slot('workbench-identity').innerHTML = renderIdentityCard(meta, handle, null);
     }
   }
 }
@@ -640,10 +691,19 @@ export async function refreshWorkbenchPanel(kind, handle, chatId) {
 export async function renderThreadView(chatId) {
   const meta = chatsCache.find((c) => c.id === chatId);
   const handle = meta?.identifier || '';
-  const title = meta?.contact_name || meta?.display_name || meta?.identifier || `Chat #${chatId}`;
+  const isGroup = isGroupChatMeta(meta);
+  // Group chats: prefer the human-set display_name; fall back to a
+  // friendly "Group chat" rather than the raw `chat123456789` id.
+  // 1:1: existing precedence (contact_name → display_name → handle).
+  const title = isGroup
+    ? (meta?.display_name || `Group chat (${meta?.identifier || chatId})`)
+    : (meta?.contact_name || meta?.display_name || meta?.identifier || `Chat #${chatId}`);
+  const subInfo = isGroup
+    ? `${escapeHtml(meta?.identifier || `chat${chatId}`)} · group`
+    : (handle ? escapeHtml(handle) : '');
   setMainHeader({
     title,
-    subHTML: `<a class="back-link" data-action="back-to-inbox">← back to inbox</a>${handle ? ' · ' + escapeHtml(handle) : ''}`,
+    subHTML: `<a class="back-link" data-action="back-to-inbox">← back to inbox</a>${subInfo ? ' · ' + subInfo : ''}`,
   });
 
   const compose = document.getElementById('thread-compose-bar');

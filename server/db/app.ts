@@ -179,11 +179,31 @@ function migrate(db: DB) {
       created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
     );
 
-    -- Away sessions: one per (contact, away-period). Status flow:
+    -- Away mode for GROUP CHATS: opt-in chats (by chat.db chat.ROWID).
+    -- Distinct from away_contacts because group chats don't have a single
+    -- handle. Galt only auto-replies in groups that are explicitly listed
+    -- here — adding a single contact to away_contacts does NOT auto-opt
+    -- every group that contact is in.
+    CREATE TABLE IF NOT EXISTS away_chats (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id     INTEGER NOT NULL UNIQUE,
+      label       TEXT,
+      enabled     INTEGER NOT NULL DEFAULT 1,
+      created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_away_chats_enabled ON away_chats(enabled);
+
+    -- Away sessions: one per (chat, away-period). Status flow:
     --   greeting_sent → continuing → ended.
+    -- For 1:1 chats the session is keyed by handle (the contact); for group
+    -- chats, by chat_id (the conversation, not any single member). The
+    -- chat_id column is the canonical key going forward; handle is kept
+    -- for display + back-compat with existing 1:1 lookups.
     CREATE TABLE IF NOT EXISTS away_sessions (
       id                INTEGER PRIMARY KEY AUTOINCREMENT,
       handle            TEXT NOT NULL,
+      chat_id           INTEGER,
       started_at        INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
       last_ai_reply_at  INTEGER,
       ai_reply_count    INTEGER NOT NULL DEFAULT 0,
@@ -195,6 +215,10 @@ function migrate(db: DB) {
 
     CREATE INDEX IF NOT EXISTS idx_away_sessions_handle_status ON away_sessions(handle, status);
     CREATE INDEX IF NOT EXISTS idx_away_sessions_started ON away_sessions(started_at);
+    -- idx_away_sessions_chat_status is created AFTER the defensive ALTER
+    -- below — on existing installs the chat_id column doesn't exist yet,
+    -- so an inline CREATE INDEX referencing it throws and aborts the
+    -- whole migration block.
 
     -- Auto notes: substantive things extracted from inbound messages that the
     -- user should personally follow up on. Runs 24/7 on every inbound message
@@ -269,6 +293,17 @@ function migrate(db: DB) {
   `);
 
   // Defensive ALTERs for upgrades from prior schema.
+  // away_sessions.chat_id (added in Stage 2 of group-message support) —
+  // existing rows leave it null; new sessions populate it.
+  const awaySessionCols = db.prepare('PRAGMA table_info(away_sessions)').all() as Array<{ name: string }>;
+  if (!awaySessionCols.some((c) => c.name === 'chat_id')) {
+    db.exec('ALTER TABLE away_sessions ADD COLUMN chat_id INTEGER');
+  }
+  // The chat_id index is created here AFTER the column is guaranteed to
+  // exist (either via the fresh CREATE TABLE in the inline block above,
+  // or via the ALTER for existing installs).
+  db.exec('CREATE INDEX IF NOT EXISTS idx_away_sessions_chat_status ON away_sessions(chat_id, status)');
+
   const draftCols = db.prepare('PRAGMA table_info(drafts)').all() as Array<{ name: string }>;
   if (!draftCols.some((c) => c.name === 'staged_at')) {
     db.exec('ALTER TABLE drafts ADD COLUMN staged_at INTEGER');
@@ -1515,12 +1550,79 @@ export type AwaySessionStatus = 'greeting_sent' | 'continuing' | 'ended';
 export interface AwaySession {
   id: number;
   handle: string;
+  /** Set when the session covers a group chat. Null for legacy 1:1
+   *  sessions and for 1:1 sessions opened before Stage 2 — the handle
+   *  stays the canonical key in that case. */
+  chat_id: number | null;
   started_at: number;
   last_ai_reply_at: number | null;
   ai_reply_count: number;
   status: AwaySessionStatus;
   ended_at: number | null;
   ended_reason: string | null;
+}
+
+/* ============================================================
+   Away mode — group-chat watch list (parallel to away_contacts)
+   ============================================================ */
+
+export interface AwayChat {
+  id: number;
+  chat_id: number;
+  label: string | null;
+  enabled: 0 | 1;
+  created_at: number;
+}
+
+export function listAwayChats(): AwayChat[] {
+  const db = getAppDb();
+  return db
+    .prepare('SELECT id, chat_id, label, enabled, created_at FROM away_chats ORDER BY id DESC')
+    .all() as AwayChat[];
+}
+
+/** Set of chat.db chat_id values currently opted into Away mode. */
+export function listEnabledAwayChatIds(): Set<number> {
+  const db = getAppDb();
+  const rows = db
+    .prepare('SELECT chat_id FROM away_chats WHERE enabled = 1')
+    .all() as Array<{ chat_id: number }>;
+  return new Set(rows.map((r) => r.chat_id));
+}
+
+export function isAwayChatWatched(chatId: number): boolean {
+  const db = getAppDb();
+  const row = db
+    .prepare('SELECT 1 FROM away_chats WHERE chat_id = ? AND enabled = 1 LIMIT 1')
+    .get(chatId);
+  return !!row;
+}
+
+export function addAwayChat(chatId: number, label: string | null): AwayChat {
+  const db = getAppDb();
+  db
+    .prepare('INSERT OR IGNORE INTO away_chats(chat_id, label) VALUES (?, ?)')
+    .run(chatId, label);
+  if (label !== null) {
+    db.prepare(
+      "UPDATE away_chats SET label = ? WHERE chat_id = ? AND (label IS NULL OR label = '')",
+    ).run(label, chatId);
+  }
+  return db
+    .prepare('SELECT id, chat_id, label, enabled, created_at FROM away_chats WHERE chat_id = ?')
+    .get(chatId) as AwayChat;
+}
+
+export function setAwayChatEnabled(id: number, enabled: boolean): boolean {
+  const db = getAppDb();
+  return (
+    db.prepare('UPDATE away_chats SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id).changes > 0
+  );
+}
+
+export function removeAwayChat(id: number): boolean {
+  const db = getAppDb();
+  return db.prepare('DELETE FROM away_chats WHERE id = ?').run(id).changes > 0;
 }
 
 export function listAwayContacts(): AwayContact[] {
@@ -1572,26 +1674,48 @@ export function removeAwayContact(id: number): boolean {
 }
 
 const AWAY_SESSION_COLS =
-  'id, handle, started_at, last_ai_reply_at, ai_reply_count, status, ended_at, ended_reason';
+  'id, handle, chat_id, started_at, last_ai_reply_at, ai_reply_count, status, ended_at, ended_reason';
 
+/** Look up an active session for a 1:1 chat by recipient handle.
+ *  Group chats: use `getActiveAwaySessionForChat(chatId)` instead — a
+ *  session in a group is keyed by chat, not by any single member's
+ *  handle. */
 export function getActiveAwaySession(handle: string): AwaySession | null {
   const db = getAppDb();
   const row = db
     .prepare(
       `SELECT ${AWAY_SESSION_COLS}
        FROM away_sessions
-       WHERE handle = ? AND status != 'ended'
+       WHERE handle = ? AND chat_id IS NULL AND status != 'ended'
        ORDER BY started_at DESC LIMIT 1`,
     )
     .get(handle) as AwaySession | undefined;
   return row ?? null;
 }
 
-export function createAwaySession(handle: string): AwaySession {
+/** Look up an active session for a group chat by chat_id. */
+export function getActiveAwaySessionForChat(chatId: number): AwaySession | null {
+  const db = getAppDb();
+  const row = db
+    .prepare(
+      `SELECT ${AWAY_SESSION_COLS}
+       FROM away_sessions
+       WHERE chat_id = ? AND status != 'ended'
+       ORDER BY started_at DESC LIMIT 1`,
+    )
+    .get(chatId) as AwaySession | undefined;
+  return row ?? null;
+}
+
+/** Create a session. For 1:1 chats pass just the handle (chat_id stays
+ *  null — handle is the canonical key). For group chats pass both — the
+ *  chat_id becomes the canonical key, handle is stored for display
+ *  (typically the chat.chat_identifier). */
+export function createAwaySession(handle: string, chatId?: number | null): AwaySession {
   const db = getAppDb();
   const info = db
-    .prepare("INSERT INTO away_sessions(handle, status) VALUES (?, 'greeting_sent')")
-    .run(handle);
+    .prepare("INSERT INTO away_sessions(handle, chat_id, status) VALUES (?, ?, 'greeting_sent')")
+    .run(handle, chatId ?? null);
   return db
     .prepare(`SELECT ${AWAY_SESSION_COLS} FROM away_sessions WHERE id = ?`)
     .get(info.lastInsertRowid) as AwaySession;
