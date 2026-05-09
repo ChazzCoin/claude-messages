@@ -78,6 +78,49 @@ appear in the recipient's Messages thread.
 
 ---
 
+## Phase 5 — Richer iMessage send paths
+
+**Status:** 📋 Queued
+
+**Scope.** The AppleScript send wrapper currently does text-to-handle
+only — a strict subset of what Apple actually supports. This phase
+lifts it to the full Messages surface: tapbacks (heart/like/laugh/...),
+threaded replies, group-chat sends by chat GUID, file/image
+attachments, expressive effects (slam/loud/fireworks/...), mark-thread-
+read after auto-replies, edit/unsend within Apple's 2-min/15-min
+windows, and FaceTime/phone-call initiation. Several of these double
+as inbound classifier signals: an incoming 👍 on Galt's reply means
+closure; an incoming edit means the sender cared enough to revise.
+**Out of scope:** creating new group chats, group renames/photo
+changes. Success: every Galt-originated send can carry the right shape
+(reaction, threaded reply, group, attachment, effect) instead of
+collapsing to bare text — and every meaningful inbound state change
+on a message we sent feeds the classifier.
+
+---
+
+## Phase 6 — Multimodal AI enrichment
+
+**Status:** 📋 Queued
+
+**Scope.** Today the auto-note + draft pipeline only "sees" message
+text — voice messages collapse to `[encoded message]`, image
+attachments are silent, and Apple's already-extracted Data Detector
+entities (dates / addresses / phone numbers / flight numbers / package
+tracking) sit in `payload_data` blobs unused. This phase wires Whisper
+transcription for audio, GPT-4V description + OCR for images, and a
+parser for Apple's native Data Detectors so calendar extraction can
+favor free + accurate native data over LLM re-extraction. Also adds
+CallHistory cross-reference so drafts know "Mom called twice today,
+no callback yet". **Out of scope:** sending voice/video, image
+generation, video understanding. Success: voice messages get
+transcribed and feed the auto-note pipeline; image attachments get
+captioned + OCR'd; Apple's Data Detectors replace the LLM calendar-
+extraction call for the easy cases; CallHistory context appears in
+identity card and in draft prompts.
+
+---
+
 *(Add phases as the project evolves. Use `/plan` to think through new
 phases conversationally; use `/task` to file tasks under existing
 phases. Don't create empty phases speculatively — a phase exists

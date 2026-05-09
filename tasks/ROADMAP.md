@@ -68,6 +68,43 @@ Tasks:
 
 ---
 
+## Phase 5 — Richer iMessage send paths
+
+> **Scope.** Lift the AppleScript send wrapper from "text-to-handle"
+> to the full surface Apple actually offers: reactions, threaded
+> replies, group chats, attachments, effects, mark-read, edit/unsend,
+> and call initiation. Several of these double as classifier signals
+> (incoming reactions = closure, edits = priority bump).
+
+Tasks (in suggested ship order):
+
+- TASK-052 — Send to a group chat by chat GUID *(prerequisite for most others)*
+- TASK-050 — Reactions / tapbacks: send + use as classifier signal
+- TASK-051 — Threaded replies: render incoming, send outgoing
+- TASK-055 — Mark a thread as read after Galt auto-replies
+- TASK-053 — Send attachments (images, files)
+- TASK-056 — Edit / unsend our own + treat incoming edits as signal
+- TASK-054 — Send with iMessage effect (slam / fireworks / etc.)
+- TASK-057 — Initiate FaceTime / phone call from the dashboard
+
+---
+
+## Phase 6 — Multimodal AI enrichment
+
+> **Scope.** Plug the gaps in our message-comprehension pipeline: voice
+> messages, image attachments, Apple's pre-extracted Data Detector
+> results, and cross-channel context from CallHistory. Today the
+> pipeline only sees text; this phase makes everything else first-class.
+
+Tasks (in suggested ship order):
+
+- TASK-063 — CallHistory cross-reference for context enrichment *(small, high leverage)*
+- TASK-062 — Apple Data Detector parser (`payload_data` → entities)
+- TASK-060 — Whisper transcription for voice messages
+- TASK-061 — GPT-4V image understanding for inbound images
+
+---
+
 ## Cross-cutting
 
 Tasks that don't fit a single phase — typically infrastructure that
