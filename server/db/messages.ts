@@ -171,6 +171,29 @@ export interface MessageRow {
   reactions: Reaction[];
   /** Attachments referenced by this message (images, gifs, files). */
   attachments: AttachmentInfo[];
+  /** Threaded-reply target — the GUID of the message this is an inline reply to. */
+  thread_originator_guid: string | null;
+  /** The "part" of the originating message being replied to (Apple uses 0 for the whole message). */
+  thread_originator_part: string | null;
+  /** iOS 16+ message edits / unsends. Apple keeps the current text and stamps the moment of mutation. */
+  date_edited_ms: number | null;
+  date_retracted_ms: number | null;
+  /** Expressive send style — Apple bundle id (e.g. `com.apple.MobileSMS.expressivesend.gentle`). */
+  expressive_send_style_id: string | null;
+  /** SMS subject-line (carrier preserves on email-to-SMS bridges). Usually null on iMessage. */
+  subject: string | null;
+  /** iMessage Apps payload identifier (Apple Pay, polls, games, stickers). */
+  balloon_bundle_id: string | null;
+  is_audio_message: 0 | 1;
+  /** True when Apple's Data Detectors (dates/addresses/phones/flights) found something in this message. */
+  has_dd_results: 0 | 1;
+  /** System messages: 0/null = normal; non-zero = group-membership change (added, removed, renamed, …). */
+  group_action_type: number | null;
+  /** Which iMessage account sent it (multi-account users). */
+  account_guid: string | null;
+  account: string | null;
+  /** Send-error code (0 = ok). Surfaces failed sends. */
+  error: number | null;
 }
 
 interface RawMessageRow {
@@ -188,6 +211,19 @@ interface RawMessageRow {
   assoc_type: number | null;
   date_delivered: number | bigint | null;
   date_read: number | bigint | null;
+  thread_originator_guid: string | null;
+  thread_originator_part: string | null;
+  date_edited: number | bigint | null;
+  date_retracted: number | bigint | null;
+  expressive_send_style_id: string | null;
+  subject: string | null;
+  balloon_bundle_id: string | null;
+  is_audio_message: number | null;
+  has_dd_results: number | null;
+  group_action_type: number | null;
+  account_guid: string | null;
+  account: string | null;
+  error: number | null;
 }
 
 interface RawAttachmentRow {
@@ -199,22 +235,53 @@ interface RawAttachmentRow {
   total_bytes: number | null;
 }
 
+// Apple's `message` table columns we lift here:
+//  - ROWID, guid, text, attributedBody, date, is_from_me, service: bedrock
+//  - associated_message_guid/type: tapbacks (folded into reactions[])
+//  - date_delivered, date_read: receipt timestamps
+//  - thread_originator_guid/part: Apple's inline-reply ("threaded reply")
+//  - date_edited, date_retracted: iOS 16+ edit / unsend timestamps
+//  - expressive_send_style_id: send effects ("slam", "fireworks", etc.)
+//  - subject: SMS-with-subject (rare; non-null on email-to-SMS bridges)
+//  - balloon_bundle_id: iMessage Apps payload (Apple Pay, polls, games)
+//  - is_audio_message, has_dd_results: bool flags
+//  - group_action_type: 0/null = normal; non-zero = group-membership system msg
+//  - account, account_guid: which iMessage account sent it
+//  - error: send-error code (0 = ok)
+// All columns exist on every modern macOS chat.db (iOS 16+ era schema).
+const MESSAGE_COLUMNS_SQL = `
+  m.ROWID                       AS id,
+  m.guid                        AS guid,
+  m.text                        AS text,
+  m.attributedBody              AS attributedBody,
+  m.handle_id                   AS handle_id,
+  h.id                          AS handle,
+  m.date                        AS date,
+  m.is_from_me                  AS is_from_me,
+  m.service                     AS service,
+  m.associated_message_guid     AS assoc_guid,
+  m.associated_message_type     AS assoc_type,
+  m.date_delivered              AS date_delivered,
+  m.date_read                   AS date_read,
+  m.thread_originator_guid      AS thread_originator_guid,
+  m.thread_originator_part      AS thread_originator_part,
+  m.date_edited                 AS date_edited,
+  m.date_retracted              AS date_retracted,
+  m.expressive_send_style_id    AS expressive_send_style_id,
+  m.subject                     AS subject,
+  m.balloon_bundle_id           AS balloon_bundle_id,
+  m.is_audio_message            AS is_audio_message,
+  m.has_dd_results              AS has_dd_results,
+  m.group_action_type           AS group_action_type,
+  m.account_guid                AS account_guid,
+  m.account                     AS account,
+  m.error                       AS error
+`;
+
 const MESSAGES_FOR_CHAT_SQL = `
   SELECT
-    m.ROWID                   AS id,
-    m.guid                    AS guid,
-    m.text                    AS text,
-    m.attributedBody          AS attributedBody,
-    m.handle_id               AS handle_id,
-    h.id                      AS handle,
-    m.date                    AS date,
-    m.is_from_me              AS is_from_me,
-    m.service                 AS service,
-    cmj.chat_id               AS chat_id,
-    m.associated_message_guid AS assoc_guid,
-    m.associated_message_type AS assoc_type,
-    m.date_delivered          AS date_delivered,
-    m.date_read               AS date_read
+    ${MESSAGE_COLUMNS_SQL},
+    cmj.chat_id                 AS chat_id
   FROM message m
   JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
   LEFT JOIN handle h ON h.ROWID = m.handle_id
@@ -323,20 +390,8 @@ export function listMessagesForChat(chatId: number, sinceRowid = 0, limit = 200)
 
 const RECENT_MESSAGES_SQL = `
   SELECT
-    m.ROWID                   AS id,
-    m.guid                    AS guid,
-    m.text                    AS text,
-    m.attributedBody          AS attributedBody,
-    m.handle_id               AS handle_id,
-    h.id                      AS handle,
-    m.date                    AS date,
-    m.is_from_me              AS is_from_me,
-    m.service                 AS service,
-    cmj.chat_id               AS chat_id,
-    m.associated_message_guid AS assoc_guid,
-    m.associated_message_type AS assoc_type,
-    m.date_delivered          AS date_delivered,
-    m.date_read               AS date_read
+    ${MESSAGE_COLUMNS_SQL},
+    cmj.chat_id                 AS chat_id
   FROM message m
   LEFT JOIN handle h ON h.ROWID = m.handle_id
   LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
@@ -368,6 +423,19 @@ function toMessageRow(r: RawMessageRow): MessageRow {
     date_read_ms: appleDateToUnixMs(r.date_read),
     reactions: [],
     attachments: [],
+    thread_originator_guid: r.thread_originator_guid,
+    thread_originator_part: r.thread_originator_part,
+    date_edited_ms: appleDateToUnixMs(r.date_edited),
+    date_retracted_ms: appleDateToUnixMs(r.date_retracted),
+    expressive_send_style_id: r.expressive_send_style_id,
+    subject: r.subject,
+    balloon_bundle_id: r.balloon_bundle_id,
+    is_audio_message: (r.is_audio_message ? 1 : 0) as 0 | 1,
+    has_dd_results: (r.has_dd_results ? 1 : 0) as 0 | 1,
+    group_action_type: r.group_action_type,
+    account_guid: r.account_guid,
+    account: r.account,
+    error: r.error,
   };
 }
 
@@ -381,20 +449,8 @@ export function getMaxMessageRowid(): number {
 
 const SENT_MESSAGES_SQL = `
   SELECT
-    m.ROWID                   AS id,
-    m.guid                    AS guid,
-    m.text                    AS text,
-    m.attributedBody          AS attributedBody,
-    m.handle_id               AS handle_id,
-    h.id                      AS handle,
-    m.date                    AS date,
-    1                         AS is_from_me,
-    m.service                 AS service,
-    cmj.chat_id               AS chat_id,
-    m.associated_message_guid AS assoc_guid,
-    m.associated_message_type AS assoc_type,
-    m.date_delivered          AS date_delivered,
-    m.date_read               AS date_read
+    ${MESSAGE_COLUMNS_SQL},
+    cmj.chat_id                 AS chat_id
   FROM message m
   LEFT JOIN handle h ON h.ROWID = m.handle_id
   LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID

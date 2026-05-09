@@ -32,6 +32,216 @@ import {
   chatsCache, radarHandlesCache,
 } from '../state.js';
 import { renderProfileBlock, renderNotesBlock } from './inbox.js';
+import { openInspector } from '../components/modal.js';
+
+/* ─── message inspector — clicking any bubble opens this ────────── */
+
+// Apple's expressive_send_style_id is a bundle identifier; map the
+// well-known ones to a human label. Anything we don't recognize falls
+// through with the raw id displayed as-is.
+const EXPRESSIVE_LABELS = {
+  'com.apple.MobileSMS.expressivesend.gentle':       'Gentle',
+  'com.apple.MobileSMS.expressivesend.impact':       'Slam',
+  'com.apple.MobileSMS.expressivesend.invisibleink': 'Invisible Ink',
+  'com.apple.MobileSMS.expressivesend.loud':         'Loud',
+  'com.apple.MobileSMS.expressivesend.echo':         'Echo',
+  'com.apple.messages.effect.CKConfettiEffect':      'Confetti screen',
+  'com.apple.messages.effect.CKHeartEffect':         'Heart screen',
+  'com.apple.messages.effect.CKLasersEffect':        'Lasers screen',
+  'com.apple.messages.effect.CKFireworksEffect':     'Fireworks screen',
+  'com.apple.messages.effect.CKShootingStarEffect':  'Shooting Star',
+  'com.apple.messages.effect.CKSparklesEffect':      'Sparkles',
+  'com.apple.messages.effect.CKSpotlightEffect':     'Spotlight',
+};
+
+// chat.db's message.group_action_type — system-message variants for
+// group-membership changes. 0/null = normal user message.
+const GROUP_ACTION_LABELS = {
+  0: 'normal message',
+  1: 'participant added',
+  2: 'participant removed',
+  3: 'group renamed',
+  5: 'group photo changed',
+};
+
+// Friendly labels for some commonly-seen balloon_bundle_id values
+// (iMessage Apps payload identifiers). The full ID is shown beneath.
+function balloonLabel(id) {
+  if (!id) return null;
+  if (id.includes('PassbookUIService.PeerPaymentMessages')) return 'Apple Cash / Apple Pay';
+  if (id.includes('Stickers.UserGenerated'))                return 'User-generated sticker';
+  if (id.includes('URLBalloonProvider'))                    return 'Rich link preview';
+  if (id.includes('audioMessage'))                          return 'Audio message';
+  if (id.includes('Handwriting'))                           return 'Handwritten note';
+  if (id.includes('DigitalTouchBalloonProvider'))           return 'Digital Touch';
+  if (id.includes('Polls'))                                 return 'Poll';
+  if (id.includes('MSMessageExtensionBalloonPlugin'))       return 'iMessage app';
+  return null;
+}
+
+function fmtAbs(ms) {
+  if (!ms) return null;
+  return new Date(ms).toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', second: '2-digit',
+  });
+}
+
+function inspRow(label, value, opts = {}) {
+  if (value == null || value === '' || value === '—') {
+    return `<div class="insp-row muted"><span class="insp-key">${escapeHtml(label)}</span><span class="insp-val">—</span></div>`;
+  }
+  const cls = opts.mono ? 'insp-val mono' : 'insp-val';
+  const sub = opts.sub ? `<div class="insp-sub">${escapeHtml(opts.sub)}</div>` : '';
+  return `
+    <div class="insp-row">
+      <span class="insp-key">${escapeHtml(label)}</span>
+      <span class="${cls}">${escapeHtml(String(value))}${sub}</span>
+    </div>
+  `;
+}
+
+function inspTsRow(label, ms) {
+  if (!ms) return inspRow(label, null);
+  return `
+    <div class="insp-row">
+      <span class="insp-key">${escapeHtml(label)}</span>
+      <span class="insp-val">
+        ${escapeHtml(fmtAbs(ms))}
+        <div class="insp-sub">${escapeHtml(relTime(ms))} · <span class="mono">${ms}</span></div>
+      </span>
+    </div>
+  `;
+}
+
+// Drop a section if every row resolved to muted "—" — keeps the
+// inspector tight on plain messages.
+function inspSection(title, rows) {
+  const nonEmpty = rows.filter((r) => r && !r.includes('insp-row muted'));
+  if (nonEmpty.length === 0) return '';
+  return `
+    <div class="insp-section">
+      <div class="insp-section-title">${escapeHtml(title)}</div>
+      ${rows.join('')}
+    </div>
+  `;
+}
+
+function renderInspectorBody(m) {
+  const senderName = m.is_from_me === 1
+    ? 'You'
+    : (m.contact_name || m.handle || '(unknown)');
+
+  const expressive = m.expressive_send_style_id
+    ? (EXPRESSIVE_LABELS[m.expressive_send_style_id] || m.expressive_send_style_id)
+    : null;
+  const expressiveSub = m.expressive_send_style_id && EXPRESSIVE_LABELS[m.expressive_send_style_id]
+    ? m.expressive_send_style_id
+    : null;
+
+  const balloon = balloonLabel(m.balloon_bundle_id);
+  const balloonSub = balloon && m.balloon_bundle_id ? m.balloon_bundle_id : null;
+
+  const groupAction = m.group_action_type != null
+    ? (GROUP_ACTION_LABELS[m.group_action_type] || `unknown (${m.group_action_type})`)
+    : null;
+
+  const reactionsBlock = m.reactions && m.reactions.length
+    ? m.reactions.map((r) => {
+        const who = r.is_from_me ? 'You' : (r.sender_contact_name || r.sender_handle || '?');
+        return `<div class="insp-reaction"><span class="insp-emoji">${escapeHtml(r.emoji)}</span> ${escapeHtml(r.type_name)} from <strong>${escapeHtml(who)}</strong></div>`;
+      }).join('')
+    : null;
+
+  const attBlock = m.attachments && m.attachments.length
+    ? m.attachments.map((a) => {
+        const name = a.transfer_name || a.filename?.split('/').pop() || 'file';
+        const size = fmtBytes(a.total_bytes);
+        const mime = a.mime_type || '?';
+        return `<div class="insp-att"><span class="mono">${escapeHtml(name)}</span> · ${escapeHtml(mime)}${size ? ' · ' + escapeHtml(size) : ''}</div>`;
+      }).join('')
+    : null;
+
+  return `
+    <div class="insp-body">
+
+      ${inspSection('Identity', [
+        inspRow('Sender', senderName, { sub: m.handle || undefined }),
+        inspRow('Direction', m.is_from_me === 1 ? 'outgoing' : 'incoming'),
+        inspRow('GUID', m.guid, { mono: true }),
+        inspRow('ROWID', String(m.id), { mono: true }),
+      ])}
+
+      ${inspSection('Timing', [
+        inspTsRow('Sent', m.date_ms),
+        inspTsRow('Delivered', m.date_delivered_ms),
+        inspTsRow('Read', m.date_read_ms),
+      ])}
+
+      ${inspSection('Edit history', [
+        inspTsRow('Edited', m.date_edited_ms),
+        inspTsRow('Retracted (unsent)', m.date_retracted_ms),
+      ])}
+
+      ${inspSection('Threaded reply', [
+        inspRow('Reply to GUID', m.thread_originator_guid, { mono: true }),
+        inspRow('Reply to part', m.thread_originator_part != null ? String(m.thread_originator_part) : null, { mono: true }),
+      ])}
+
+      ${inspSection('Effects', [
+        inspRow('Expressive style', expressive, { sub: expressiveSub }),
+      ])}
+
+      ${inspSection('iMessage Apps payload', [
+        inspRow('Balloon kind', balloon, { sub: balloonSub }),
+        inspRow('Audio message', m.is_audio_message === 1 ? 'yes' : null),
+      ])}
+
+      ${inspSection('Data Detectors', [
+        inspRow('Apple-detected entities', m.has_dd_results === 1 ? 'yes (dates/addresses/etc. parsed)' : null),
+      ])}
+
+      ${inspSection('Group / system', [
+        inspRow('Group action', groupAction === 'normal message' ? null : groupAction),
+        inspRow('SMS subject', m.subject),
+      ])}
+
+      ${inspSection('Account / send status', [
+        inspRow('Service', m.service),
+        inspRow('Account', m.account, { sub: m.account_guid || undefined }),
+        inspRow('Send error', m.error && m.error !== 0 ? `code ${m.error}` : null),
+      ])}
+
+      ${reactionsBlock ? inspSection('Reactions', [`<div class="insp-reactions-list">${reactionsBlock}</div>`]) : ''}
+
+      ${attBlock ? inspSection('Attachments', [`<div class="insp-att-list">${attBlock}</div>`]) : ''}
+
+      ${m.text ? `
+        <div class="insp-section">
+          <div class="insp-section-title">Text</div>
+          <pre class="insp-text">${escapeHtml(m.text)}</pre>
+        </div>
+      ` : ''}
+
+    </div>
+  `;
+}
+
+function openMessageInspector(m) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = renderInspectorBody(m);
+  const senderName = m.is_from_me === 1
+    ? 'You'
+    : (m.contact_name || m.handle || '(unknown)');
+  openInspector({
+    title: `Message details · ${senderName}`,
+    contentEl: wrap,
+  });
+}
+
+// Lookup table: rebuilt every time renderThreadView paints a thread.
+// The bubble carries data-msg-guid; the click handler reads from here.
+const _messagesByGuid = new Map();
 
 /* ─── message bubbles (chat foundation) ─────────────────────────── */
 
@@ -92,8 +302,10 @@ function renderMessageBubble(m) {
         ? '' // attachments below stand on their own
         : '<span class="bubble-empty">[encoded message — decoder skipped]</span>');
   const receipt = receiptLabel(m);
+  // data-msg-guid is the inspector-handler's hook; the lookup is in
+  // _messagesByGuid which renderThreadView populates on every paint.
   return `
-    <div class="bubble-row ${fromMe ? 'me' : ''}">
+    <div class="bubble-row ${fromMe ? 'me' : ''}" data-msg-guid="${escapeHtml(m.guid)}" title="Click for message details">
       <div>
         ${hasText || !(m.attachments && m.attachments.length)
           ? `<div class="bubble ${fromMe ? 'me' : 'them'}">${bubbleInner}</div>` : ''}
@@ -104,6 +316,25 @@ function renderMessageBubble(m) {
       </div>
     </div>
   `;
+}
+
+// Document-level delegated click handler for bubbles. Idempotent —
+// calling installBubbleClickHandler() multiple times is a no-op (a
+// flag on document avoids re-binding).
+function installBubbleClickHandler() {
+  if (document.__galtBubbleHandlerInstalled) return;
+  document.__galtBubbleHandlerInstalled = true;
+  document.addEventListener('click', (e) => {
+    // Don't intercept clicks on links or images inside the bubble —
+    // those have their own behavior (open attachment, copy text, etc.).
+    if (e.target.closest('a, img, button, input, textarea')) return;
+    const row = e.target.closest('.bubble-row[data-msg-guid]');
+    if (!row) return;
+    const guid = row.dataset.msgGuid;
+    const m = _messagesByGuid.get(guid);
+    if (!m) return;
+    openMessageInspector(m);
+  });
 }
 
 /* ─── compose bar (sticky bottom of chat area) ──────────────────── */
@@ -434,6 +665,12 @@ export async function renderThreadView(chatId) {
       list.innerHTML = '<div class="empty"><div class="empty-title">No messages in this chat.</div></div>';
       return;
     }
+    // Repopulate the inspector lookup table — last-write-wins on guid
+    // collisions (shouldn't happen, but harmless if it does).
+    _messagesByGuid.clear();
+    for (const m of messages) _messagesByGuid.set(m.guid, m);
+    installBubbleClickHandler();
+
     const ascending = messages.slice().reverse();
     list.innerHTML = ascending.map(renderMessageBubble).join('');
     requestAnimationFrame(() => {

@@ -1786,6 +1786,120 @@ body::after {
 }
 
 /* ============================================================
+   Message inspector — read-only metadata readout. Wider than the
+   default modal-card and with its own internal sectioning. The
+   .inspector class is added by openInspector() so we can target it
+   without affecting other modals.
+   ============================================================ */
+.modal-card.inspector-card {
+  min-width: 480px;
+  max-width: 640px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 22px 26px;
+}
+.modal-card.inspector-card h3 {
+  font-size: 13px;
+  margin-bottom: 18px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+}
+.insp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.insp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.insp-section:last-child { border-bottom: none; padding-bottom: 0; }
+.insp-section-title {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.insp-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 4px 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.insp-row.muted .insp-key,
+.insp-row.muted .insp-val { color: var(--text-faint); }
+.insp-key {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.insp-val {
+  color: var(--text);
+  word-break: break-word;
+}
+.insp-val.mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+.insp-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  margin-top: 2px;
+  letter-spacing: 0.2px;
+  word-break: break-all;
+}
+.insp-sub .mono { color: var(--text-faint); }
+.insp-text {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  line-height: 1.5;
+}
+.insp-reactions-list,
+.insp-att-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  grid-column: 1 / -1;
+}
+.insp-reaction,
+.insp-att {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 4px 8px;
+  background: var(--bg-card);
+  border-radius: 4px;
+}
+.insp-emoji { font-size: 14px; }
+
+/* Make all bubbles look interactively clickable now that they open
+   the inspector. Subtle — preserve the chat aesthetic. */
+.bubble-row[data-msg-guid] { cursor: pointer; }
+.bubble-row[data-msg-guid]:hover .bubble {
+  filter: brightness(1.08);
+}
+
+/* ============================================================
    Contact autocomplete (body-portaled, positioned via JS)
    ============================================================ */
 .contact-autocomplete {

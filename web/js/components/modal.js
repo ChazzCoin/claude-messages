@@ -52,3 +52,35 @@ export function openModal({ title, contentEl, onConfirm, confirmLabel = 'Confirm
     }
   });
 }
+
+// Read-only inspector. Same overlay chrome as openModal but only a
+// "Close" button — no confirm/cancel pair. Used for surfacing details
+// (e.g. message metadata) where the user just needs to look.
+export function openInspector({ title, contentEl }) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay inspector';
+  const card = document.createElement('div');
+  card.className = 'modal-card inspector-card';
+  card.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+  card.appendChild(contentEl);
+
+  const actions = document.createElement('div');
+  actions.className = 'modal-actions';
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'btn ghost';
+  closeBtn.type = 'button';
+  closeBtn.textContent = 'Close';
+  actions.appendChild(closeBtn);
+  card.appendChild(actions);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  closeBtn.addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+}
