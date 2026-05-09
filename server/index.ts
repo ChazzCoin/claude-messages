@@ -16,6 +16,7 @@ import {
   listMessagesForChat,
   listRecentMessages,
   appleDateToUnixMs,
+  getChatTarget,
 } from './db/messages.js';
 import {
   getAppDb,
@@ -115,7 +116,7 @@ import {
   type AwaySession,
   type SummonSession,
 } from './db/app.js';
-import { sendMessageViaAppleScript } from './send.js';
+import { sendMessageViaAppleScript, sendToChat } from './send.js';
 import { messageWatcher } from './watcher.js';
 import { mirrorAutoNote, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
@@ -428,7 +429,10 @@ app.post(
     const body = typeof req.body?.body === 'string' ? req.body.body : draft.body;
     const edited = body !== draft.body;
 
-    await sendMessageViaAppleScript(draft.handle, body);
+    // Route through chat-aware send so group-chat drafts land in the
+    // group instead of being sent as a 1:1 to whichever member's handle
+    // happened to be on the draft row.
+    await sendToChat(draft.chat_id, body);
     const updated = updateDraftStatus(id, 'sent', edited ? body : undefined);
     return res.json({ draft: enrichDraft(updated) });
   }),
@@ -486,29 +490,32 @@ app.post(
     if (!Number.isFinite(chatId) || !body) {
       return res.status(400).json({ error: 'chat_id and body required' });
     }
-    let handle = normalizeHandle(req.body?.handle);
-    if (!handle) {
-      try {
-        const db = getChatDb();
-        const row = db.prepare('SELECT chat_identifier FROM chat WHERE ROWID = ?').get(chatId) as
-          | { chat_identifier: string }
-          | undefined;
-        if (!row) return res.status(404).json({ error: `chat ${chatId} not found` });
-        handle = row.chat_identifier;
-      } catch (err) {
-        return res.status(500).json({ error: `chat lookup failed: ${(err as Error).message}` });
-      }
+
+    // chat-aware send routes 1:1 (buddy form) vs group (chat-id form).
+    // For the draft record below, resolve a "handle" string for display:
+    // - 1:1: the recipient handle
+    // - group: chat.chat_identifier (e.g. `chat123456789`) so history
+    //   queries grouping by handle still bucket correctly.
+    let target;
+    try {
+      target = getChatTarget(chatId);
+    } catch (err) {
+      return res.status(500).json({ error: `chat lookup failed: ${(err as Error).message}` });
     }
+    if (!target) return res.status(404).json({ error: `chat ${chatId} not found` });
+    const handleForDraft = target.isGroup
+      ? target.chatIdentifier
+      : (normalizeHandle(req.body?.handle) || target.handle || target.chatIdentifier);
 
     // AppleScript first — if it throws, no draft is created (no fake history).
-    await sendMessageViaAppleScript(handle, body);
+    await sendToChat(chatId, body);
 
     const sourceGuid = `direct-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     const reasoning =
       typeof req.body?.reasoning === 'string' && req.body.reasoning.length > 0
         ? req.body.reasoning
         : 'direct send (user-typed, no AI)';
-    const draft = createDraft({ source_msg_guid: sourceGuid, chat_id: chatId, handle, body, reasoning });
+    const draft = createDraft({ source_msg_guid: sourceGuid, chat_id: chatId, handle: handleForDraft, body, reasoning });
     const sent = updateDraftStatus(draft.id, 'sent');
     return res.json({ draft: enrichDraft(sent) });
   }),
@@ -1619,7 +1626,13 @@ function isOurAutoSendEcho(handle: string, body: string | null | undefined): boo
  * with the caller because their payloads are mode-specific.
  */
 async function aiAutoSend(opts: {
+  /** Required when chat_id is unknown (legacy callers). For group sends,
+   *  callers MUST pass chat_id — handle alone can't address a group. */
   handle: string;
+  /** Preferred routing target — when present, dispatches via sendToChat
+   *  which auto-routes 1:1 vs group. Falls back to handle-only for
+   *  legacy callers that don't yet thread chat_id through. */
+  chat_id?: number;
   body: string;
   delayProfile: 'away' | 'summon' | 'off';
   abortIf?: () => boolean;
@@ -1642,7 +1655,11 @@ async function aiAutoSend(opts: {
   }
 
   trackOurAutoSend(opts.handle, prefixedBody); // mark BEFORE send so the watcher echo doesn't trip the wrong handler
-  await sendMessageViaAppleScript(opts.handle, prefixedBody);
+  if (opts.chat_id != null) {
+    await sendToChat(opts.chat_id, prefixedBody);
+  } else {
+    await sendMessageViaAppleScript(opts.handle, prefixedBody);
+  }
   return { sent: true, aborted: false, prefixedBody };
 }
 
@@ -1916,6 +1933,7 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
       const handle = msg.handle; // capture for closure (TS narrowing is lost in arrow fn)
       const result = await aiAutoSend({
         handle,
+        chat_id: msg.chat_id ?? undefined,
         body: greeting,
         delayProfile: settings.away_send_delay_enabled ? 'away' : 'off',
         abortIf: () => !!getActiveAwaySession(handle) || !getSettings().away_mode_enabled,
@@ -2005,6 +2023,7 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     const sessionId = session.id;
     const send = await aiAutoSend({
       handle,
+      chat_id: msg.chat_id ?? undefined,
       body: usable.body,
       delayProfile: settings.away_send_delay_enabled ? 'away' : 'off',
       abortIf: () => {
@@ -2218,6 +2237,7 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
     const sessionId = session.id;
     const send = await aiAutoSend({
       handle,
+      chat_id: chatId ?? undefined,
       body: usable.body,
       delayProfile: settings.away_send_delay_enabled ? 'summon' : 'off',
       abortIf: () => {

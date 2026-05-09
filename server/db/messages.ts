@@ -495,3 +495,95 @@ export function getServiceForHandle(handle: string): 'iMessage' | 'SMS' | null {
   if (!row || !row.service) return null;
   return row.service === 'iMessage' ? 'iMessage' : 'SMS';
 }
+
+/* ============================================================
+   Chat-aware send target resolution
+   ============================================================
+   Apple identifies a 1:1 chat by the recipient handle (a phone or
+   email) and a group chat by `chat.guid` (e.g. `iMessage;+;chat<id>`).
+   AppleScript's Messages dialect uses different syntax for each:
+
+     1:1   →  send X to buddy "+15551234567" of <service>
+     group →  send X to chat id "iMessage;+;chat123456789"
+
+   `getChatTarget(chatId)` is the single source of truth for which
+   form to use when sending — read once, dispatch in send.ts. */
+export interface ChatTarget {
+  /** chat.db chat.ROWID */
+  chatId: number;
+  /** chat.db chat.guid — the AppleScript-addressable form for groups. */
+  chatGuid: string;
+  /** chat.db chat.chat_identifier — the handle (1:1) or `chat<id>` (groups). */
+  chatIdentifier: string;
+  /** Number of distinct participants per chat_handle_join. 1 = 1:1, >1 = group. */
+  participantCount: number;
+  /** True when the chat has more than one participant (a group). */
+  isGroup: boolean;
+  /** For 1:1 chats, the recipient handle. Null for groups. */
+  handle: string | null;
+  /** Apple's service id (`iMessage`, `SMS`, sometimes others); collapsed to
+   *  the two AppleScript actually accepts elsewhere. */
+  serviceName: string | null;
+  /** Group display name (`chat.display_name`), if the chat has been named. */
+  groupTitle: string | null;
+}
+
+export function getChatTarget(chatId: number): ChatTarget | null {
+  const db = getChatDb();
+  const chatRow = db.prepare(`
+    SELECT
+      c.ROWID            AS id,
+      c.guid             AS guid,
+      c.chat_identifier  AS identifier,
+      c.service_name     AS service_name,
+      c.display_name     AS display_name
+    FROM chat c
+    WHERE c.ROWID = ?
+  `).get(chatId) as
+    | {
+        id: number;
+        guid: string;
+        identifier: string;
+        service_name: string | null;
+        display_name: string | null;
+      }
+    | undefined;
+  if (!chatRow) return null;
+
+  const participantsRow = db.prepare(`
+    SELECT COUNT(DISTINCT chj.handle_id) AS n
+    FROM chat_handle_join chj
+    WHERE chj.chat_id = ?
+  `).get(chatId) as { n: number } | undefined;
+  const participantCount = participantsRow?.n ?? 0;
+
+  // A 1:1 chat has exactly one *other* participant (the user themselves
+  // is not in chat_handle_join). Groups have 2+. Apple sometimes records
+  // an empty group as 0 — treat as 1:1 fallback to be safe.
+  const isGroup = participantCount > 1;
+
+  // For 1:1, prefer the handle from chat_handle_join (canonical) and fall
+  // back to chat_identifier if the join is empty.
+  let handle: string | null = null;
+  if (!isGroup) {
+    const handleRow = db.prepare(`
+      SELECT h.id AS handle
+      FROM chat_handle_join chj
+      JOIN handle h ON h.ROWID = chj.handle_id
+      WHERE chj.chat_id = ?
+      LIMIT 1
+    `).get(chatId) as { handle: string | null } | undefined;
+    handle = handleRow?.handle ?? chatRow.identifier;
+  }
+
+  return {
+    chatId: chatRow.id,
+    chatGuid: chatRow.guid,
+    chatIdentifier: chatRow.identifier,
+    participantCount,
+    isGroup,
+    handle,
+    serviceName: chatRow.service_name,
+    groupTitle: chatRow.display_name,
+  };
+}
