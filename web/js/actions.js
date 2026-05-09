@@ -12,11 +12,11 @@ import {
   flagsTab, calendarTab, currentView, currentChatId, currentRadarHandle,
   scheduleFormPicker,
   setSettingsCache, setFlagsTab, setCalendarTab, setRadarSignalsTab,
-  setQueueTab,
+  setInboxTab,
 } from './state.js';
 
-import { renderThreadToolbar } from './views/thread.js';
-import { loadAndRenderNotes, loadAndRenderProfile } from './views/inbox.js';
+import { refreshWorkbenchPanel } from './views/thread.js';
+import { renderInboxView } from './views/inbox.js';
 import { renderSettingsView } from './views/settings.js';
 import { refreshFlagsList, renderFlagsView } from './views/flags.js';
 import {
@@ -25,7 +25,6 @@ import {
 import {
   refreshCalendarList, renderCalendarView,
 } from './views/calendar.js';
-import { renderQueueView } from './views/queue.js';
 import {
   refreshRadarHandlesCache, renderRadarView, renderRadarDetail,
 } from './views/radar.js';
@@ -88,14 +87,18 @@ async function onClick(e) {
   if (action === 'back-to-inbox') { navigate('inbox'); return; }
 
   // Home dashboard "see all" links.
-  if (action === 'open-inbox')      { navigate('inbox'); return; }
+  if (action === 'open-inbox')      { setInboxTab('chats'); navigate('inbox'); return; }
   if (action === 'open-away')       { navigate('away'); return; }
-  if (action === 'open-summon')     { navigate('summon'); return; }
+  // Summon was folded into Galt — both legacy `open-summon` callers and
+  // any direct /#/summon route end up on /#/galt now.
+  if (action === 'open-summon')     { navigate('galt'); return; }
   if (action === 'open-auto-notes') { navigate('auto-notes'); return; }
-  if (action === 'open-calendar')   { setQueueTab('calendar'); navigate('queue'); return; }
-  if (action === 'open-flags')      { setQueueTab('flags'); navigate('queue'); return; }
-  if (action === 'open-scheduled')  { setQueueTab('scheduled'); navigate('queue'); return; }
-  if (action === 'open-queue')      { navigate('queue'); return; }
+  // Queue tabs now live on Inbox. Each open-* sets the inbox tab and
+  // navigates to /#/inbox.
+  if (action === 'open-calendar')   { setInboxTab('calendar'); navigate('inbox'); return; }
+  if (action === 'open-flags')      { setInboxTab('flags'); navigate('inbox'); return; }
+  if (action === 'open-scheduled')  { setInboxTab('scheduled'); navigate('inbox'); return; }
+  if (action === 'open-queue')      { navigate('inbox'); return; }
   if (action === 'open-settings')   { navigate('settings'); return; }
 
   /* ---------- Reset prompt-card override ---------- */
@@ -124,12 +127,12 @@ async function onClick(e) {
     return;
   }
 
-  /* ---------- Queue (consolidated calendar / flags / scheduled) ---------- */
-  if (action === 'queue-tab') {
+  /* ---------- Inbox tabs (chats / calendar / flags / scheduled) ---------- */
+  if (action === 'inbox-tab') {
     const t = btn.dataset.tab;
-    if (t === 'calendar' || t === 'flags' || t === 'scheduled') {
-      setQueueTab(t);
-      await renderQueueView();
+    if (t === 'chats' || t === 'calendar' || t === 'flags' || t === 'scheduled') {
+      setInboxTab(t);
+      await renderInboxView();
     }
     return;
   }
@@ -399,10 +402,11 @@ async function onClick(e) {
         await api('/api/radar/contacts', { method: 'POST', body: { handle, label } });
       }
       await refreshRadarHandlesCache();
-      // Re-render the toolbar so the button label flips.
+      // Refresh the workbench: identity card (radar pill flips) + radar
+      // card (appears when turning on, disappears when turning off).
       if (currentView === 'thread' && currentChatId != null) {
-        const tb = document.getElementById('thread-toolbar');
-        if (tb) tb.innerHTML = renderThreadToolbar(currentChatId);
+        await refreshWorkbenchPanel('identity', handle, currentChatId);
+        await refreshWorkbenchPanel('radar', handle, currentChatId);
       }
     } catch (err) { alert(`radar toggle failed: ${err.message}`); }
     finally { btn.disabled = false; }
@@ -455,7 +459,13 @@ async function onClick(e) {
         status.classList.add('ok');
         status.textContent = `✓ regenerated · ${r.signal_count} signals${tok}`;
       }
-      await renderRadarDetail(handle);
+      // Refresh the right surface — workbench panel on the thread page,
+      // global radar detail otherwise.
+      if (currentView === 'thread' && currentChatId != null) {
+        await refreshWorkbenchPanel('radar', handle, currentChatId);
+      } else {
+        await renderRadarDetail(handle);
+      }
     } catch (err) {
       if (status) { status.classList.add('err'); status.textContent = err.message; }
       btn.disabled = false;
@@ -563,7 +573,7 @@ async function onClick(e) {
     try {
       await api(`/api/contacts/notes/${id}`, { method: 'DELETE' });
       const meta = chatsCache.find((c) => c.id === currentChatId);
-      if (meta?.identifier) await loadAndRenderNotes(meta.identifier);
+      if (meta?.identifier) await refreshWorkbenchPanel('notes', meta.identifier, currentChatId);
     } catch (err) { alert(`remove failed: ${err.message}`); }
     return;
   }
@@ -744,14 +754,15 @@ async function onSubmit(e) {
       } else {
         await api('/api/contacts/notes', { method: 'POST', body: { handle, body } });
         form.reset();
-        await loadAndRenderNotes(handle);
+        await refreshWorkbenchPanel('notes', handle, currentChatId);
       }
     } else if (kind === 'contact-profile') {
       const handle = form.dataset.handle;
       const profile = typeof data.profile === 'string' ? data.profile : '';
       await api('/api/contacts/profile', { method: 'PUT', body: { handle, profile } });
-      // Re-render so the "last updated" line refreshes.
-      await loadAndRenderProfile(handle);
+      // Re-render the workbench profile card so "last updated" + filled-
+      // state pill refresh.
+      await refreshWorkbenchPanel('profile', handle, currentChatId);
       const newErr = document.querySelector(`form[data-form="contact-profile"][data-handle="${handle.replace(/"/g, '\\"')}"] [data-error]`);
       if (newErr) {
         newErr.classList.add('ok');

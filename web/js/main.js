@@ -12,7 +12,7 @@ import { refreshSettings } from './views/settings.js';
 import { refreshRadarHandlesCache } from './views/radar.js';
 import { updateAwayPill } from './views/away.js';
 import { refreshAutoNotesBadge } from './views/auto-notes.js';
-import { refreshQueueBadge } from './views/queue.js';
+import { refreshQueueBadge } from './views/inbox.js';
 
 async function refreshContactsCache() {
   try {

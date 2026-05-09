@@ -2,17 +2,16 @@
 // currently-visible view when the relevant event class arrives, and bumps
 // nav-bar badges/counts even when the view isn't open.
 
-import { refreshHealth } from './api.js';
+import { refreshHealth, api } from './api.js';
 import {
   currentView, currentChatId, currentRadarHandle,
-  queueTab, settingsCache, setSettingsCache,
+  inboxTab, settingsCache, setSettingsCache,
 } from './state.js';
-import { renderInboxView } from './views/inbox.js';
+import { renderInboxView, refreshQueueBadge } from './views/inbox.js';
 import { renderThreadView } from './views/thread.js';
 import { refreshFlagsList } from './views/flags.js';
 import { refreshScheduledList } from './views/scheduled.js';
 import { refreshCalendarList } from './views/calendar.js';
-import { refreshQueueBadge } from './views/queue.js';
 import {
   renderRadarView, renderRadarDetail,
 } from './views/radar.js';
@@ -43,29 +42,32 @@ export function connectSSE() {
       }
     });
 
+    // Inbox (chats / calendar / flags / scheduled) — sub-views fire when
+    // their tab is active. The queue badge always refreshes so the count
+    // stays current even when the user is elsewhere.
     sse.addEventListener('flag.new', async (e) => {
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
       await refreshQueueBadge();
-      if (currentView === 'queue' && queueTab === 'flags') await refreshFlagsList();
+      if (currentView === 'inbox' && inboxTab === 'flags') await refreshFlagsList();
       const rule = data?.rule_name ? ` "${data.rule_name}"` : '';
       console.log(`[flag] new match${rule} (confidence ${data?.confidence ?? '?'})`);
     });
 
     sse.addEventListener('scheduled.sent', async () => {
       await refreshQueueBadge();
-      if (currentView === 'queue' && queueTab === 'scheduled') await refreshScheduledList();
+      if (currentView === 'inbox' && inboxTab === 'scheduled') await refreshScheduledList();
     });
     sse.addEventListener('scheduled.failed', async () => {
       await refreshQueueBadge();
-      if (currentView === 'queue' && queueTab === 'scheduled') await refreshScheduledList();
+      if (currentView === 'inbox' && inboxTab === 'scheduled') await refreshScheduledList();
     });
 
     sse.addEventListener('calendar.proposal', async (e) => {
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
       await refreshQueueBadge();
-      if (currentView === 'queue' && queueTab === 'calendar') await refreshCalendarList();
+      if (currentView === 'inbox' && inboxTab === 'calendar') await refreshCalendarList();
       console.log('[calendar] new proposal:', data?.proposal?.title);
     });
 
@@ -124,11 +126,19 @@ export function connectSSE() {
       console.log(`[autonote] ${cat} from ${sender}: ${data?.note?.summary}`);
     });
 
-    /* ---------- summon mode ---------- */
+    /* ---------- summon mode ----------
+       Summon was folded into Galt — its operations panel + active sessions
+       banner sit on the Galt page below the pipeline visualization. SSE
+       events refresh whichever view is currently surfacing summon state
+       (Galt page, Home dashboard's Switches/Sessions area), and always
+       refresh the nav-summon-badge on the Galt sidebar item via
+       refreshHealth (no matter which view is up). */
     const refreshOnSummonChange = async () => {
-      if (currentView === 'summon') {
-        const { renderSummonView } = await import('./views/summon.js');
-        await renderSummonView();
+      // Update the Galt sidebar badge regardless of view.
+      await refreshHealth();
+      if (currentView === 'galt') {
+        const { renderGaltView } = await import('./views/galt.js');
+        await renderGaltView();
       } else if (currentView === 'home') {
         const { renderHomeView } = await import('./views/home.js');
         await renderHomeView();

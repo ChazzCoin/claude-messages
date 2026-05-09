@@ -896,83 +896,262 @@ function resolveTemplates(overrides: PromptOverrides) {
   };
 }
 
-/** Lane for a pipeline stage in the runtime + visualization.
- *   - 'universal': always runs (every AI reply).
+/** Lane for a pipeline node in the runtime + visualization.
+ *   - 'pre':       pre-AI literal send (Greeting). Editable but never injected.
+ *   - 'universal': always runs in the AI pipeline.
  *   - 'away':      only when awayMode === true.
- *   - 'summon':    only when awayMode === false (current call site convention).
- *   - 'shared':    runs for both modes (the data wrappers).
+ *   - 'summon':    only when awayMode === false (i.e. summon mode).
+ *   - 'shared':    runs in both modes (the data wrappers).
+ *   - 'guardrail': runs LAST in the AI pipeline (away-only by default).
  */
-export type PipelineLane = 'universal' | 'away' | 'summon' | 'shared';
+export type PipelineLane = 'pre' | 'universal' | 'away' | 'summon' | 'shared' | 'guardrail';
 
-/** Visual "shape" of a pipeline stage — drives the Galt page node shape +
- *  icon. 'context' = the mode-specific contextNote (system prompt). */
-export type PipelineStageType =
-  | 'prompt'      // universal draft_system
-  | 'context'     // mode-specific contextNote (replaces buildAwayContextNote / buildSummonContextNote default)
-  | 'persona'     // wrapper_away_persona
-  | 'wrapper'     // standard data-injection wrapper
-  | 'guardrail';  // away_guardrail
+/** Visual "shape" of a pipeline node — drives card shape + icon on the Galt
+ *  page. Types map to runtime semantics imperfectly: 'persona' / 'voice'
+ *  nodes can be either editable data inputs (no runtime block) OR wrappers
+ *  with a `runtime` block. */
+export type PipelineNodeType =
+  | 'greeting'   // pre-AI literal first send (no runtime)
+  | 'prompt'     // base system-prompt fragment (e.g. universal draft_system)
+  | 'context'    // mode-specific contextNote (per-turn instruction)
+  | 'persona'    // persona-related (data input OR wrapper)
+  | 'voice'      // voice-related data input
+  | 'wrapper'    // generic data-injection wrapper template
+  | 'guardrail'; // hard-rule guardrail (runs last)
 
-/** A single named stage in the prompt-injection pipeline. The runtime
- *  (`buildSystemPrompt`) iterates this list in order; the Galt page reads
- *  the same list to render the visualization. Single source of truth. */
-export interface PipelineStage {
-  /** Stable id — matches a setting key when one exists. */
-  id: string;
-  lane: PipelineLane;
-  type: PipelineStageType;
-  /** Short label for the visualization. */
-  label: string;
-  /** One-sentence description. */
-  desc: string;
-  /** When the stage's runtime injection conditions on data presence
-   *  (e.g. wrappers only fire when their data is non-empty), name the
-   *  ctx field here. The visualization uses this to dim the node when
-   *  the data is empty. Empty string = unconditional. */
+/** Runtime semantics for a pipeline node. Present only on nodes that
+ *  contribute to the assembled system prompt. Absent on pre-AI nodes
+ *  (Greeting) and pure data-input nodes (Galt voice, away_persona) — those
+ *  flow into the runtime via other channels (literal send / draftReply
+ *  parameters / placeholder substitution). */
+export interface PipelineRuntime {
+  /** Which slot in resolveTemplates() yields this stage's template. The
+   *  magic string 'context_note' means "use the contextNoteRaw passed by
+   *  the caller of buildSystemPrompt" instead of a settings template. */
+  templateKey: string;
+  /** ctx field whose value becomes `body` for {body} substitution in the
+   *  wrapper template. Set on body-wrapper stages; null on stages that
+   *  apply the template directly to ctx. */
+  bodyField?: string;
+  /** ctx field whose presence gates this stage. When set and the field is
+   *  empty, the stage skips. Empty / unset = unconditional. */
   conditionField?: string;
+  /** Stage only fires when awayMode === true. */
+  awayOnly?: boolean;
+  /** Stage only fires when awayMode === false (i.e. summon mode). */
+  summonOnly?: boolean;
+  /** Skip this stage if the contextNote (passed by caller) already includes
+   *  this placeholder string. Used by the persona wrapper to avoid
+   *  double-injection when the user's custom contextNote uses {persona}. */
+  skipIfContextNoteContains?: string;
 }
 
-/** Ordered list of every stage in the actual prompt-injection pipeline.
- *  This matches what `buildSystemPrompt` does at runtime. The Galt page
- *  reads this and renders the same order in the workflow visualization,
- *  so what the user sees IS what runs. */
+/** Single declaration that drives BOTH the runtime AND the visualization.
+ *  Each entry describes:
+ *    - identity (id, lane, type, label, desc)
+ *    - editable settings (settingsKey, rows, mono, placeholder, showsDefault, isAdvanced)
+ *    - runtime semantics (the optional `runtime` block)
+ *
+ *  Adding a new pipeline stage = add one entry to PIPELINE_STAGES below.
+ *  The runtime loop in buildSystemPrompt picks it up automatically; the
+ *  Galt page visualization picks it up via /api/settings.pipeline_stages.
+ *
+ *  The order of entries IS the runtime injection order (for entries with
+ *  a `runtime` block). Reorder = rearrange this array. */
+export interface PipelineStage {
+  /** Stable id — usually matches the settings column name. */
+  id: string;
+  lane: PipelineLane;
+  type: PipelineNodeType;
+  /** Short label for the visualization card. */
+  label: string;
+  /** One-sentence description shown on the card and in tooltips. */
+  desc: string;
+
+  /* ---- editable settings (the textarea card on the Galt page) ---- */
+  /** Settings key this stage exposes for edit. Optional — a stage might
+   *  exist for visualization only with no editable surface, though all
+   *  current entries have one. */
+  settingsKey?: string;
+  /** Textarea height. Default 4. */
+  rows?: number;
+  /** Render the textarea in monospace. */
+  mono?: boolean;
+  /** Placeholder text. */
+  placeholder?: string;
+  /** PROMPT_DEFAULTS key whose text appears in the "view built-in default"
+   *  reveal. */
+  showsDefault?: string;
+  /** Hide this card under an "advanced" expand inside its lane. Used for
+   *  things most users won't touch (wrapper templates around data). */
+  isAdvanced?: boolean;
+
+  /* ---- runtime: how this stage contributes to system prompt assembly ---- */
+  /** Optional. When absent, this node is editable but does NOT participate
+   *  in buildSystemPrompt. Used for pre-AI literal sends (Greeting) and
+   *  pure data-input nodes (Galt voice, away_persona) — those flow into
+   *  runtime through other channels. */
+  runtime?: PipelineRuntime;
+}
+
+/** ────────────────────────────────────────────────────────────────────
+ *  PIPELINE_STAGES — the ONE source of truth.
+ *  ────────────────────────────────────────────────────────────────────
+ *  Order matters: stages with a `runtime` block are iterated in this
+ *  order during system prompt assembly. The visualization on the Galt
+ *  page renders all entries (including pre-AI and data-input nodes)
+ *  grouped by `lane`.
+ *
+ *  To add a new prompt fragment to the AI pipeline:
+ *    1. Add the column in db/app.ts (interface, default, getter, setter)
+ *    2. Add a DEFAULT_* constant + entry in PROMPT_DEFAULTS, resolveTemplates
+ *    3. Add an entry here with the right runtime block
+ *  That's it. buildSystemPrompt + the Galt page visualization both pick
+ *  it up automatically.
+ *  ────────────────────────────────────────────────────────────────────
+ */
 export const PIPELINE_STAGES: readonly PipelineStage[] = [
+  /* ── PRE-AI ────────────────────────────────────────────────────────
+     Greeting is a literal first-contact send — never reaches the model
+     directly. But it's still part of the thread context the AI reads
+     on every subsequent reply (as a `me: Galt: …` line in the thread). */
+  {
+    id: 'away_message',
+    lane: 'pre',
+    type: 'greeting',
+    label: 'Greeting',
+    desc:
+      "First reply to an opted-in contact when away mode is on. Sent verbatim — NOT AI-generated. " +
+      "On every subsequent reply the AI sees this greeting in the thread context (as a 'me: Galt: …' line) " +
+      "so it knows what's already been said and won't repeat itself. Supports {recipientName} and {userName} substitution.",
+    settingsKey: 'away_message',
+    rows: 3,
+  },
+
+  /* ── UNIVERSAL ─────────────────────────────────────────────────────
+     Always-on identity layer. */
   {
     id: 'prompt_draft_system',
     lane: 'universal',
     type: 'prompt',
-    label: 'Universal base',
-    desc: '"Writing AS the user" guidance injected on every AI reply.',
+    label: 'Base system prompt',
+    desc: 'Universal "you are Galt, an AI assistant for the user" guidance injected on every AI call.',
+    settingsKey: 'prompt_draft_system',
+    rows: 12,
+    mono: true,
+    showsDefault: 'prompt_draft_system',
+    runtime: { templateKey: 'draft_system' },
   },
   {
-    id: 'context_away',
+    id: 'galt_voice_profile',
+    lane: 'universal',
+    type: 'voice',
+    label: "Galt's voice",
+    desc:
+      "Prose describing how Galt sounds — tone, register, quirks. THE voice used in every AI reply " +
+      "(away, summon). Feeds the shared voice-profile wrapper below as the {body} of wrapper_voice_profile.",
+    settingsKey: 'galt_voice_profile',
+    rows: 4,
+    placeholder:
+      "e.g. 'direct, no hedging. iMessage-short — usually one line. light dry humor when it fits.'",
+    // No runtime — this is a pure data input. Its text flows into the AI
+    // call via draftReply's `voiceProfile` parameter, which becomes
+    // ctx.voice_profile, which is wrapped by wrapper_voice_profile below.
+  },
+
+  /* ── AWAY LANE ─────────────────────────────────────────────────────
+     Stages that fire only when awayMode === true. Order within the lane
+     is preserved by the runtime loop. */
+  {
+    id: 'prompt_away_system',
     lane: 'away',
     type: 'context',
     label: 'Away contextNote',
-    desc: 'Per-turn instruction for the AI while covering for the user. prompt_away_system override or built-in default.',
+    desc:
+      'Per-turn instruction for Galt while covering. When non-empty, replaces the built-in default contextNote ' +
+      '(which buildAwayContextNote in server/index.ts assembles).',
+    settingsKey: 'prompt_away_system',
+    rows: 12,
+    mono: true,
+    placeholder: '(empty — built-in is running)',
+    showsDefault: 'prompt_away_system',
+    runtime: { templateKey: 'context_note', awayOnly: true },
   },
   {
-    id: 'context_summon',
-    lane: 'summon',
-    type: 'context',
-    label: 'Summon contextNote',
-    desc: 'Per-turn instruction for Galt-as-Galt joining the conversation. summon_system_prompt override or built-in default.',
+    id: 'away_persona',
+    lane: 'away',
+    type: 'persona',
+    label: 'Cover-mode persona',
+    desc:
+      "How Galt should behave specifically while covering — banter level, deflection style, jokes, " +
+      "how to handle 'are you really the AI?'. Layered on top of Galt's voice. Wrapped by the persona-wrapper " +
+      "template (advanced) and injected as its own stage.",
+    settingsKey: 'away_persona',
+    rows: 5,
+    placeholder:
+      "e.g. 'be casual and a little snarky — lean into the AI thing if anyone asks. crack small jokes.'",
+    // No runtime — data input that becomes ctx.persona, which is wrapped
+    // by wrapper_away_persona below.
   },
   {
     id: 'wrapper_away_persona',
     lane: 'away',
-    type: 'persona',
-    label: 'Persona',
-    desc: 'Wraps the away_persona text. Only injected when away_persona is non-empty.',
-    conditionField: 'persona',
+    type: 'wrapper',
+    label: 'Persona wrapper template',
+    desc: 'Wraps the persona body in a system-prompt section. {body} = the persona text.',
+    settingsKey: 'wrapper_away_persona',
+    rows: 4,
+    mono: true,
+    showsDefault: 'wrapper_away_persona',
+    isAdvanced: true,
+    runtime: {
+      templateKey: 'away_persona',
+      bodyField: 'persona',
+      conditionField: 'persona',
+      awayOnly: true,
+      // Backward compat: if the user's custom away contextNote already
+      // substitutes {persona}, persona injects via that path — skip the
+      // wrapper to avoid double-injecting.
+      skipIfContextNoteContains: '{persona}',
+    },
   },
+
+  /* ── SUMMON LANE ───────────────────────────────────────────────────
+     Stages that fire only when in summon mode (awayMode === false). */
+  {
+    id: 'summon_system_prompt',
+    lane: 'summon',
+    type: 'context',
+    label: 'Summon contextNote',
+    desc:
+      'Per-turn instruction for Galt joining the conversation. When non-empty, replaces the built-in default ' +
+      '(which buildSummonContextNote in server/index.ts assembles).',
+    settingsKey: 'summon_system_prompt',
+    rows: 12,
+    mono: true,
+    placeholder: '(empty — built-in is running)',
+    showsDefault: 'prompt_summon_system',
+    runtime: { templateKey: 'context_note', summonOnly: true },
+  },
+
+  /* ── SHARED WRAPPERS ───────────────────────────────────────────────
+     Data-injection templates that frame each placeholder. Each fires in
+     both modes when its conditioning data is present. */
   {
     id: 'wrapper_voice_profile',
     lane: 'shared',
     type: 'wrapper',
-    label: 'Voice profile',
-    desc: "Wraps the user's voice profile (Away) or Galt's voice profile (Summon). Mode-aware via data swap.",
-    conditionField: 'voice_profile',
+    label: "Galt's voice",
+    desc: "Wraps Galt's voice profile. Fires on every AI call regardless of mode.",
+    settingsKey: 'wrapper_voice_profile',
+    rows: 4,
+    mono: true,
+    showsDefault: 'wrapper_voice_profile',
+    runtime: {
+      templateKey: 'voice_profile',
+      bodyField: 'voice_profile',
+      conditionField: 'voice_profile',
+    },
   },
   {
     id: 'wrapper_contact_profile',
@@ -980,7 +1159,15 @@ export const PIPELINE_STAGES: readonly PipelineStage[] = [
     type: 'wrapper',
     label: 'Contact profile',
     desc: 'Wraps the per-contact prose profile.',
-    conditionField: 'contact_profile',
+    settingsKey: 'wrapper_contact_profile',
+    rows: 4,
+    mono: true,
+    showsDefault: 'wrapper_contact_profile',
+    runtime: {
+      templateKey: 'contact_profile',
+      bodyField: 'contact_profile',
+      conditionField: 'contact_profile',
+    },
   },
   {
     id: 'wrapper_address_book',
@@ -988,15 +1175,31 @@ export const PIPELINE_STAGES: readonly PipelineStage[] = [
     type: 'wrapper',
     label: 'Address book',
     desc: 'Wraps the macOS Contacts.app block.',
-    conditionField: 'address_book',
+    settingsKey: 'wrapper_address_book',
+    rows: 4,
+    mono: true,
+    showsDefault: 'wrapper_address_book',
+    runtime: {
+      templateKey: 'address_book',
+      bodyField: 'address_book',
+      conditionField: 'address_book',
+    },
   },
   {
     id: 'wrapper_calendar',
     lane: 'shared',
     type: 'wrapper',
     label: 'Calendar',
-    desc: 'Wraps the macOS Calendar.app availability block.',
-    conditionField: 'calendar',
+    desc: 'Wraps macOS Calendar availability.',
+    settingsKey: 'wrapper_calendar',
+    rows: 4,
+    mono: true,
+    showsDefault: 'wrapper_calendar',
+    runtime: {
+      templateKey: 'calendar',
+      bodyField: 'calendar',
+      conditionField: 'calendar',
+    },
   },
   {
     id: 'wrapper_contact_notes',
@@ -1004,35 +1207,99 @@ export const PIPELINE_STAGES: readonly PipelineStage[] = [
     type: 'wrapper',
     label: 'Contact notes',
     desc: 'Wraps per-contact note bullets.',
-    conditionField: 'contact_notes',
+    settingsKey: 'wrapper_contact_notes',
+    rows: 4,
+    mono: true,
+    showsDefault: 'wrapper_contact_notes',
+    runtime: {
+      templateKey: 'contact_notes',
+      bodyField: 'contact_notes',
+      conditionField: 'contact_notes',
+    },
   },
   {
     id: 'wrapper_temperament',
     lane: 'shared',
     type: 'wrapper',
     label: 'Temperament',
-    desc: 'Wraps the temperament-override block. Only injected when temperament ≠ normal.',
-    conditionField: 'guidance',
+    desc: 'Wraps temperament guidance. Only injects when temperament ≠ normal.',
+    settingsKey: 'wrapper_temperament',
+    rows: 4,
+    mono: true,
+    showsDefault: 'wrapper_temperament',
+    runtime: {
+      templateKey: 'temperament',
+      // guidance is empty when temperament === 'normal' — single condition suffices.
+      conditionField: 'guidance',
+    },
   },
+
+  /* ── GUARDRAIL ─────────────────────────────────────────────────────
+     LAST in runtime so it's the freshest thing the model reads before
+     generating. Away-only by default. */
   {
     id: 'prompt_away_guardrail',
-    lane: 'away',
+    lane: 'guardrail',
     type: 'guardrail',
-    label: 'Guardrail',
-    desc: 'Hard rule forbidding commitments on the user\'s behalf. Only injected when awayMode is on. Runs LAST so it\'s freshest in the model\'s reading.',
+    label: 'Away guardrail',
+    desc:
+      "Hard rule forbidding commitments on the user's behalf. Only injected when awayMode is on. " +
+      "Runs LAST so it's freshest in the model's reading.",
+    settingsKey: 'prompt_away_guardrail',
+    rows: 12,
+    mono: true,
+    placeholder: '(empty — built-in is running)',
+    showsDefault: 'prompt_away_guardrail',
+    runtime: { templateKey: 'away_guardrail', awayOnly: true },
   },
 ];
 
-/** Build the system prompt for one AI call. Order matches PIPELINE_STAGES
- *  exactly — universal base first, then the mode-specific contextNote,
- *  then mode-specific persona (away only), then the shared data wrappers
- *  (each conditional on data presence), then the guardrail (away only).
+/** Resolve the template a runtime stage will emit, given the per-call
+ *  context. Returns null when the stage should skip (mode mismatch, missing
+ *  data, contextNote already covers it, etc.).
  *
- *  contextNoteRaw is the per-turn instruction passed by the caller — either
- *  the user's prompt_away_system / summon_system_prompt override, or the
- *  built-in default produced by buildAwayContextNote / buildSummonContextNote
- *  in server/index.ts. It's substituted with the same ctx as everything else.
- */
+ *  Pure function: same inputs → same output. No side effects. Used by both
+ *  buildSystemPrompt (assembly) and {messages}-placeholder detection. */
+function resolveStageTemplate(
+  stage: PipelineStage,
+  templates: ReturnType<typeof resolveTemplates>,
+  ctx: Record<string, string>,
+  awayMode: boolean,
+  contextNoteRaw: string,
+): string | null {
+  const r = stage.runtime;
+  if (!r) return null;
+
+  if (r.awayOnly && !awayMode) return null;
+  if (r.summonOnly && awayMode) return null;
+  if (r.skipIfContextNoteContains && contextNoteRaw.includes(r.skipIfContextNoteContains)) return null;
+  if (r.conditionField && !ctx[r.conditionField]) return null;
+
+  let template: string;
+  if (r.templateKey === 'context_note') {
+    template = contextNoteRaw;
+    if (!template || !template.trim()) return null;
+  } else {
+    const lookup = (templates as Record<string, string | undefined>)[r.templateKey];
+    if (lookup === undefined) {
+      console.warn(`[pipeline] stage ${stage.id} unknown templateKey: ${r.templateKey}`);
+      return null;
+    }
+    template = lookup;
+  }
+  return template;
+}
+
+/** Build the system prompt for one AI call. Iterates PIPELINE_STAGES in
+ *  declaration order. Each stage's metadata fully describes its runtime
+ *  semantics (mode gating, data conditions, body field, contextNote
+ *  guard). Adding a new stage requires no change here — just add an
+ *  entry to PIPELINE_STAGES.
+ *
+ *  contextNoteRaw is the per-turn instruction passed by the caller —
+ *  either the user's prompt_away_system / summon_system_prompt override,
+ *  or the built-in default produced by buildAwayContextNote /
+ *  buildSummonContextNote in server/index.ts. */
 function buildSystemPrompt(
   overrides: PromptOverrides,
   ctx: Record<string, string>,
@@ -1042,52 +1309,14 @@ function buildSystemPrompt(
   const t = resolveTemplates(overrides);
   const parts: string[] = [];
 
-  // 1. Universal base — establishes "you are writing AS the user, in this
-  //    voice." Persistent identity layer; everything below specializes.
-  parts.push(applyTemplate(t.draft_system, ctx));
+  for (const stage of PIPELINE_STAGES) {
+    const template = resolveStageTemplate(stage, t, ctx, awayMode, contextNoteRaw);
+    if (template === null) continue;
 
-  // 2. Mode contextNote — what Galt is doing THIS turn (covering, joining,
-  //    drafting). The caller passes raw template; we substitute here so
-  //    {recipientName}, {persona}, etc. all resolve in one place.
-  if (contextNoteRaw && contextNoteRaw.trim()) {
-    parts.push(applyTemplate(contextNoteRaw, ctx));
-  }
-
-  // 3. Persona (away-only) — the user's "how you should cover for me"
-  //    style guidance, wrapped as its own stage. Only injected when in
-  //    away mode AND away_persona has content AND the contextNote doesn't
-  //    already substitute {persona} explicitly. Old custom prompts that
-  //    reference {persona} keep working through the placeholder path
-  //    without double-injecting; new ones use the wrapper stage.
-  if (awayMode && ctx.persona && !contextNoteRaw.includes('{persona}')) {
-    parts.push(applyTemplate(t.away_persona, { ...ctx, body: ctx.persona }));
-  }
-
-  // 4. Shared data wrappers — each only injected when its data is non-empty.
-  //    The wrapper template gets the full context PLUS body=<the wrapped data>.
-  if (ctx.voice_profile) {
-    parts.push(applyTemplate(t.voice_profile,   { ...ctx, body: ctx.voice_profile }));
-  }
-  if (ctx.contact_profile) {
-    parts.push(applyTemplate(t.contact_profile, { ...ctx, body: ctx.contact_profile }));
-  }
-  if (ctx.address_book) {
-    parts.push(applyTemplate(t.address_book,    { ...ctx, body: ctx.address_book }));
-  }
-  if (ctx.calendar) {
-    parts.push(applyTemplate(t.calendar,        { ...ctx, body: ctx.calendar }));
-  }
-  if (ctx.contact_notes) {
-    parts.push(applyTemplate(t.contact_notes,   { ...ctx, body: ctx.contact_notes }));
-  }
-  if (ctx.temperament !== 'normal' && ctx.guidance) {
-    parts.push(applyTemplate(t.temperament,     ctx));
-  }
-
-  // 5. Guardrail (away-only) — hard rule forbidding commitments. Last so
-  //    it's the freshest thing the model reads before generating.
-  if (awayMode) {
-    parts.push(applyTemplate(t.away_guardrail,  ctx));
+    const r = stage.runtime!;
+    const body = r.bodyField ? ctx[r.bodyField] ?? '' : '';
+    const fragmentCtx = body ? { ...ctx, body } : ctx;
+    parts.push(applyTemplate(template, fragmentCtx));
   }
 
   return parts.join('\n');
@@ -1110,24 +1339,28 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
       ? input.temperament
       : 'normal';
 
-  // Detect {messages} placeholder use across every template that will go
-  // into the system message. If used anywhere, the thread is substituted
-  // there and the user message becomes a minimal placeholder. If not, the
-  // thread goes as the user message (default behavior).
+  // Detect {messages} placeholder use across every template that COULD
+  // fire in this call. Iterates PIPELINE_STAGES with the same gating logic
+  // buildSystemPrompt uses, but skipping data-condition checks (we want
+  // to know if {messages} appears in any template that mode-gating would
+  // permit, regardless of whether the data conditions happen to fire it
+  // on this particular call).
   const t = resolveTemplates(overrides);
-  const allTemplates = [
-    t.draft_system,
-    noteRaw,
-    t.away_persona,
-    t.voice_profile,
-    t.contact_profile,
-    t.address_book,
-    t.calendar,
-    t.contact_notes,
-    t.temperament,
-    ...(awayMode ? [t.away_guardrail] : []),
-  ];
-  const usesMessagesPlaceholder = allTemplates.some((s) => s.includes('{messages}'));
+  const candidateTemplates: string[] = [];
+  for (const stage of PIPELINE_STAGES) {
+    const r = stage.runtime;
+    if (!r) continue;
+    if (r.awayOnly && !awayMode) continue;
+    if (r.summonOnly && awayMode) continue;
+    let template: string | undefined;
+    if (r.templateKey === 'context_note') {
+      template = noteRaw;
+    } else {
+      template = (t as Record<string, string | undefined>)[r.templateKey];
+    }
+    if (template) candidateTemplates.push(template);
+  }
+  const usesMessagesPlaceholder = candidateTemplates.some((s) => s.includes('{messages}'));
 
   // Build the universal substitution context. messages is empty when the
   // user didn't ask for it (so {messages} would just render as nothing

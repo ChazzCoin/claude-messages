@@ -1,18 +1,73 @@
-// Inbox view — the chat list. Also exposes the per-thread "memory notes"
-// block that the thread view re-uses.
+// Inbox — unified review surface. Folds the legacy Queue (calendar +
+// flags + scheduled) into the chat-list page as a tabbed top strip:
 //
-// The Drafts queue panel + per-row "AI draft" button were retired when
-// manual AI generation was removed from the system (Galt's only AI paths
-// are now away mode and summon mode auto-replies). The /api/drafts CRUD
-// endpoints still exist on the server in case anyone wants to rebuild a
-// drafts UI later — but nothing in the frontend feeds them today.
+//   Tabs:  Chats (default) · Calendar · Flags · Scheduled
+//
+// Each tab pill shows a live count. The active tab's content renders
+// into a single shared region. Sub-views (calendar/flags/scheduled)
+// keep their own modules and renderers — this host just wires them
+// into the shared chrome via their `targetEl` parameter.
+//
+// Also exposes the per-thread "memory notes" + "about this contact"
+// blocks that the thread view re-uses on its right panel.
 
 import { api } from '../api.js';
 import { setMainHeader } from '../shell.js';
 import { escapeHtml, initials, avatarClass, relTime } from '../utils.js';
 import {
   chatsCache, setChatsCache,
+  inboxTab,
 } from '../state.js';
+import { renderCalendarView } from './calendar.js';
+import { renderFlagsView } from './flags.js';
+import { renderScheduledView } from './scheduled.js';
+
+/* ---------- count fetching for the tab pills + sidebar Inbox-queue badge ---------- */
+
+async function fetchQueueCounts() {
+  const out = { calendar: 0, flags: 0, scheduled: 0 };
+  // Three small fan-out requests; each returns a count in its own shape.
+  const [cal, flg, sch] = await Promise.allSettled([
+    api('/api/calendar/proposals?status=pending&limit=1'),
+    api('/api/monitor/flags?reviewed=false&limit=1'),
+    api('/api/scheduled?status=pending'),
+  ]);
+  if (cal.status === 'fulfilled') out.calendar = cal.value.pending ?? 0;
+  if (flg.status === 'fulfilled') out.flags = flg.value.unreviewed ?? 0;
+  if (sch.status === 'fulfilled') out.scheduled = (sch.value.scheduled || []).length;
+  return out;
+}
+
+/** Update the sidebar Inbox queue-badge (calendar + flags + scheduled
+ *  total). The Inbox nav item carries TWO counters — `nav-inbox-count`
+ *  for chats (live read of chat.db) and `nav-queue-badge` for unreviewed
+ *  queue items. */
+export function updateQueueBadge(counts) {
+  const badge = document.getElementById('nav-queue-badge');
+  if (!badge) return;
+  const total = (counts.calendar || 0) + (counts.flags || 0) + (counts.scheduled || 0);
+  if (total > 0) {
+    badge.style.display = '';
+    badge.textContent = String(total);
+    badge.style.background = 'var(--orange)';
+    badge.style.color = '#0a0c10';
+    badge.title = `${counts.calendar} calendar · ${counts.flags} flags · ${counts.scheduled} scheduled`;
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+/** Refresh just the badge — used at boot and after SSE events when the
+ *  inbox isn't the current view. Cheap (3 small queries). Kept under the
+ *  old `refreshQueueBadge` name so SSE wiring doesn't churn. */
+export async function refreshQueueBadge() {
+  try {
+    const counts = await fetchQueueCounts();
+    updateQueueBadge(counts);
+  } catch { /* keep prior badge */ }
+}
+
+/* ---------- chat list (the default "Chats" tab) ---------- */
 
 export function renderChatRow(c) {
   // Prefer contact_name (resolved from macOS Contacts) → group display_name → handle.
@@ -24,7 +79,8 @@ export function renderChatRow(c) {
   const previewText = c.last_text
     ? (c.last_is_from_me ? 'You: ' : '') + c.last_text
     : '[encoded message — decoder skipped]';
-  // Only show the raw identifier under the name when we DON'T already display the contact name.
+  // Only show the raw identifier under the name when we DON'T already
+  // display the contact name.
   const subline = c.contact_name && c.contact_name !== c.identifier
     ? `${escapeHtml(c.identifier || '')}${c.service_name ? ' · ' + escapeHtml(c.service_name) : ''}`
     : (c.service_name ? escapeHtml(c.service_name) : '');
@@ -41,14 +97,7 @@ export function renderChatRow(c) {
   `;
 }
 
-export async function renderInboxView() {
-  setMainHeader({
-    title: 'Inbox',
-    subHTML: '<span class="accent" id="main-pending-count">— chats</span> · live read of chat.db',
-  });
-  const list = document.getElementById('drafts-list');
-  if (list) list.innerHTML = '<div class="empty"><div class="empty-title">loading…</div></div>';
-
+async function renderChatsTab(targetEl) {
   let loadErr = null;
   try {
     const { chats } = await api('/api/chats?limit=200');
@@ -59,10 +108,9 @@ export async function renderInboxView() {
   if (ic) ic.textContent = chatsCache.length || '—';
   const sub = document.getElementById('main-pending-count');
   if (sub) sub.textContent = `${chatsCache.length} chats`;
-  if (!list) return;
 
   if (loadErr) {
-    list.innerHTML = `
+    targetEl.innerHTML = `
       <div class="empty">
         <div class="empty-title">Failed to load chats.</div>
         <div class="empty-sub">${escapeHtml(loadErr.message)}</div>
@@ -75,15 +123,84 @@ export async function renderInboxView() {
     ? chatsCache.map(renderChatRow).join('')
     : '<div class="empty"><div class="empty-title">No chats found.</div></div>';
 
-  list.innerHTML = `
+  targetEl.innerHTML = `
     <section class="inbox-chats-section">
-      <div class="inbox-section-head">
-        <h3>Chats</h3>
-        <span class="count">${chatsCache.length}</span>
-      </div>
       <div id="inbox-chats-list">${chatRows}</div>
     </section>
   `;
+}
+
+/* ---------- tabstrip ---------- */
+
+function tabPill(key, label, count, active) {
+  // Chats shows a chat-count chip when non-zero. Queue tabs show their
+  // unreviewed-count chip in amber when non-zero.
+  let countLbl = '';
+  if (count > 0) {
+    const cls = key === 'chats' ? 'inbox-tab-count' : 'inbox-tab-count amber';
+    countLbl = ` <span class="${cls}">${count}</span>`;
+  }
+  return `
+    <button class="filter inbox-tab ${active ? 'active' : ''}" data-action="inbox-tab" data-tab="${key}">
+      ${label}${countLbl}
+    </button>
+  `;
+}
+
+/* ---------- top-level inbox render ---------- */
+
+export async function renderInboxView() {
+  const labels = {
+    chats:     '<span class="accent" id="main-pending-count">— chats</span> · live read of chat.db',
+    calendar:  '<span class="accent">calendar</span> · pending event proposals from incoming messages',
+    flags:     '<span class="accent">flags</span> · monitor-rule matches awaiting review',
+    scheduled: '<span class="accent">scheduled</span> · queued outbound — ready to send at the chosen time',
+  };
+  setMainHeader({ title: 'Inbox', subHTML: labels[inboxTab] || labels.chats });
+
+  const list = document.getElementById('drafts-list');
+  if (!list) return;
+
+  // Tabstrip + content target. The active tab's content fires immediately;
+  // the count fetch (3 small queries) lands shortly and re-renders just
+  // the tabstrip pills with live counts.
+  list.innerHTML = `
+    <div class="inbox-tabstrip" id="inbox-tabstrip">
+      ${tabPill('chats', 'Chats', chatsCache.length || 0, inboxTab === 'chats')}
+      ${tabPill('calendar', 'Calendar', 0, inboxTab === 'calendar')}
+      ${tabPill('flags', 'Flags', 0, inboxTab === 'flags')}
+      ${tabPill('scheduled', 'Scheduled', 0, inboxTab === 'scheduled')}
+    </div>
+    <div id="inbox-content"><div class="empty"><div class="empty-title">loading…</div></div></div>
+  `;
+
+  const content = document.getElementById('inbox-content');
+  if (!content) return;
+  if (inboxTab === 'chats') {
+    await renderChatsTab(content);
+  } else if (inboxTab === 'calendar') {
+    await renderCalendarView(content);
+  } else if (inboxTab === 'flags') {
+    await renderFlagsView(content);
+  } else if (inboxTab === 'scheduled') {
+    await renderScheduledView(content);
+  } else {
+    await renderChatsTab(content);
+  }
+
+  // Live counts for the tab pills + the sidebar queue badge.
+  fetchQueueCounts().then((counts) => {
+    updateQueueBadge(counts);
+    const strip = document.getElementById('inbox-tabstrip');
+    if (strip) {
+      strip.innerHTML = `
+        ${tabPill('chats', 'Chats', chatsCache.length || 0, inboxTab === 'chats')}
+        ${tabPill('calendar', 'Calendar', counts.calendar, inboxTab === 'calendar')}
+        ${tabPill('flags', 'Flags', counts.flags, inboxTab === 'flags')}
+        ${tabPill('scheduled', 'Scheduled', counts.scheduled, inboxTab === 'scheduled')}
+      `;
+    }
+  }).catch(() => { /* counts stay at 0 */ });
 }
 
 /* ---------- per-contact profile (long-form prose, top of thread sidebar) ---------- */
@@ -112,18 +229,9 @@ export function renderProfileBlock(handle, profile, updatedAt) {
   `;
 }
 
-export async function loadAndRenderProfile(handle) {
-  const el = document.getElementById('thread-profile');
-  if (!el) return;
-  if (!handle) { el.innerHTML = ''; return; }
-  try {
-    const r = await api(`/api/contacts/profile?handle=${encodeURIComponent(handle)}`);
-    el.innerHTML = renderProfileBlock(handle, r.profile || '', r.updated_at || 0);
-  } catch (e) {
-    el.innerHTML = '';
-    console.warn('profile fetch failed:', e);
-  }
-}
+// loadAndRenderProfile retired — the thread workbench in views/thread.js
+// now owns fetching + rendering. Use refreshWorkbenchPanel('profile', …)
+// from the workbench module instead.
 
 /* ---------- per-contact memory notes (rendered in the thread right panel) ---------- */
 
@@ -154,15 +262,6 @@ export function renderNotesBlock(handle, notes) {
   `;
 }
 
-export async function loadAndRenderNotes(handle) {
-  const el = document.getElementById('thread-notes');
-  if (!el) return;
-  if (!handle) { el.innerHTML = ''; return; }
-  try {
-    const r = await api(`/api/contacts/notes?handle=${encodeURIComponent(handle)}`);
-    el.innerHTML = renderNotesBlock(handle, r.notes || []);
-  } catch (e) {
-    el.innerHTML = '';
-    console.warn('notes fetch failed:', e);
-  }
-}
+// loadAndRenderNotes retired — the thread workbench in views/thread.js
+// now owns fetching + rendering. Use refreshWorkbenchPanel('notes', …)
+// from the workbench module instead.

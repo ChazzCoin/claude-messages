@@ -1,24 +1,23 @@
 // Hash-based router. Reads/writes location.hash and dispatches to view modules.
-// URL forms:
-//   #/inbox                  → inbox list
-//   #/thread/<chatId>        → a single thread
-//   #/drafts                 → drafts queue
-//   #/sent                   → sent (drafts queue, alias)
-//   #/search                 → search
-//   #/flags                  → flags queue
-//   #/calendar               → calendar proposals
-//   #/scheduled              → scheduled messages
-//   #/radar                  → radar list
-//   #/radar/<handle>         → radar detail
-//   #/rules                  → rules detail panel (drafts col header)
-//   #/settings               → settings
-//   #/away                   → away mode
-//   #/summon                 → summon mode
-//   #/galt                   → Galt's master config (persona, prompts, …)
-//   #/prompts                → legacy alias for #/galt
 //
-// Also keeps state.currentView / state.currentChatId / state.currentRadarHandle
-// in sync, and handles "back to inbox" / sidebar nav-item clicks.
+// Active routes (the sidebar surfaces):
+//   #/home                   → home dashboard
+//   #/galt                   → Galt's pipeline visualization + Summon ops
+//   #/away                   → Away mode + opted-in contacts
+//   #/auto-notes             → Notes (24/7 inbound triage review)
+//   #/radar                  → per-contact memory bank
+//   #/radar/<handle>         → radar detail
+//   #/inbox                  → unified inbox (chats / calendar / flags / scheduled tabs)
+//   #/inbox/<tab>            → inbox at a specific tab
+//   #/thread/<chatId>        → a single thread
+//   #/settings               → system / account
+//
+// Legacy redirects (kept so old bookmarks and links keep working):
+//   #/summon                 → #/galt
+//   #/queue                  → #/inbox
+//   #/calendar #/flags #/scheduled → #/inbox?tab=…
+//   #/prompts                → #/galt
+//   #/drafts #/sent #/search → #/home (or inbox)
 
 import {
   setCurrentView, setCurrentChatId, setCurrentRadarHandle,
@@ -33,10 +32,8 @@ import { renderSettingsView } from './views/settings.js';
 import { renderRadarView, renderRadarDetail } from './views/radar.js';
 import { renderAwayView } from './views/away.js';
 import { renderAutoNotesView } from './views/auto-notes.js';
-import { renderSummonView } from './views/summon.js';
 import { renderGaltView } from './views/galt.js';
-import { renderQueueView } from './views/queue.js';
-import { setQueueTab } from './state.js';
+import { setInboxTab } from './state.js';
 
 /**
  * Apply a view immediately. Used internally by the hash listener and exposed
@@ -48,15 +45,17 @@ export async function setView(view, arg = null) {
   setCurrentChatId(view === 'thread' ? arg : null);
   if (view !== 'radar-detail') setCurrentRadarHandle(null);
 
-  // Sidebar highlight: thread inherits from inbox; radar-detail from radar;
-  // legacy routes (search → home, drafts → inbox, flags/calendar/scheduled
-  // → queue) inherit from the surface that subsumed them.
+  // Sidebar highlight mapping. Thread inherits from inbox; radar-detail
+  // from radar. Legacy routes (search → home, drafts → inbox, summon →
+  // galt, calendar/flags/scheduled/queue → inbox) light up the surface
+  // that absorbed them.
   const navKey = view === 'thread' ? 'inbox'
     : view === 'radar-detail' ? 'radar'
     : view === 'drafts' ? 'inbox'
     : view === 'search' ? 'home'
     : view === 'prompts' ? 'galt'
-    : (view === 'flags' || view === 'calendar' || view === 'scheduled') ? 'queue'
+    : view === 'summon' ? 'galt'
+    : (view === 'queue' || view === 'flags' || view === 'calendar' || view === 'scheduled') ? 'inbox'
     : view;
   setActiveNav(navKey);
   setRightPanelMode(view === 'thread' ? 'thread' : 'collapsed');
@@ -75,18 +74,18 @@ export async function setView(view, arg = null) {
     case 'radar-detail':  setCurrentRadarHandle(arg); await renderRadarDetail(arg); break;
     case 'away':          await renderAwayView(); break;
     case 'auto-notes':    await renderAutoNotesView(); break;
-    case 'summon':        await renderSummonView(); break;
     case 'galt':          await renderGaltView(); break;
     case 'prompts':       await renderGaltView(); break;          // legacy alias
-    case 'queue':         await renderQueueView(); break;
-    // Legacy routes — these used to be standalone pages but folded into
-    // other surfaces during the sidebar cleanup. Old bookmarks and
-    // home-page links keep working by redirecting in place.
-    case 'drafts':        await renderInboxView(); break;          // drafts now sit at top of inbox
-    case 'search':        await renderHomeView(); break;           // search panel embedded on home
-    case 'flags':         setQueueTab('flags');     await renderQueueView(); break;
-    case 'calendar':      setQueueTab('calendar');  await renderQueueView(); break;
-    case 'scheduled':     setQueueTab('scheduled'); await renderQueueView(); break;
+    // Legacy routes folded into surfaces above. They keep working but
+    // route through the new surface and (where applicable) pre-select
+    // the right tab.
+    case 'summon':        await renderGaltView(); break;
+    case 'queue':         await renderInboxView(); break;
+    case 'flags':         setInboxTab('flags');     await renderInboxView(); break;
+    case 'calendar':      setInboxTab('calendar');  await renderInboxView(); break;
+    case 'scheduled':     setInboxTab('scheduled'); await renderInboxView(); break;
+    case 'drafts':        await renderInboxView(); break;
+    case 'search':        await renderHomeView(); break;
     default:              await renderHomeView();
   }
 }

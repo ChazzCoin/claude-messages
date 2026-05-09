@@ -1799,19 +1799,701 @@ body::after {
 }
 
 /* ============================================================
-   Right column (collapses outside thread view)
-   ============================================================ */
+   Right column — thread workbench (collapses outside thread view)
+   ============================================================
+   When a thread is open, the right column hosts the AI workbench: a
+   stack of glass-morphism panels (Identity / Profile / Notes / Radar
+   / Tools). Outside thread view the column is hidden entirely (the
+   .no-rightpanel class on .app collapses the grid). */
 .app.no-rightpanel {
   grid-template-columns: 240px 1fr;
 }
 .app.no-rightpanel .rightpanel { display: none; }
-.rightpanel.thread-mode { padding: 16px; }
+.rightpanel.thread-mode { padding: 16px 14px; }
 
 .rightpanel {
   border-left: 1px solid var(--border);
-  padding: 20px;
+  padding: 16px 14px;
   overflow-y: auto;
-  background: rgba(10, 12, 16, 0.4);
+  background:
+    linear-gradient(180deg, rgba(245, 166, 35, 0.025) 0%, transparent 24%),
+    rgba(14, 11, 9, 0.4);
+}
+
+/* Workbench — stacked panel deck inside the rightpanel. */
+.workbench {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wb-slot { display: contents; }
+
+/* Glass-morphism card — opens via <details>. Each card has a clickable
+   summary (head) and an expandable body. The active mode (identity /
+   profile / notes / radar / tools) drives a subtle accent on the card's
+   left edge so panels are visually identifiable at a glance. */
+.wb-card {
+  background:
+    linear-gradient(180deg, rgba(245, 166, 35, 0.025), transparent 60%),
+    rgba(26, 22, 20, 0.65);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.wb-card[open] {
+  background:
+    linear-gradient(180deg, rgba(245, 166, 35, 0.045), transparent 50%),
+    rgba(26, 22, 20, 0.85);
+  border-color: var(--accent-border);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+.wb-card[data-mode="identity"]            { border-left-color: var(--accent-deep); }
+.wb-card[data-mode="identity"][open]      { border-left-color: var(--accent); }
+.wb-card[data-mode="profile"][open]       { border-left-color: var(--accent); }
+.wb-card[data-mode="notes"][open]         { border-left-color: var(--accent); }
+.wb-card[data-mode="radar"]               { border-left-color: rgba(255, 107, 94, 0.55); }
+.wb-card[data-mode="radar"][open]         { border-left-color: var(--red); }
+.wb-card[data-mode="tools"][open]         { border-left-color: var(--accent-deep); }
+
+.wb-card > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  user-select: none;
+}
+.wb-card > summary::-webkit-details-marker { display: none; }
+
+.wb-card-icon {
+  width: 26px; height: 26px;
+  border-radius: 6px;
+  background: var(--bg-card-2);
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+.wb-card-icon svg { width: 13px; height: 13px; }
+.wb-card[open] .wb-card-icon { background: var(--accent); color: var(--bg); }
+.wb-card[data-mode="radar"][open] .wb-card-icon { background: var(--red); }
+
+.wb-card-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.1px;
+}
+.wb-card-meta {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+.wb-card-meta .wb-meta-num { color: var(--accent); font-weight: 600; }
+.wb-card-meta .wb-meta-ok { color: var(--accent); }
+.wb-card-meta .wb-meta-faint { color: var(--text-mute); }
+
+.wb-card-chev {
+  width: 14px; height: 14px;
+  color: var(--text-mute);
+  transition: transform 0.18s ease, color 0.15s;
+  flex-shrink: 0;
+}
+.wb-card[open] > summary .wb-card-chev {
+  transform: rotate(90deg);
+  color: var(--text-dim);
+}
+
+.wb-card-body {
+  padding: 0 12px 12px;
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+  padding-top: 10px;
+}
+
+/* Loading skeleton (shown while radar fetches) */
+.wb-card-skeleton {
+  background: rgba(26, 22, 20, 0.4);
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  padding: 14px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.4px;
+  text-align: center;
+}
+
+/* ── Identity card content ── */
+.wb-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wb-identity-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.wb-identity-row .avatar.lg {
+  width: 44px; height: 44px;
+  font-size: 14px;
+}
+.wb-identity-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wb-identity-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-identity-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wb-identity-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Identity pills (currently: radar toggle) — small status chip + button. */
+.wb-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.wb-pill:hover { color: var(--text); border-color: var(--accent-border); }
+.wb-pill.on {
+  background: rgba(255, 107, 94, 0.16);
+  border-color: rgba(255, 107, 94, 0.45);
+  color: var(--red);
+}
+.wb-pill.on:hover { background: rgba(255, 107, 94, 0.24); }
+.wb-pill-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 6px var(--red);
+}
+
+/* ── Tools card content ── */
+.wb-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wb-tools .btn {
+  align-self: flex-start;
+}
+.wb-tools-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ── Radar card content ── */
+.wb-radar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wb-radar-catbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wb-radar-catpill {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 107, 94, 0.13);
+  color: var(--red);
+}
+.wb-radar-empty {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  padding: 8px 0;
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+.wb-radar-empty .link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wb-radar-signals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wb-radar-signal {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: start;
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 6px 0;
+  border-top: 1px dashed var(--border);
+}
+.wb-radar-signal:first-child { border-top: 0; padding-top: 2px; }
+.wb-radar-cat {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(255, 107, 94, 0.13);
+  color: var(--red);
+  white-space: nowrap;
+}
+.wb-radar-text {
+  color: var(--text);
+  word-wrap: break-word;
+}
+.wb-radar-time {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-mute);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.wb-radar-more {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent);
+  text-decoration: none;
+  letter-spacing: 0.3px;
+}
+.wb-radar-more:hover { text-decoration: underline; }
+
+.wb-radar-profile {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.wb-radar-profile > summary {
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+  color: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.wb-radar-profile > summary::-webkit-details-marker { display: none; }
+.wb-radar-profile > summary::before {
+  content: '▸';
+  font-size: 9px;
+  color: var(--text-mute);
+  transition: transform 0.15s;
+}
+.wb-radar-profile[open] > summary::before { transform: rotate(90deg); }
+.wb-radar-profile-body {
+  margin: 8px 0 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.wb-radar-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.wb-radar-actions .btn.small {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+/* ============================================================
+   Thread spatial mode — true canvas, no columns
+   ============================================================
+   When .app.thread-spatial is active, the page collapses to:
+     [ sidebar 240px ] [ canvas (everything else) ]
+   The canvas is one continuous ambient surface. Inside it:
+     - Chat thread floats in the visual center, scrollable.
+     - Workbench cards are absolutely positioned around the chat —
+       above, on either side, below — anchored to the viewport via
+       a fixed-position overlay. They surround the chat instead of
+       stacking in a column.
+     - Compose bar floats centered at the bottom.
+
+   Architecture:
+     .main becomes the scrollable chat canvas (full canvas width).
+     .rightpanel hoists out of the grid into position:fixed and
+     overlays on top of .main as a non-scrolling layer. Cards live
+     inside .rightpanel at specific (top/right/left/bottom) coords.
+     Empty space passes pointer events through (via pointer-events
+     on the overlay container; cards override with pointer-events
+     auto).
+   ============================================================ */
+
+/* Collapse the rightpanel grid column. The canvas is sidebar + main. */
+.app.thread-spatial {
+  grid-template-columns: 240px 1fr;
+}
+
+/* Single ambient backdrop on the canvas. The fixed-position overlay
+   holding the cards is transparent — they share visual ground. */
+.app.thread-spatial .main {
+  position: relative;
+  padding: 0;
+  background:
+    radial-gradient(ellipse 520px 820px at 50% 50%, rgba(245, 166, 35, 0.08) 0%, transparent 62%),
+    radial-gradient(ellipse 900px 600px at 90% 0%, rgba(245, 166, 35, 0.30) 0%, transparent 60%),
+    radial-gradient(ellipse 700px 500px at 5% 100%, rgba(255, 107, 94, 0.22) 0%, transparent 60%),
+    var(--bg);
+}
+
+/* Hoist .rightpanel out of the grid — overlay on top of .main, viewport-
+   anchored. Empty space passes clicks through to chat behind. */
+.app.thread-spatial .rightpanel {
+  position: fixed;
+  top: 52px;            /* below topbar */
+  left: 240px;          /* after sidebar */
+  right: 0;
+  bottom: 0;
+  width: auto;
+  background: transparent;
+  border: none;
+  padding: 0;
+  pointer-events: none; /* chat/compose underneath stay clickable */
+  overflow: visible;
+  z-index: 3;
+}
+
+/* Workbench inside the overlay: positioned-anchor container. */
+.app.thread-spatial .workbench {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+  padding: 0;
+  gap: 0;
+  pointer-events: none;
+}
+
+/* Each slot is an absolutely positioned wrapper with its card inside.
+   Default visual treatment + per-slot coords below. */
+.app.thread-spatial .wb-slot {
+  display: block;
+  position: absolute;
+  pointer-events: auto;
+  width: 280px;
+}
+
+/* Card visual treatment for spatial canvas — depth-of-field for inactive,
+   sharp focus on hover/expand. Identity stays in focus always. */
+.app.thread-spatial .wb-card {
+  width: 100%;
+  background:
+    linear-gradient(180deg, rgba(245, 166, 35, 0.05), transparent 55%),
+    rgba(26, 22, 20, 0.78);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.42),
+    0 2px 6px rgba(0, 0, 0, 0.28);
+  opacity: 0.55;
+  filter: saturate(0.7) blur(0.4px);
+  transition:
+    transform 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.28s,
+    border-color 0.18s,
+    opacity 0.24s,
+    filter 0.24s;
+}
+.app.thread-spatial .wb-card:hover,
+.app.thread-spatial .wb-card[open] {
+  transform: scale(1.03) translateY(-3px);
+  opacity: 1;
+  filter: saturate(1.05);
+  box-shadow:
+    0 30px 70px rgba(0, 0, 0, 0.62),
+    0 8px 20px rgba(0, 0, 0, 0.36),
+    0 0 0 1.5px var(--accent-border),
+    0 0 50px rgba(245, 166, 35, 0.16);
+  border-color: var(--accent-border);
+  z-index: 5;
+}
+.app.thread-spatial .wb-card[data-mode="identity"] {
+  opacity: 1;
+  filter: none;
+}
+.app.thread-spatial .wb-card[data-mode="radar"]:hover,
+.app.thread-spatial .wb-card[data-mode="radar"][open] {
+  box-shadow:
+    0 30px 70px rgba(0, 0, 0, 0.62),
+    0 8px 20px rgba(0, 0, 0, 0.36),
+    0 0 0 1.5px rgba(255, 107, 94, 0.55),
+    0 0 50px rgba(255, 107, 94, 0.16);
+  border-color: rgba(255, 107, 94, 0.55);
+}
+
+/* ─── Spatial card placement ──────────────────────────────────
+   The chat is centered in the canvas (max-width 720px). On a
+   typical 1440px viewport the canvas is ~1200px wide → chat
+   spans 240-960 px, with ~240px gutters on each side.
+
+   Cards distribute around it:
+     1. Identity   → top-CENTER, sits ABOVE the chat
+     2. Profile    → upper-LEFT gutter
+     3. Notes      → upper-RIGHT gutter
+     4. Radar      → lower-RIGHT gutter
+     5. Tools      → lower-LEFT gutter
+   ────────────────────────────────────────────────────────── */
+.app.thread-spatial .wb-slot:nth-child(1) {
+  /* Identity — top-center, wider */
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 480px;
+  max-width: calc(100% - 60px);
+}
+.app.thread-spatial .wb-slot:nth-child(2) {
+  /* Profile — upper-left, just outside the chat column */
+  top: 130px;
+  left: 18px;
+  width: 260px;
+}
+.app.thread-spatial .wb-slot:nth-child(3) {
+  /* Notes — upper-right */
+  top: 130px;
+  right: 18px;
+  width: 280px;
+}
+.app.thread-spatial .wb-slot:nth-child(4) {
+  /* Radar — lower-right */
+  bottom: 110px;
+  right: 18px;
+  width: 300px;
+}
+.app.thread-spatial .wb-slot:nth-child(5) {
+  /* Tools — lower-left */
+  bottom: 110px;
+  left: 18px;
+  width: 240px;
+}
+
+/* Header strip — softened to a subtle floating label rather than a
+   page-column header. */
+.app.thread-spatial .main-header {
+  padding: 18px 28px 6px;
+  background: transparent;
+  border: none;
+  margin-bottom: 0;
+}
+.app.thread-spatial .main-title {
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  color: var(--text);
+}
+.app.thread-spatial .main-sub { font-size: 11px; color: var(--text-faint); }
+
+/* Chat content — centered floating column with a soft glass platter. */
+.app.thread-spatial #drafts-list {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px 28px 140px;
+  position: relative;
+  border-radius: 24px;
+  background: linear-gradient(180deg,
+    rgba(245, 166, 35, 0.025) 0%,
+    rgba(0, 0, 0, 0.10) 60%,
+    transparent 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 0 80px rgba(0, 0, 0, 0.18);
+}
+
+/* Bubbles lifted with depth shadows. */
+.app.thread-spatial .bubble {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.30),
+    0 8px 24px rgba(0, 0, 0, 0.22);
+  border-radius: 18px;
+  padding: 10px 14px;
+}
+.app.thread-spatial .bubble.them {
+  background: rgba(26, 22, 20, 0.72);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+.app.thread-spatial .bubble.me {
+  background: linear-gradient(135deg, #F5A623 0%, #C97900 70%, #9D6020 100%);
+  color: var(--bg);
+  border: 1px solid rgba(245, 166, 35, 0.4);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.30),
+    0 12px 32px rgba(245, 166, 35, 0.30),
+    0 0 0 1px rgba(245, 166, 35, 0.18);
+  font-weight: 500;
+}
+
+/* Floating compose pill — centered at the bottom of the visible chat.
+   The wrapper itself has NO background (overrides the legacy
+   #thread-compose-bar:not(:empty) gradient that would otherwise paint
+   a dark stripe across the bottom of the canvas, covering the lower
+   workbench cards). Only the .compose-bar pill inside has a surface. */
+.app.thread-spatial #thread-compose-bar {
+  position: sticky;
+  bottom: 22px;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  padding: 0 24px;
+  margin-top: -90px;
+  background: none;
+}
+.app.thread-spatial #thread-compose-bar > * { pointer-events: auto; }
+.app.thread-spatial .compose-bar {
+  max-width: 580px;
+  width: 100%;
+  background: rgba(20, 16, 14, 0.92);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(245, 166, 35, 0.28);
+  border-radius: 22px;
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.62),
+    0 8px 22px rgba(0, 0, 0, 0.40),
+    0 0 60px rgba(245, 166, 35, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  padding: 10px 12px;
+  animation: spatialComposeIdle 3.6s ease-in-out infinite;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+@keyframes spatialComposeIdle {
+  0%, 100% {
+    box-shadow:
+      0 28px 70px rgba(0, 0, 0, 0.62),
+      0 8px 22px rgba(0, 0, 0, 0.40),
+      0 0 60px rgba(245, 166, 35, 0.10),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  50% {
+    box-shadow:
+      0 28px 70px rgba(0, 0, 0, 0.62),
+      0 8px 22px rgba(0, 0, 0, 0.40),
+      0 0 80px rgba(245, 166, 35, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+}
+.app.thread-spatial .compose-bar:focus-within {
+  animation: none;
+  border-color: rgba(245, 166, 35, 0.55);
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.62),
+    0 8px 22px rgba(0, 0, 0, 0.40),
+    0 0 100px rgba(245, 166, 35, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+}
+.app.thread-spatial .compose-bar textarea {
+  background: transparent;
+  border: none;
+  resize: none;
+  width: 100%;
+  color: var(--text);
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  outline: none;
+  padding: 6px 8px;
+  min-height: 30px;
+  max-height: 140px;
+}
+.app.thread-spatial .compose-bar .compose-actions { padding-top: 6px; }
+
+/* The legacy thread-mode padding override is irrelevant in spatial mode
+   because the rightpanel is now position:fixed (no padding rules apply
+   to the grid cell). Keep it explicit for clarity. */
+.app.thread-spatial .rightpanel.thread-mode { padding: 0; }
+
+/* Narrower viewports: compress card widths + swap left-side cards to
+   inline below the right-side cards. Best-effort responsive — desktop
+   is the target. */
+@media (max-width: 1280px) {
+  .app.thread-spatial .wb-slot:nth-child(2) { width: 240px; }
+  .app.thread-spatial .wb-slot:nth-child(3) { width: 240px; }
+  .app.thread-spatial .wb-slot:nth-child(4) { width: 260px; }
+  .app.thread-spatial .wb-slot:nth-child(5) { width: 220px; }
+  .app.thread-spatial #drafts-list { max-width: 640px; }
+}
+@media (max-width: 1100px) {
+  /* Drop-back: inline left-side cards under right-side, single column,
+     to avoid overlap with the centered chat. */
+  .app.thread-spatial .wb-slot:nth-child(2),
+  .app.thread-spatial .wb-slot:nth-child(5) {
+    display: none;
+  }
+  .app.thread-spatial #drafts-list { max-width: 580px; }
 }
 
 /* ============================================================
@@ -2102,21 +2784,46 @@ body::after {
 }
 
 /* ============================================================
-   Queue (consolidated review queue: calendar / flags / scheduled)
-   ============================================================ */
+   Inbox tabstrip (chats / calendar / flags / scheduled)
+   ============================================================
+   The legacy Queue page was folded into Inbox as tabs; the .queue-tab
+   selectors below are kept as aliases so any external CSS / muscle
+   memory still works while the new .inbox-tab is the canonical name. */
+.inbox-tabstrip {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.inbox-tab,
+.queue-tab {
+  /* Inherits .filter base styling. Just adding tab-specific tweaks. */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.inbox-tab-count,
 .queue-tab .queue-tab-count {
   display: inline-block;
   margin-left: 4px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: var(--border);
-  color: var(--text);
+  background: var(--bg-card-2);
+  color: var(--text-dim);
   font-family: var(--mono);
   font-size: 10px;
+  font-weight: 600;
 }
+.inbox-tab-count.amber {
+  background: var(--accent-soft-2);
+  color: var(--accent);
+}
+.inbox-tab.active .inbox-tab-count,
 .queue-tab.active .queue-tab-count {
   background: var(--accent);
-  color: #0a0c10;
+  color: var(--bg);
 }
 
 /* Search panel on Home — same styling as the former Search view, just
@@ -2124,6 +2831,225 @@ body::after {
 .home-panel-search {
   grid-column: 1 / -1;
   padding: 12px 14px;
+}
+
+/* ============================================================
+   Galt page — Summon mode banner + ops panel
+   ============================================================
+   Summon was folded into Galt. The banner appears above the pipeline
+   only when Galt is currently in conversation; the ops panel sits below
+   the OpenAI marker. Both use the amber accent associated with Summon
+   in the lane visualization (see [data-mode="summon"]). */
+
+.galt-summon-banner {
+  background: linear-gradient(135deg, var(--accent-soft-2), var(--accent-soft) 70%, transparent);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+}
+.galt-summon-banner::before {
+  /* Faint amber pulse ring on the left edge to draw the eye */
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+}
+.galt-summon-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.galt-summon-banner-head .dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+.galt-summon-banner-head .dot.pulse {
+  animation: galt-summon-pulse 1.4s ease-in-out infinite;
+}
+@keyframes galt-summon-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 166, 35, 0.5); }
+  50%      { box-shadow: 0 0 0 7px rgba(245, 166, 35, 0); }
+}
+.galt-summon-banner-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  color: var(--accent);
+}
+.galt-summon-banner-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent);
+  letter-spacing: 0.4px;
+}
+.galt-summon-banner-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Ops panel below the pipeline */
+.galt-summon-ops {
+  margin-top: 16px;
+  background: linear-gradient(180deg, var(--accent-soft), var(--bg-card) 70%);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.galt-summon-ops-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.galt-summon-ops-head .galt-flow-stage-tag {
+  background: var(--accent-soft-2);
+  color: var(--accent);
+}
+.galt-summon-ops-status {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  letter-spacing: 0.4px;
+}
+.galt-summon-ops-status code {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--bg-card-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+.galt-summon-status.ready  { color: var(--accent); font-weight: 600; }
+.galt-summon-status.active { color: var(--accent); font-weight: 600; }
+.galt-summon-status.off    { color: var(--text-faint); }
+
+.galt-summon-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.galt-summon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.galt-summon-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.galt-summon-field label {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.galt-summon-field .hint {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  font-weight: 400;
+  letter-spacing: 0.2px;
+  line-height: 1.45;
+}
+.galt-summon-field .hint code {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--bg-card-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+.galt-summon-field input[type="text"],
+.galt-summon-field input[type="number"] {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.galt-summon-field input:focus {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.galt-summon-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.galt-summon-inline input { width: 90px; }
+.galt-summon-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.galt-summon-past {
+  margin-top: 4px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+.galt-summon-past > summary {
+  list-style: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-faint);
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.galt-summon-past > summary::-webkit-details-marker { display: none; }
+.galt-summon-past > summary::before {
+  content: '▸';
+  font-size: 9px;
+  color: var(--text-mute);
+  transition: transform 0.15s;
+}
+.galt-summon-past[open] > summary::before { transform: rotate(90deg); }
+.galt-summon-past > summary:hover { color: var(--text-dim); }
+.galt-summon-past .meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-mute);
+  letter-spacing: 0.3px;
+  text-transform: none;
+}
+.galt-summon-past-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 /* ============================================================

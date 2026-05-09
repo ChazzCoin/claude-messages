@@ -12,7 +12,7 @@ import { setMainHeader } from '../shell.js';
 import { escapeHtml } from '../utils.js';
 import {
   settingsCache, settingsBounds,
-  setSettingsCache, setSettingsBounds, setPromptDefaults,
+  setSettingsCache, setSettingsBounds, setPromptDefaults, setPipelineStages,
 } from '../state.js';
 
 /** Pull settings + bounds + prompt defaults from the server, merge into state.
@@ -25,6 +25,7 @@ export async function refreshSettings() {
     if (r.settings) setSettingsCache(r.settings);
     if (r.bounds) setSettingsBounds(r.bounds);
     if (r.prompt_defaults) setPromptDefaults(r.prompt_defaults);
+    if (r.pipeline_stages) setPipelineStages(r.pipeline_stages);
   } catch { /* keep prior cache */ }
 }
 

@@ -20,7 +20,14 @@ export function clearDraftsToolbar() {
 }
 
 export function clearThreadTools() {
-  for (const id of ['thread-toolbar', 'thread-compose-bar', 'thread-profile', 'thread-notes']) {
+  // Legacy slots (hidden but still cleared so stale data doesn't leak)
+  // + new workbench slots that the thread view populates.
+  const ids = [
+    'thread-toolbar', 'thread-compose-bar', 'thread-profile', 'thread-notes',
+    'workbench-identity', 'workbench-profile', 'workbench-notes',
+    'workbench-radar', 'workbench-tools',
+  ];
+  for (const id of ids) {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '';
   }
@@ -31,17 +38,24 @@ export function clearThreadNotes() {
   if (n) n.innerHTML = '';
 }
 
-/** mode: 'thread' | 'collapsed' */
+/** mode: 'thread' | 'collapsed'
+ *  Adds .thread-spatial to .app when entering thread view — that class
+ *  drives the floating-ecosystem layout (no panel borders, soft ambient
+ *  background, free-floating chat column with workbench cards staggered
+ *  on the right). Removed when leaving thread view so other pages stay
+ *  on the standard grid layout. */
 export function setRightPanelMode(mode) {
   const app = document.querySelector('.app');
   const rp = document.querySelector('.rightpanel');
   const def = document.getElementById('rightpanel-default');
   if (mode === 'thread') {
     app?.classList.remove('no-rightpanel');
+    app?.classList.add('thread-spatial');
     rp?.classList.add('thread-mode');
     if (def) def.style.display = 'none';
   } else {
     app?.classList.add('no-rightpanel');
+    app?.classList.remove('thread-spatial');
     rp?.classList.remove('thread-mode');
     if (def) def.style.display = '';
     clearThreadTools();

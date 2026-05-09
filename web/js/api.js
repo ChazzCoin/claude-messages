@@ -35,13 +35,33 @@ export function setPill(id, state, label) {
   if (lab && label !== undefined) lab.textContent = label;
 }
 
-/** Refresh top-bar pills from /api/health. Tolerates fetch failure. */
+/** Update the Galt nav-item's active-summon-sessions badge. Hidden at 0;
+ *  amber pill at >0. The badge sits on the Galt sidebar item because
+ *  Summon was folded into Galt — the count surfaces there as a live
+ *  signal of "Galt is in conversation right now." */
+function setSummonBadge(count) {
+  const badge = document.getElementById('nav-summon-badge');
+  if (!badge) return;
+  if (count > 0) {
+    badge.style.display = '';
+    badge.textContent = String(count);
+    badge.style.background = 'var(--accent)';
+    badge.style.color = 'var(--bg)';
+    badge.title = `${count} active summon session${count === 1 ? '' : 's'}`;
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+/** Refresh top-bar pills + the Galt summon badge from /api/health.
+ *  Tolerates fetch failure. */
 export async function refreshHealth() {
   try {
     const h = await api('/api/health');
     setPill('pill-chatdb', h.chat_db?.ok ? 'ok' : 'error');
     setPill('pill-watcher', h.watcher_running ? 'ok' : 'warn');
     setPill('pill-model', h.openai_configured ? 'ok' : 'warn', h.openai_model || 'gpt-4o-mini');
+    setSummonBadge(h.summon_active_sessions || 0);
     return h;
   } catch {
     setPill('pill-chatdb', 'error');
