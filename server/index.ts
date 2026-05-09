@@ -1031,23 +1031,20 @@ app.post('/api/scheduled', (req, res) => {
     return res.status(400).json({ error: 'send_at must be in the future' });
   }
 
-  // Resolve handle: explicit > chat_id lookup
+  // Resolve target. When chat_id is given, use it as the canonical
+  // routing key (so the scheduler tick goes through sendToChat which
+  // handles groups). Handle is set for display + back-compat with the
+  // old handle-only schedule rows.
   let handle = handleRaw;
-  if (!handle && Number.isFinite(chatIdRaw)) {
-    try {
-      const db = getChatDb();
-      const row = db.prepare('SELECT chat_identifier FROM chat WHERE ROWID = ?').get(chatIdRaw) as
-        | { chat_identifier: string }
-        | undefined;
-      if (!row) return res.status(404).json({ error: `chat ${chatIdRaw} not found` });
-      handle = row.chat_identifier;
-    } catch (err) {
-      return res.status(500).json({ error: `chat lookup failed: ${(err as Error).message}` });
-    }
+  let chatId: number | null = Number.isFinite(chatIdRaw) ? chatIdRaw : null;
+  if (chatId != null) {
+    const target = getChatTarget(chatId);
+    if (!target) return res.status(404).json({ error: `chat ${chatId} not found` });
+    handle = handle || (target.isGroup ? target.chatIdentifier : target.handle) || target.chatIdentifier;
   }
   if (!handle) return res.status(400).json({ error: 'handle or chat_id required' });
 
-  const sched = createScheduled({ handle, body, send_at: sendAt });
+  const sched = createScheduled({ handle, chat_id: chatId, body, send_at: sendAt });
   res.status(201).json({ scheduled: enrichScheduled(sched) });
 });
 
@@ -1105,6 +1102,7 @@ app.post('/api/drafts/:id/schedule', (req, res) => {
   }
   const sched = createScheduled({
     handle: draft.handle,
+    chat_id: draft.chat_id,
     body: draft.body,
     send_at: sendAt,
     source_draft_id: draft.id,
@@ -2526,11 +2524,20 @@ async function schedulerTick(): Promise<void> {
     if (sendingNow.has(s.id)) continue;
     sendingNow.add(s.id);
     try {
-      await sendMessageViaAppleScript(s.handle, s.body, {
-        service: s.service === 'SMS' ? 'SMS' : 'iMessage',
-      });
+      // Stage 4 of group support: prefer chat-aware send when the
+      // schedule was created with a chat_id (group-aware path).
+      // Legacy schedules with chat_id=null still use the buddy form.
+      if (s.chat_id != null) {
+        await sendToChat(s.chat_id, s.body, {
+          service: s.service === 'SMS' ? 'SMS' : 'iMessage',
+        });
+      } else {
+        await sendMessageViaAppleScript(s.handle, s.body, {
+          service: s.service === 'SMS' ? 'SMS' : 'iMessage',
+        });
+      }
       const updated = updateScheduledStatus(s.id, 'sent');
-      console.log(`[scheduler] sent #${s.id} → ${s.handle}`);
+      console.log(`[scheduler] sent #${s.id} → ${s.chat_id ? `chat ${s.chat_id}` : s.handle}`);
       sseBroadcast('scheduled.sent', { scheduled: updated ? enrichScheduled(updated) : null });
     } catch (err) {
       const msg = (err as Error).message;

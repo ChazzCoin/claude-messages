@@ -156,6 +156,7 @@ function migrate(db: DB) {
     CREATE TABLE IF NOT EXISTS scheduled_messages (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
       handle          TEXT NOT NULL,
+      chat_id         INTEGER,                    -- Stage 4 of group support: when set, scheduler routes via sendToChat (group-aware) instead of buddy form
       body            TEXT NOT NULL,
       send_at         INTEGER NOT NULL,
       status          TEXT NOT NULL DEFAULT 'pending'
@@ -303,6 +304,14 @@ function migrate(db: DB) {
   // exist (either via the fresh CREATE TABLE in the inline block above,
   // or via the ALTER for existing installs).
   db.exec('CREATE INDEX IF NOT EXISTS idx_away_sessions_chat_status ON away_sessions(chat_id, status)');
+
+  // scheduled_messages.chat_id (added in Stage 4 of group-message
+  // support) — when set, the scheduler tick routes through the chat-
+  // aware sendToChat instead of the legacy handle-only path.
+  const scheduledCols = db.prepare('PRAGMA table_info(scheduled_messages)').all() as Array<{ name: string }>;
+  if (!scheduledCols.some((c) => c.name === 'chat_id')) {
+    db.exec('ALTER TABLE scheduled_messages ADD COLUMN chat_id INTEGER');
+  }
 
   const draftCols = db.prepare('PRAGMA table_info(drafts)').all() as Array<{ name: string }>;
   if (!draftCols.some((c) => c.name === 'staged_at')) {
@@ -1118,6 +1127,10 @@ export type ScheduledStatus = 'pending' | 'sent' | 'failed' | 'cancelled';
 export interface ScheduledMessage {
   id: number;
   handle: string;
+  /** Set when the schedule was created from a chat-aware path; the
+   *  scheduler tick prefers it over `handle` so group sends route
+   *  correctly. Null for legacy 1:1 schedules. */
+  chat_id: number | null;
   body: string;
   send_at: number;
   status: ScheduledStatus;
@@ -1128,28 +1141,25 @@ export interface ScheduledMessage {
   error: string | null;
 }
 
+const SCHED_COLS =
+  'id, handle, chat_id, body, send_at, status, service, source_draft_id, created_at, sent_at, error';
+
 export function listScheduled(status?: ScheduledStatus): ScheduledMessage[] {
   const db = getAppDb();
   if (status) {
     return db
-      .prepare(
-        'SELECT id, handle, body, send_at, status, service, source_draft_id, created_at, sent_at, error FROM scheduled_messages WHERE status = ? ORDER BY send_at ASC',
-      )
+      .prepare(`SELECT ${SCHED_COLS} FROM scheduled_messages WHERE status = ? ORDER BY send_at ASC`)
       .all(status) as ScheduledMessage[];
   }
   return db
-    .prepare(
-      'SELECT id, handle, body, send_at, status, service, source_draft_id, created_at, sent_at, error FROM scheduled_messages ORDER BY send_at ASC',
-    )
+    .prepare(`SELECT ${SCHED_COLS} FROM scheduled_messages ORDER BY send_at ASC`)
     .all() as ScheduledMessage[];
 }
 
 export function getScheduled(id: number): ScheduledMessage | null {
   const db = getAppDb();
   const row = db
-    .prepare(
-      'SELECT id, handle, body, send_at, status, service, source_draft_id, created_at, sent_at, error FROM scheduled_messages WHERE id = ?',
-    )
+    .prepare(`SELECT ${SCHED_COLS} FROM scheduled_messages WHERE id = ?`)
     .get(id) as ScheduledMessage | undefined;
   return row ?? null;
 }
@@ -1158,13 +1168,14 @@ export function listDueScheduled(now: number = Date.now()): ScheduledMessage[] {
   const db = getAppDb();
   return db
     .prepare(
-      "SELECT id, handle, body, send_at, status, service, source_draft_id, created_at, sent_at, error FROM scheduled_messages WHERE status = 'pending' AND send_at <= ? ORDER BY send_at ASC",
+      `SELECT ${SCHED_COLS} FROM scheduled_messages WHERE status = 'pending' AND send_at <= ? ORDER BY send_at ASC`,
     )
     .all(now) as ScheduledMessage[];
 }
 
 export function createScheduled(input: {
   handle: string;
+  chat_id?: number | null;
   body: string;
   send_at: number;
   service?: string;
@@ -1173,9 +1184,16 @@ export function createScheduled(input: {
   const db = getAppDb();
   const info = db
     .prepare(
-      'INSERT INTO scheduled_messages(handle, body, send_at, service, source_draft_id) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO scheduled_messages(handle, chat_id, body, send_at, service, source_draft_id) VALUES (?, ?, ?, ?, ?, ?)',
     )
-    .run(input.handle, input.body, input.send_at, input.service ?? 'iMessage', input.source_draft_id ?? null);
+    .run(
+      input.handle,
+      input.chat_id ?? null,
+      input.body,
+      input.send_at,
+      input.service ?? 'iMessage',
+      input.source_draft_id ?? null,
+    );
   return getScheduled(info.lastInsertRowid as number)!;
 }
 

@@ -70,23 +70,34 @@ export async function refreshQueueBadge() {
 /* ---------- chat list (the default "Chats" tab) ---------- */
 
 export function renderChatRow(c) {
-  // Prefer contact_name (resolved from macOS Contacts) → group display_name → handle.
-  const name = c.contact_name || c.display_name || c.identifier || '(unknown)';
+  // Group chats: chat.chat_identifier is `chat<digits>`. 1:1 chats: it's
+  // the recipient handle. Detect with a regex — same shape used in
+  // thread.js. For groups we want a friendlier label than `chat<id>`.
+  const isGroup = /^chat\d+$/i.test(c.identifier || '');
+  const name = isGroup
+    ? (c.display_name || `Group chat`)
+    : (c.contact_name || c.display_name || c.identifier || '(unknown)');
   const seed = c.identifier || c.guid || String(c.id);
   const av = avatarClass(seed);
-  const init = initials(c.contact_name, c.display_name, c.identifier);
+  const init = isGroup
+    ? (c.display_name
+        ? c.display_name.split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase()
+        : 'GR')
+    : initials(c.contact_name, c.display_name, c.identifier);
   const time = relTime(c.last_date_ms);
   const previewText = c.last_text
     ? (c.last_is_from_me ? 'You: ' : '') + c.last_text
     : '[encoded message — decoder skipped]';
-  // Only show the raw identifier under the name when we DON'T already
-  // display the contact name.
-  const subline = c.contact_name && c.contact_name !== c.identifier
-    ? `${escapeHtml(c.identifier || '')}${c.service_name ? ' · ' + escapeHtml(c.service_name) : ''}`
-    : (c.service_name ? escapeHtml(c.service_name) : '');
+  // Subline: groups → "group" tag + service. 1:1 → handle (when name is
+  // a contact name) + service.
+  const subline = isGroup
+    ? `<span class="row-group-tag">group</span>${c.service_name ? ' · ' + escapeHtml(c.service_name) : ''}`
+    : (c.contact_name && c.contact_name !== c.identifier
+        ? `${escapeHtml(c.identifier || '')}${c.service_name ? ' · ' + escapeHtml(c.service_name) : ''}`
+        : (c.service_name ? escapeHtml(c.service_name) : ''));
   return `
-    <div class="chat-row" data-action="open-thread" data-chat-id="${c.id}">
-      <div class="avatar ${av}">${escapeHtml(init)}</div>
+    <div class="chat-row${isGroup ? ' group' : ''}" data-action="open-thread" data-chat-id="${c.id}">
+      <div class="avatar ${isGroup ? 'group' : av}">${escapeHtml(init)}</div>
       <div class="row-text">
         <div class="row-name">${escapeHtml(name)}</div>
         <div class="row-handle">${subline}</div>

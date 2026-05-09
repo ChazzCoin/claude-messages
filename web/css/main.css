@@ -248,6 +248,37 @@ body::after {
 .avatar.g3 { background: linear-gradient(135deg, #B56B30 0%, #7A4318 100%); color: var(--bg); }
 .avatar.g4 { background: linear-gradient(135deg, #D8A657 0%, #8B6F2C 100%); color: var(--bg); }
 
+/* Group-chat avatar — distinct cool gradient so a group is visually
+   different at a glance from individual contacts. */
+.avatar.group {
+  background: linear-gradient(135deg, #5A8FB8 0%, #2E5A7C 100%);
+  color: #fff;
+}
+
+/* Group tag pill in row sublines + group thread row class hook. */
+.row-group-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  background: rgba(90, 143, 184, 0.18);
+  color: #7AAACC;
+  padding: 1px 6px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+.chat-row.group { /* hook for any group-specific row tweaks */ }
+.group-sub {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+  margin-top: 1px;
+}
+
 .contact-name { font-size: 12.5px; color: var(--text); }
 .contact-meta { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
 
