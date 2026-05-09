@@ -8,7 +8,7 @@
 // device. If that ever changes, swap the path to /state/<device_id> and
 // add device_id selection on the frontend.
 
-import { getSettings, listAwayContacts, countUnreviewedAutoNotes, getDeviceId } from './db/app.js';
+import { getSettings, listAwayContacts, countUnreviewedAutoNotes, getDeviceId, getAiUsageStats } from './db/app.js';
 import {
   countActiveAwaySessions,
   countActiveSummonSessions,
@@ -16,7 +16,7 @@ import {
 import { getContactNameForHandle } from './db/contacts.js';
 import { mirrorState } from './firebase.js';
 import { config } from './config.js';
-import { isAIConfigured } from './ai.js';
+import { isAIConfigured, effectiveModel } from './ai.js';
 import { getChatDb } from './db/messages.js';
 import { messageWatcher } from './watcher.js';
 
@@ -29,6 +29,14 @@ interface WatchedContact {
   label: string | null;
   enabled: boolean;
   contact_name: string | null;
+}
+
+interface AiUsageBucket {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
 }
 
 interface StateSnapshot {
@@ -55,6 +63,13 @@ interface StateSnapshot {
     summon_active_sessions: number;
     auto_unreviewed_notes: number;
   };
+  ai: {
+    provider: 'openai';
+    model: string;
+    today: AiUsageBucket;
+    last_30d: AiUsageBucket;
+    all_time: AiUsageBucket;
+  };
 }
 
 function buildSnapshot(): StateSnapshot {
@@ -76,6 +91,8 @@ function buildSnapshot(): StateSnapshot {
     enabled: !!c.enabled,
     contact_name: getContactNameForHandle(c.handle),
   }));
+
+  const usage = getAiUsageStats();
 
   return {
     schema_version: 1,
@@ -100,6 +117,13 @@ function buildSnapshot(): StateSnapshot {
       away_active_sessions: countActiveAwaySessions(),
       summon_active_sessions: countActiveSummonSessions(),
       auto_unreviewed_notes: countUnreviewedAutoNotes(),
+    },
+    ai: {
+      provider: 'openai',
+      model: effectiveModel(),
+      today: usage.today,
+      last_30d: usage.last_30d,
+      all_time: usage.all_time,
     },
   };
 }

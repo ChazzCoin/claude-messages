@@ -5,13 +5,14 @@
 // Panels (top → bottom):
 //   - Greeting block (eyebrow + day headline)
 //   - Stat strip      (· N unreviewed · M flags · K pending events)
-//   - Auto Notes      (5 most recent unreviewed)
+//   - Switches        (Notes + Summon toggles)
+//   - Away            (toggle + away message editor in one card)
+//   - Summon sessions (active sessions or trigger-phrase reminder)
+//   - Notes / Search  (side-by-side: triage queue + chat.db search)
 //   - Upcoming events (5 most recent pending calendar proposals)
 //   - Flags           (top unreviewed monitor-rule matches)
 //   - Recent threads  (top 6 chats)
 //   - Scheduled sends (queued outbound)
-//   - Away mode controls + Summon mode panel (kept from earlier home)
-//   - Search panel    (LIKE search across chat.db)
 //
 // Data is pulled in parallel; the page paints once when all promises
 // resolve. Most actions on this page reuse existing data-action handlers.
@@ -200,10 +201,14 @@ function schedRow(s) {
 // ON/OFF badge and amber-tinted active state. Adding a new switch is
 // just a new entry in the SWITCHES array; the layout grid auto-fills.
 
+// Away has its own composite panel (toggle + message editor). It used
+// to live here as the third entry; now `awayPanel()` owns it so the
+// "what does Galt say when I'm away?" answer is one card away from the
+// toggle that triggers it.
 const SWITCHES = [
   {
     key: 'auto_notes_enabled',
-    label: 'Auto Notes',
+    label: 'Notes',
     sub: '24/7 inbound triage',
     action: 'toggle-auto-notes',
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>`,
@@ -214,13 +219,6 @@ const SWITCHES = [
     sub: 'trigger phrase to invoke',
     action: 'toggle-summon-mode',
     icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 12a10 10 0 0 1 20 0"/><path d="M5 12a7 7 0 0 1 14 0"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>`,
-  },
-  {
-    key: 'away_mode_enabled',
-    label: 'Away',
-    sub: 'auto-respond for opted-in',
-    action: 'toggle-away-mode',
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
   },
   // Add new switches here. Each entry needs a settingsCache key,
   // a data-action handler in actions.js, and an inline-SVG icon.
@@ -258,23 +256,41 @@ function switchesPanel() {
   `;
 }
 
-// Small away-message preview/edit. Lives next to the switches so the
-// "what does Galt say when I'm away?" answer is always one click away.
-function awayMessagePanel() {
+// Composite Away panel — toggle + message editor in one card. Toggle is
+// the inline iOS-style switch so the action is unambiguous (clicking the
+// header toggles; the textarea stays a separate editable surface). When
+// off the textarea is still editable so the user can prep the message
+// before flipping on.
+function awayPanel() {
+  const on = !!settingsCache.away_mode_enabled;
   const greeting = settingsCache.away_message || '';
+  const awayIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
   return `
-    <div class="v9-panel">
-      <div class="v9-panel-head">
-        <div class="v9-panel-title">
-          Away message
-          <span class="v9-panel-count muted">first canned reply</span>
+    <div class="v9-panel v9-away-panel" data-on="${on}">
+      <div class="v9-away-head">
+        <div class="v9-away-head-text">
+          <div class="v9-away-head-icon">${awayIcon}</div>
+          <div>
+            <div class="v9-panel-title">
+              Away
+              <span class="v9-panel-count ${on ? '' : 'muted'}">${on ? 'ON' : 'OFF'}</span>
+            </div>
+            <div class="v9-away-sub">auto-respond for opted-in contacts</div>
+          </div>
         </div>
-        <a class="v9-panel-link" data-action="open-away">configure →</a>
+        <button type="button"
+                class="v9-switch ${on ? 'on' : ''}"
+                data-action="toggle-away-mode"
+                aria-pressed="${on}"
+                title="${on ? 'turn off' : 'turn on'}">
+          <span class="v9-switch-thumb"></span>
+        </button>
       </div>
       <form class="v9-away-edit" data-form="away-greeting">
         <textarea name="away_message" rows="3" placeholder="Heads down today — I'll catch up tonight.">${escapeHtml(greeting)}</textarea>
-        <div class="v9-actions">
-          <button type="submit" class="v9-btn primary">Save</button>
+        <div class="v9-away-foot">
+          <button type="submit" class="v9-btn primary">Save message</button>
+          <a class="v9-panel-link" data-action="open-away">configure →</a>
           <span class="settings-status" data-error></span>
         </div>
       </form>
@@ -386,7 +402,7 @@ export async function renderHomeView() {
 
   // ---- panel bodies ----
   const notesBlock = notes.length === 0
-    ? '<div class="v9-empty">no unreviewed auto notes — all caught up</div>'
+    ? '<div class="v9-empty">no unreviewed notes — all caught up</div>'
     : notes.map(autoNoteRow).join('');
   const calBlock = proposals.length === 0
     ? '<div class="v9-empty">no upcoming events</div>'
@@ -418,15 +434,31 @@ export async function renderHomeView() {
 
         ${switchesPanel()}
 
-        <div class="v9-panel span-2">
+        ${awayPanel()}
+
+        ${summonSessionsPanel(activeSummon)}
+
+        <div class="v9-panel">
           <div class="v9-panel-head">
             <div class="v9-panel-title">
-              Auto Notes
+              Notes
               <span class="v9-panel-count">${unreviewedNotes} unreviewed</span>
             </div>
             <a class="v9-panel-link" data-action="open-auto-notes">all notes →</a>
           </div>
           ${notesBlock}
+        </div>
+
+        <div class="v9-panel">
+          <div class="v9-panel-head">
+            <div class="v9-panel-title">Search chat.db</div>
+            <span class="v9-panel-link">2+ chars · LIKE search</span>
+          </div>
+          <div class="search-view">
+            <input type="search" class="search-input" id="search-input" placeholder="Search all messages…" autocomplete="off" />
+            <div class="search-status" id="search-status"></div>
+            <div class="search-results" id="search-results"></div>
+          </div>
         </div>
 
         <div class="v9-panel">
@@ -471,22 +503,6 @@ export async function renderHomeView() {
             <a class="v9-panel-link" data-action="open-scheduled">scheduled →</a>
           </div>
           ${schedBlock}
-        </div>
-
-        ${awayMessagePanel()}
-
-        ${summonSessionsPanel(activeSummon)}
-
-        <div class="v9-panel span-2">
-          <div class="v9-panel-head">
-            <div class="v9-panel-title">Search chat.db</div>
-            <span class="v9-panel-link">2+ chars · LIKE search</span>
-          </div>
-          <div class="search-view">
-            <input type="search" class="search-input" id="search-input" placeholder="Search all messages…" autocomplete="off" />
-            <div class="search-status" id="search-status"></div>
-            <div class="search-results" id="search-results"></div>
-          </div>
         </div>
 
       </div>

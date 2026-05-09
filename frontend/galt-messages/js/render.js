@@ -31,6 +31,7 @@ function escape(v) {
 export function renderAll(store) {
   renderConnection(store);
   renderState(store);
+  renderAi(store);
   renderNotes(store);
 }
 
@@ -151,6 +152,69 @@ function renderContacts(contacts) {
   }).join('');
 }
 
+/* ---------- AI provider / model / usage ---------- */
+
+function renderAi(store) {
+  const ai = store.state?.ai;
+  const html = ai ? renderAiPanel(ai) : '<div class="ai-empty">— no AI data yet —</div>';
+  for (const el of document.querySelectorAll('[data-id$="ai-panel"]')) {
+    el.innerHTML = html;
+  }
+}
+
+function renderAiPanel(ai) {
+  const today    = ai.today    || ZERO_BUCKET;
+  const last30   = ai.last_30d || ZERO_BUCKET;
+  const allTime  = ai.all_time || ZERO_BUCKET;
+  return `
+    <div class="ai-head">
+      <span class="ai-label">AI</span>
+      <span class="ai-provider">${escape(ai.provider || '—')}</span>
+    </div>
+    <div class="ai-model">${escape(ai.model || '—')}</div>
+    <div class="ai-rows">
+      <div class="ai-row">
+        <span class="ai-row-label">today</span>
+        <span class="ai-row-cost">${fmtUsd(today.cost_usd)}</span>
+        <span class="ai-row-meta">${fmtNum(today.calls)} calls · ${fmtTokens(today.total_tokens)}</span>
+      </div>
+      <div class="ai-row">
+        <span class="ai-row-label">30d</span>
+        <span class="ai-row-cost">${fmtUsd(last30.cost_usd)}</span>
+        <span class="ai-row-meta">${fmtNum(last30.calls)} calls · ${fmtTokens(last30.total_tokens)}</span>
+      </div>
+      <div class="ai-row">
+        <span class="ai-row-label">total</span>
+        <span class="ai-row-cost">${fmtUsd(allTime.cost_usd)}</span>
+        <span class="ai-row-meta">${fmtNum(allTime.calls)} calls · ${fmtTokens(allTime.total_tokens)}</span>
+      </div>
+    </div>
+  `;
+}
+
+const ZERO_BUCKET = { calls: 0, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_usd: 0 };
+
+function fmtUsd(v) {
+  const n = Number(v) || 0;
+  if (n === 0)   return '$0.00';
+  if (n < 0.01)  return '<$0.01';
+  if (n < 1)     return '$' + n.toFixed(3);
+  if (n < 100)   return '$' + n.toFixed(2);
+  return '$' + Math.round(n).toLocaleString();
+}
+
+function fmtTokens(n) {
+  const v = Number(n) || 0;
+  if (v < 1_000)     return v + ' tok';
+  if (v < 1_000_000) return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K tok';
+  return (v / 1_000_000).toFixed(2).replace(/\.00$/, '') + 'M tok';
+}
+
+function fmtNum(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString();
+}
+
 /* ---------- notes feed ---------- */
 
 function renderNotes(store) {
@@ -177,13 +241,16 @@ function renderNote(n) {
                                                 // redacts it (default).
   return `
     <div class="note" data-reviewed="${reviewed}" data-note-id="${escape(n.source_local_id)}">
-      <div class="note-head">
-        <span class="note-category" data-cat="${escape(cat)}">${escape(cat)}</span>
-        <span class="note-contact">${escape(name)}</span>
-        <span class="note-time">${escape(time)}</span>
-      </div>
-      <div class="note-summary">${escape(n.summary || '')}</div>
-      ${body ? `<div class="note-message">"${escape(body)}"</div>` : ''}
+      <button class="note-body" data-action="view-source" data-note-id="${escape(n.source_local_id)}">
+        <div class="note-head">
+          <span class="note-category" data-cat="${escape(cat)}">${escape(cat)}</span>
+          <span class="note-contact">${escape(name)}</span>
+          <span class="note-time">${escape(time)}</span>
+        </div>
+        <div class="note-summary">${escape(n.summary || '')}</div>
+        ${body ? `<div class="note-message">"${escape(body)}"</div>` : ''}
+        <div class="note-view-hint">tap to view source →</div>
+      </button>
       <div class="note-actions">
         ${reviewed
           ? `<button data-action="unreview-note" data-note-id="${escape(n.source_local_id)}">unreview</button>`
@@ -191,6 +258,32 @@ function renderNote(n) {
         <button class="danger" data-action="delete-note" data-note-id="${escape(n.source_local_id)}">delete</button>
       </div>
     </div>`;
+}
+
+/* ---------- source-message sheet renderer ---------- */
+
+export function renderSourceSheet(data) {
+  const body = document.querySelector('[data-id="source-body"]');
+  if (!body) return;
+  if (!data) {
+    body.innerHTML = '<div class="field-help">Loading…</div>';
+    return;
+  }
+  const name = data.contact_name || data.handle;
+  const time = formatTime(data.created_at);
+  const cat = data.category || 'personal';
+  const text = data.message_text || '';
+  body.innerHTML = `
+    <div class="source-meta">
+      <span class="note-category" data-cat="${escape(cat)}">${escape(cat)}</span>
+      <span class="source-from">${escape(name)}</span>
+      <span class="source-time">${escape(time)}</span>
+    </div>
+    <div class="source-summary">${escape(data.summary || '')}</div>
+    ${text
+      ? `<div class="source-message">${escape(text)}</div>`
+      : '<div class="source-empty">— no source text was captured for this note —</div>'}
+  `;
 }
 
 /* ---------- toast ---------- */
@@ -223,7 +316,7 @@ export function closeSheet(name) {
 }
 
 export function closeAllSheets() {
-  for (const name of ['settings', 'away', 'status']) closeSheet(name);
+  for (const name of ['settings', 'away', 'status', 'source']) closeSheet(name);
 }
 
 /* ---------- boot screen ---------- */

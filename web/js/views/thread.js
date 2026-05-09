@@ -69,6 +69,17 @@ function renderAttachments(attachments) {
   }).join('')}</div>`;
 }
 
+// iMessage-style receipt label for sent messages. "Read" wins over
+// "Delivered" — Apple shows whichever is freshest, with read receipts
+// only present when the recipient has them on. Empty string for
+// incoming messages and for sends still in flight.
+function receiptLabel(m) {
+  if (m.is_from_me !== 1) return '';
+  if (m.date_read_ms)      return `Read ${relTime(m.date_read_ms)}`;
+  if (m.date_delivered_ms) return `Delivered ${relTime(m.date_delivered_ms)}`;
+  return '';
+}
+
 function renderMessageBubble(m) {
   const fromMe = m.is_from_me === 1;
   const time = relTime(m.date_ms);
@@ -80,6 +91,7 @@ function renderMessageBubble(m) {
     : (m.attachments && m.attachments.length
         ? '' // attachments below stand on their own
         : '<span class="bubble-empty">[encoded message — decoder skipped]</span>');
+  const receipt = receiptLabel(m);
   return `
     <div class="bubble-row ${fromMe ? 'me' : ''}">
       <div>
@@ -88,6 +100,7 @@ function renderMessageBubble(m) {
         ${renderAttachments(m.attachments)}
         ${renderReactions(m.reactions)}
         <div class="bubble-meta ${fromMe ? 'right' : ''}">${escapeHtml(time)}${senderLabel ? ' · ' + escapeHtml(senderLabel) : ''}</div>
+        ${receipt ? `<div class="bubble-receipt"${m.date_read_ms ? ' data-read="true"' : ''}>${escapeHtml(receipt)}</div>` : ''}
       </div>
     </div>
   `;

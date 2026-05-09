@@ -163,6 +163,10 @@ export interface MessageRow {
   is_from_me: 0 | 1;
   service: string | null;
   chat_id: number | null;
+  /** When the recipient's device confirmed delivery. Apple-epoch nanoseconds → unix ms. */
+  date_delivered_ms: number | null;
+  /** When the recipient marked the message as read (only populated when they have read receipts on). */
+  date_read_ms: number | null;
   /** Reactions / tapbacks attached to this message (active only — removed reactions filtered out). */
   reactions: Reaction[];
   /** Attachments referenced by this message (images, gifs, files). */
@@ -182,6 +186,8 @@ interface RawMessageRow {
   chat_id: number | null;
   assoc_guid: string | null;
   assoc_type: number | null;
+  date_delivered: number | bigint | null;
+  date_read: number | bigint | null;
 }
 
 interface RawAttachmentRow {
@@ -206,7 +212,9 @@ const MESSAGES_FOR_CHAT_SQL = `
     m.service                 AS service,
     cmj.chat_id               AS chat_id,
     m.associated_message_guid AS assoc_guid,
-    m.associated_message_type AS assoc_type
+    m.associated_message_type AS assoc_type,
+    m.date_delivered          AS date_delivered,
+    m.date_read               AS date_read
   FROM message m
   JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
   LEFT JOIN handle h ON h.ROWID = m.handle_id
@@ -326,7 +334,9 @@ const RECENT_MESSAGES_SQL = `
     m.service                 AS service,
     cmj.chat_id               AS chat_id,
     m.associated_message_guid AS assoc_guid,
-    m.associated_message_type AS assoc_type
+    m.associated_message_type AS assoc_type,
+    m.date_delivered          AS date_delivered,
+    m.date_read               AS date_read
   FROM message m
   LEFT JOIN handle h ON h.ROWID = m.handle_id
   LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
@@ -354,6 +364,8 @@ function toMessageRow(r: RawMessageRow): MessageRow {
     is_from_me: isFromMe,
     service: r.service,
     chat_id: r.chat_id,
+    date_delivered_ms: appleDateToUnixMs(r.date_delivered),
+    date_read_ms: appleDateToUnixMs(r.date_read),
     reactions: [],
     attachments: [],
   };
@@ -380,7 +392,9 @@ const SENT_MESSAGES_SQL = `
     m.service                 AS service,
     cmj.chat_id               AS chat_id,
     m.associated_message_guid AS assoc_guid,
-    m.associated_message_type AS assoc_type
+    m.associated_message_type AS assoc_type,
+    m.date_delivered          AS date_delivered,
+    m.date_read               AS date_read
   FROM message m
   LEFT JOIN handle h ON h.ROWID = m.handle_id
   LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID

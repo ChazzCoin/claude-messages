@@ -243,6 +243,25 @@ function migrate(db: DB) {
     CREATE INDEX IF NOT EXISTS idx_summon_sessions_chat_status ON summon_sessions(chat_id, status);
     CREATE INDEX IF NOT EXISTS idx_summon_sessions_started ON summon_sessions(started_at);
 
+    -- Per-call AI usage log. One row per LLM completion that returns a
+    -- usage object. Cost is computed at write time from a small price
+    -- table (see server/ai.ts::priceUsage); storing it lets us aggregate
+    -- without the price table at read time, and keeps history correct
+    -- even if prices change later.
+    CREATE TABLE IF NOT EXISTS ai_usage_log (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider          TEXT NOT NULL DEFAULT 'openai',
+      model             TEXT NOT NULL,
+      purpose           TEXT,                         -- 'classify' | 'draft' | 'auto_note' | 'flag_eval' | 'calendar' | 'radar_signal' | 'radar_profile' | 'summarize'
+      prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens      INTEGER NOT NULL DEFAULT 0,
+      cost_usd          REAL NOT NULL DEFAULT 0,
+      called_at         INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_usage_called_at ON ai_usage_log(called_at);
+
     CREATE TABLE IF NOT EXISTS state (
       key          TEXT PRIMARY KEY,
       value        TEXT NOT NULL
@@ -1873,4 +1892,89 @@ export function countUnreviewedAutoNotes(): number {
     .prepare('SELECT COUNT(*) as n FROM auto_notes WHERE reviewed_at IS NULL')
     .get() as { n: number } | undefined;
   return row?.n ?? 0;
+}
+
+/* ============================================================
+   AI usage log
+   ============================================================ */
+
+export interface AiUsageInput {
+  provider: string;
+  model: string;
+  purpose: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export function insertAiUsage(input: AiUsageInput): void {
+  const db = getAppDb();
+  db.prepare(
+    `INSERT INTO ai_usage_log
+       (provider, model, purpose, prompt_tokens, completion_tokens, total_tokens, cost_usd)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.provider,
+    input.model,
+    input.purpose,
+    input.prompt_tokens,
+    input.completion_tokens,
+    input.total_tokens,
+    input.cost_usd,
+  );
+}
+
+export interface AiUsageStats {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+const ZERO_STATS: AiUsageStats = {
+  calls: 0,
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  total_tokens: 0,
+  cost_usd: 0,
+};
+
+function aggregateSince(sinceMs: number | null): AiUsageStats {
+  const db = getAppDb();
+  const sql = sinceMs == null
+    ? `SELECT COUNT(*) AS calls,
+              COALESCE(SUM(prompt_tokens), 0)     AS prompt_tokens,
+              COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+              COALESCE(SUM(total_tokens), 0)      AS total_tokens,
+              COALESCE(SUM(cost_usd), 0)          AS cost_usd
+         FROM ai_usage_log`
+    : `SELECT COUNT(*) AS calls,
+              COALESCE(SUM(prompt_tokens), 0)     AS prompt_tokens,
+              COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+              COALESCE(SUM(total_tokens), 0)      AS total_tokens,
+              COALESCE(SUM(cost_usd), 0)          AS cost_usd
+         FROM ai_usage_log
+         WHERE called_at >= ?`;
+  const row = sinceMs == null
+    ? (db.prepare(sql).get() as AiUsageStats | undefined)
+    : (db.prepare(sql).get(sinceMs) as AiUsageStats | undefined);
+  return row ?? ZERO_STATS;
+}
+
+/** Aggregate stats: today (UTC midnight), last 30 days, all-time. */
+export function getAiUsageStats(): {
+  today: AiUsageStats;
+  last_30d: AiUsageStats;
+  all_time: AiUsageStats;
+} {
+  const now = new Date();
+  const utcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  return {
+    today: aggregateSince(utcMidnight),
+    last_30d: aggregateSince(thirtyDaysAgo),
+    all_time: aggregateSince(null),
+  };
 }

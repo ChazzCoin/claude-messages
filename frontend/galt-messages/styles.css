@@ -172,6 +172,67 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .stat-value[data-tone="warn"] { color: var(--yellow); }
 .stat-value[data-tone="bad"]  { color: var(--red); }
 
+/* AI panel — provider, model, token + cost usage. Sized to slot into
+   the desktop sidebar above the health stats AND into the mobile
+   controls block. Mono numerics; understated. */
+.ai-panel {
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px;
+  margin-bottom: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.ai-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px;
+}
+.ai-label {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.8px;
+  text-transform: uppercase; color: var(--text-faint);
+}
+.ai-provider {
+  font-size: 11px; color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.ai-model {
+  font-size: 12.5px; font-weight: 600; color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: -0.1px;
+  word-break: break-all;
+}
+.ai-rows {
+  display: flex; flex-direction: column; gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.ai-row {
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+}
+.ai-row-label {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.ai-row-cost {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.ai-row-meta {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.ai-empty {
+  font-size: 11px; color: var(--text-faint);
+  padding: 4px 0;
+}
+
 .settings-btn {
   display: flex; align-items: center; gap: 8px;
   width: 100%; padding: 10px 12px;
@@ -290,6 +351,75 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .notes-empty {
   text-align: center; color: var(--text-faint); font-size: 14px;
   padding: 60px 20px;
+}
+
+/* The clickable note body — wraps the head/summary/message in a button
+   so the entire upper region of the card is one big tap target that
+   opens the source sheet. The action row stays separate (different
+   buttons, different intents). */
+.note-body {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.note-view-hint {
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.note:hover .note-view-hint { opacity: 1; }
+.note[data-reviewed="true"] .note-view-hint { opacity: 0; }
+
+/* ============================================================
+   Source-message sheet — opens when a note is tapped
+   ============================================================ */
+.source-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.source-from { font-size: 14px; font-weight: 600; color: var(--text); }
+.source-time { font-size: 11px; color: var(--text-faint); margin-left: auto; font-variant-numeric: tabular-nums; }
+.source-summary {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.source-message {
+  font-size: 15px;
+  color: var(--text);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  padding: 14px 16px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  border-left: 3px solid var(--accent);
+}
+.source-empty {
+  font-size: 13px;
+  color: var(--text-faint);
+  font-style: italic;
+  padding: 20px 16px;
+  text-align: center;
 }
 
 /* ============================================================

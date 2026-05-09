@@ -1,7 +1,59 @@
 import OpenAI from 'openai';
 import { config } from './config.js';
-import { getSettings } from './db/app.js';
+import { getSettings, insertAiUsage } from './db/app.js';
 import type { MessageRow } from './db/messages.js';
+
+/* ============================================================
+   Usage / cost accounting
+   ============================================================
+   Per-1M-token list prices (USD) for the OpenAI models we expect to
+   see. Hardcoded so the UI can show $$$ without a network call. New
+   models default to a conservative gpt-4o-mini fallback so a model
+   we forgot to price never blows up the recorder.
+   Source: openai.com/pricing  (last reviewed 2026-04). */
+const MODEL_PRICES_PER_MILLION_USD: Record<string, { input: number; output: number }> = {
+  'gpt-4o-mini':         { input: 0.15,  output: 0.60 },
+  'gpt-4o':              { input: 2.50,  output: 10.00 },
+  'gpt-4-turbo':         { input: 10.00, output: 30.00 },
+  'gpt-4':               { input: 30.00, output: 60.00 },
+  'gpt-3.5-turbo':       { input: 0.50,  output: 1.50 },
+};
+const FALLBACK_PRICE = MODEL_PRICES_PER_MILLION_USD['gpt-4o-mini'];
+
+function priceUsage(model: string, promptTokens: number, completionTokens: number): number {
+  // OpenAI returns the *fully-qualified* model id (e.g. 'gpt-4o-mini-2024-07-18');
+  // strip the date suffix to land on a base id we have a price for.
+  const base = model.replace(/-\d{4}-\d{2}-\d{2}$/, '').replace(/-preview.*$/, '');
+  const p = MODEL_PRICES_PER_MILLION_USD[base] ?? MODEL_PRICES_PER_MILLION_USD[model] ?? FALLBACK_PRICE!;
+  return (promptTokens / 1_000_000) * p.input + (completionTokens / 1_000_000) * p.output;
+}
+
+/** Fire-and-forget log of one OpenAI completion's usage. Safe to call
+ *  with `usage = undefined` (e.g. when the SDK didn't return one) — it
+ *  no-ops in that case. Accepts whatever model string OpenAI hands back
+ *  in the response, which may be more specific than `effectiveModel()`. */
+export function recordAiUsage(opts: {
+  purpose: string;
+  model: string;
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined;
+}): void {
+  if (!opts.usage) return;
+  try {
+    insertAiUsage({
+      provider: 'openai',
+      model: opts.model,
+      purpose: opts.purpose,
+      prompt_tokens: opts.usage.prompt_tokens ?? 0,
+      completion_tokens: opts.usage.completion_tokens ?? 0,
+      total_tokens: opts.usage.total_tokens ?? 0,
+      cost_usd: priceUsage(opts.model, opts.usage.prompt_tokens ?? 0, opts.usage.completion_tokens ?? 0),
+    });
+  } catch (err) {
+    // The mirror is fire-and-forget: a failed log here never blocks an
+    // AI feature path.
+    console.error('[ai] recordAiUsage failed:', (err as Error).message);
+  }
+}
 
 /**
  * The OpenAI API key can come from two places, settings wins:
@@ -94,6 +146,7 @@ export async function classifyIncoming(text: string): Promise<ClassificationResu
     max_tokens: 200,
     temperature: 0.2,
   });
+  recordAiUsage({ purpose: 'classify', model: resp.model || effectiveModel(), usage: resp.usage });
   const raw = resp.choices[0]?.message?.content ?? '{}';
   const parsed = JSON.parse(raw);
   if (
@@ -154,6 +207,7 @@ export async function summarizeThread(input: SummarizeInput): Promise<SummarizeR
     max_tokens: 600,
     temperature: 0.3,
   });
+  recordAiUsage({ purpose: 'summarize', model: resp.model || effectiveModel(), usage: resp.usage });
 
   const summary = (resp.choices[0]?.message?.content ?? '').trim();
   const usage = resp.usage
@@ -240,6 +294,7 @@ export async function extractRadarSignals(input: { sender: string; messageText: 
     max_tokens: 500,
     temperature: 0.2,
   });
+  recordAiUsage({ purpose: 'radar_signal', model: resp.model || effectiveModel(), usage: resp.usage });
   const raw = resp.choices[0]?.message?.content ?? '{}';
   let parsed: { signals?: unknown };
   try {
@@ -344,6 +399,7 @@ export async function distillRadarProfile(input: RadarProfileInput): Promise<{
     max_tokens: 1200,
     temperature: 0.3,
   });
+  recordAiUsage({ purpose: 'radar_profile', model: resp.model || effectiveModel(), usage: resp.usage });
 
   const profile = (resp.choices[0]?.message?.content ?? '').trim();
   return {
@@ -420,6 +476,7 @@ export async function extractCalendarEvent(input: {
     max_tokens: 400,
     temperature: 0.2,
   });
+  recordAiUsage({ purpose: 'calendar', model: resp.model || effectiveModel(), usage: resp.usage });
   const raw = resp.choices[0]?.message?.content ?? '{}';
   let parsed: Record<string, unknown>;
   try {
@@ -518,6 +575,7 @@ export async function extractAutoNote(input: {
     max_tokens: 250,
     temperature: 0.2,
   });
+  recordAiUsage({ purpose: 'auto_note', model: resp.model || effectiveModel(), usage: resp.usage });
   const raw = resp.choices[0]?.message?.content ?? '{}';
   let parsed: Record<string, unknown>;
   try {
@@ -590,6 +648,7 @@ export async function evaluateRuleAgainstMessage(input: RuleEvalInput): Promise<
     max_tokens: 200,
     temperature: 0.2,
   });
+  recordAiUsage({ purpose: 'flag_eval', model: resp.model || effectiveModel(), usage: resp.usage });
   const raw = resp.choices[0]?.message?.content ?? '{}';
   let parsed: { match?: unknown; confidence?: unknown; reasoning?: unknown };
   try {
@@ -1402,6 +1461,7 @@ export async function draftReply(input: DraftReplyInput): Promise<DraftReplyResu
     temperature: 0.7,
     n: requestedCount,
   });
+  recordAiUsage({ purpose: 'draft', model: resp.model || effectiveModel(), usage: resp.usage });
 
   const variants: DraftVariant[] = (resp.choices ?? []).map((choice) => {
     const raw = (choice.message?.content ?? '').trim();

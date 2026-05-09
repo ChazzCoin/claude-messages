@@ -12,7 +12,7 @@
 // the user sees the click registered.
 
 import { sendCommand, getStore } from './state.js';
-import { showToast, openSheet, closeSheet, closeAllSheets } from './render.js';
+import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet } from './render.js';
 
 /* ---------- the registry ---------- */
 
@@ -81,6 +81,22 @@ const HANDLERS = {
   },
 
   /* notes */
+  'view-source': async (target) => {
+    const id = parseInt(target.dataset.noteId, 10);
+    if (!Number.isFinite(id)) return;
+    // Open the sheet immediately with a loading state — the user gets
+    // a feedback frame even if the round-trip takes a beat.
+    renderSourceSheet(null);
+    openSheet('source');
+    try {
+      const data = await sendCommand('get_note_source', { id });
+      renderSourceSheet(data);
+    } catch (err) {
+      const body = document.querySelector('[data-id="source-body"]');
+      if (body) body.innerHTML = `<div class="field-help" data-tone="bad">${err.message}</div>`;
+    }
+  },
+
   'review-note': async (target) => {
     const id = parseInt(target.dataset.noteId, 10);
     if (!Number.isFinite(id)) return;

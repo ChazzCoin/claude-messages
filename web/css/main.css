@@ -554,6 +554,21 @@ body::after {
 .bubble-meta.right { text-align: right; }
 .bubble-empty { color: var(--text-faint); font-style: italic; }
 
+/* Read/Delivered receipt — right-aligned under sent bubbles only.
+   "Read" lights up the cyan accent so it pops against the faint
+   timestamp; "Delivered" stays in the muted text-faint family. */
+.bubble-receipt {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  text-align: right;
+  margin-top: 2px;
+  line-height: 1.2;
+}
+.bubble-row.me .bubble-receipt[data-read] { color: var(--cyan); }
+
 .back-link {
   color: var(--cyan); cursor: pointer; font-family: var(--mono);
   text-decoration: none; user-select: none;
@@ -3568,6 +3583,91 @@ body::after {
   outline: none;
   border-color: var(--accent-border);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Combined Away panel — toggle + message editor in one card. The panel
+   is span-2 so the textarea breathes; an iOS-style switch sits in the
+   header so toggling never lives more than a glance away from the
+   message it controls. */
+.v9-away-panel { grid-column: 1 / -1; }
+.v9-away-panel[data-on="true"] {
+  border-color: var(--accent-border);
+  background: linear-gradient(135deg, var(--accent-soft-2), transparent 60%), var(--bg-card);
+}
+.v9-away-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.v9-away-head-text {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.v9-away-head-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--bg-card-2);
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.v9-away-head-icon svg { width: 16px; height: 16px; }
+.v9-away-panel[data-on="true"] .v9-away-head-icon {
+  background: var(--accent);
+  color: var(--bg);
+}
+.v9-away-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+  margin-top: 2px;
+}
+.v9-away-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* iOS-style track switch. Bigger and more legible than the icon-card
+   v9-toggle pattern, since here the switch is the only control. */
+.v9-switch {
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--bg-card-2);
+  border: 1px solid var(--border);
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.18s, border-color 0.18s;
+  padding: 0;
+}
+.v9-switch:hover { border-color: var(--border-strong); }
+.v9-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.v9-switch.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.v9-switch.on .v9-switch-thumb {
+  transform: translateX(18px);
+  background: var(--bg);
 }
 
 /* ============================================================

@@ -246,6 +246,28 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       return { refreshed_at: Date.now() };
     }
 
+    case 'get_note_source': {
+      // Fetch the full source message for an auto-note on demand. Bypass
+      // FIREBASE_MIRROR_INCLUDE_MESSAGE_TEXT — that flag controls what
+      // gets *persisted* on the open /notes mirror; this is an
+      // authenticated request-response over the command bus, returning
+      // the cached row from the local app.db.
+      const id = typeof p.id === 'number' ? p.id : NaN;
+      if (!Number.isFinite(id)) throw new Error('id required');
+      const note = getAutoNote(id);
+      if (!note) throw new Error('note not found');
+      return {
+        id: note.id,
+        handle: note.handle,
+        contact_name: getContactNameForHandle(note.handle),
+        message_guid: note.message_guid,
+        message_text: note.message_text,
+        summary: note.summary,
+        category: note.category,
+        created_at: note.created_at,
+      };
+    }
+
     default:
       throw new Error(`unknown command type: ${type || '(missing)'}`);
   }
