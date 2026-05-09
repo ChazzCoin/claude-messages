@@ -241,7 +241,7 @@ function switchCard({ key, label, sub, action, icon }) {
 function switchesPanel() {
   const onCount = SWITCHES.filter((s) => settingsCache[s.key]).length;
   return `
-    <div class="v9-panel span-2">
+    <div class="v9-panel">
       <div class="v9-panel-head">
         <div class="v9-panel-title">
           Switches
@@ -436,7 +436,17 @@ export async function renderHomeView() {
 
         ${awayPanel()}
 
-        ${summonSessionsPanel(activeSummon)}
+        <div class="v9-panel">
+          <div class="v9-panel-head">
+            <div class="v9-panel-title">Search chat.db</div>
+            <span class="v9-panel-link">2+ chars · LIKE search</span>
+          </div>
+          <div class="search-view">
+            <input type="search" class="search-input" id="search-input" placeholder="Search all messages…" autocomplete="off" />
+            <div class="search-status" id="search-status"></div>
+            <div class="search-results" id="search-results"></div>
+          </div>
+        </div>
 
         <div class="v9-panel">
           <div class="v9-panel-head">
@@ -449,17 +459,7 @@ export async function renderHomeView() {
           ${notesBlock}
         </div>
 
-        <div class="v9-panel">
-          <div class="v9-panel-head">
-            <div class="v9-panel-title">Search chat.db</div>
-            <span class="v9-panel-link">2+ chars · LIKE search</span>
-          </div>
-          <div class="search-view">
-            <input type="search" class="search-input" id="search-input" placeholder="Search all messages…" autocomplete="off" />
-            <div class="search-status" id="search-status"></div>
-            <div class="search-results" id="search-results"></div>
-          </div>
-        </div>
+        ${summonSessionsPanel(activeSummon)}
 
         <div class="v9-panel">
           <div class="v9-panel-head">

@@ -3585,11 +3585,10 @@ body::after {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* Combined Away panel — toggle + message editor in one card. The panel
-   is span-2 so the textarea breathes; an iOS-style switch sits in the
-   header so toggling never lives more than a glance away from the
-   message it controls. */
-.v9-away-panel { grid-column: 1 / -1; }
+/* Combined Away panel — toggle + message editor in one card. Sized like
+   any other panel (span-1) so the home grid stays uniform; an iOS-style
+   switch sits in the header so toggling never lives more than a glance
+   away from the message it controls. */
 .v9-away-panel[data-on="true"] {
   border-color: var(--accent-border);
   background: linear-gradient(135deg, var(--accent-soft-2), transparent 60%), var(--bg-card);
