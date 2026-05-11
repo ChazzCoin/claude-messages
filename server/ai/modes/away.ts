@@ -14,6 +14,14 @@
 // setting settings.prompt_away_system; that override REPLACES the
 // built-in instruction text (everything else — voice, contact data,
 // guardrails — keeps flowing).
+//
+// Tuning rationale (defended below in temperature / maxTokens):
+//   - Away replies are AUTONOMOUS. Once aiAutoSend fires, the message
+//     hits the recipient. Apple's edit/unsend window exists, but treat
+//     each draft as one-shot in design terms.
+//   - Therefore: cooler temperature than the framework default (0.55
+//     vs 0.7), tighter maxTokens (240 vs 300). Both pull the model
+//     toward shorter, safer replies that defer rather than improvise.
 
 import { PromptMode } from './mode.js';
 import type { Context } from '../context.js';
@@ -24,6 +32,7 @@ import {
   OUTPUT_FORMAT,
   SKIP_OPT_OUT,
   VARY_PHRASING,
+  AWAY_GROUP_FRAMING,
   AWAY_NO_COMMIT,
 } from '../guardrails.js';
 
@@ -33,35 +42,85 @@ export interface AwayInput {
   persona: string;
 }
 
+/** Greeting placeholder context — what the canned away_message can use.
+ *
+ *  {recipientName} / {userName} are the long-standing pair. The two
+ *  time-of-day placeholders are useful enough for human-feeling
+ *  greetings ("good morning, ...", "Friday afternoon and Chazz is
+ *  in meetings...") to be worth supporting; both are computed from
+ *  local clock at greeting-time. Anything more elaborate
+ *  (expected-return, date, location) is left out — without first-class
+ *  data behind it, those placeholders would silently render empty and
+ *  confuse the user. */
+function buildGreetingPlaceholders(ctx: Context): Record<string, string> {
+  const now = new Date();
+  const dayOfWeek = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const hour = now.getHours();
+  const timeOfDay =
+    hour < 5  ? 'night' :
+    hour < 12 ? 'morning' :
+    hour < 17 ? 'afternoon' :
+    hour < 21 ? 'evening' :
+                'night';
+  return {
+    recipientName: ctx.recipientName || 'them',
+    userName:      ctx.userName      || 'the user',
+    dayOfWeek,
+    timeOfDay,
+  };
+}
+
 /** AWAY mode prompt assembly.
  *
- *  Order Away wants in the system prompt:
- *    1. Identity                     (universal Galt framing)
- *    2. Voice profile                (Galt's voice)
- *    3. Contact profile              (who you're talking to)
- *    4. Address book                 (latent contact context)
- *    5. Calendar                     (only when scheduling-relevant)
- *    6. Contact notes                (recent atomic facts)
- *    7. Cover-mode persona           (if user set one)
- *    8. Per-turn instruction         (you're covering, defer to user)
- *    9. Output format                (rhythm + format constraints)
- *   10. SKIP opt-out                 (away can stay quiet on bad turns)
- *   11. Vary phrasing                (don't repeat your own openers)
- *   12. AWAY_NO_COMMIT guardrail     (LAST — freshest in attention) */
+ *  Order Away wants in the system prompt (rationale by section):
+ *    1. Identity                     — universal Galt framing
+ *    2. Voice profile                — Galt's baseline tone
+ *    3. Contact profile              — who you're talking to (overrides
+ *                                       defaults — high-priority context)
+ *    4. Address book                 — latent contact context
+ *    5. Calendar                     — only when scheduling-relevant
+ *                                       (wrapper text gates use)
+ *    6. Contact notes                — recent atomic facts
+ *    7. Cover-mode persona           — user's hint for cover behavior
+ *    8. Per-turn instruction         — you're standing in; defer back
+ *                                       (data is now grounded; here's
+ *                                        what to DO with it)
+ *    9. Group framing                — only when isGroup is true
+ *   10. Output format                — rhythm + plain text only
+ *   11. SKIP opt-out                 — silence is a valid outcome here
+ *   12. Vary phrasing                — don't repeat your own openers
+ *   13. AWAY_NO_COMMIT guardrail     — LAST. Recency-bias attention
+ *                                       means the no-commit rule is
+ *                                       the freshest thing in the
+ *                                       model's head when it generates. */
 export class AwayMode extends PromptMode<AwayInput> {
   readonly name = 'away';
 
+  /** Away is autonomous — bias toward conservative output. The
+   *  framework default is 0.7 (used by Summon); 0.55 keeps phrasing
+   *  varied across multi-turn sessions but tames the model's instinct
+   *  to improvise, embellish, or commit. */
+  protected temperature(): number { return 0.55; }
+
+  /** Tighter than the 300-token default. iMessage-shaped replies
+   *  fit comfortably in 240 — and capping shorter is itself a
+   *  guardrail against the model wandering into customer-service
+   *  paragraphs. */
+  protected maxTokens(): number { return 240; }
+
   /** First-touch literal send for an away period. Sourced from
-   *  settings.away_message with {recipientName} / {userName}
-   *  placeholder substitution. Returns null if the user hasn't set
-   *  an away message. */
+   *  settings.away_message with placeholder substitution. Returns
+   *  null if the user hasn't set an away message.
+   *
+   *  Supported placeholders (see buildGreetingPlaceholders):
+   *    {recipientName}  who Galt is greeting
+   *    {userName}       who Galt is covering for
+   *    {dayOfWeek}      "Monday", "Tuesday", ...
+   *    {timeOfDay}      "morning" | "afternoon" | "evening" | "night" */
   greeting(ctx: Context, _input: AwayInput): string | null {
     const template = (getSettings().away_message || '').trim();
     if (!template) return null;
-    return applyTemplate(template, {
-      recipientName: ctx.recipientName || 'them',
-      userName: ctx.userName || 'the user',
-    });
+    return applyTemplate(template, buildGreetingPlaceholders(ctx));
   }
 
   buildSystemPrompt(ctx: Context, input: AwayInput): string {
@@ -90,26 +149,41 @@ export class AwayMode extends PromptMode<AwayInput> {
     const persona = (input.persona || '').trim();
     if (persona) {
       parts.push(
-        `\nCOVER-MODE BEHAVIOR HINTS — explicit guidance from the user for how Galt should behave while covering (apply on top of Galt's voice profile — these tune banter level, deflection style, jokes for this user's preferred cover-mode feel):\n"""\n${persona}\n"""`,
+        `\nUSER'S COVER-MODE NOTES — explicit guidance from the user for how Galt should behave while covering for them. Apply on top of Galt's voice profile (these tune banter level, deflection style, joke posture for this user's preferred cover feel). When this conflicts with a generic default, this wins:\n"""\n${persona}\n"""`,
       );
     }
 
-    // 8. Per-turn instruction (mode-specific framing)
+    // 8. Per-turn instruction (mode-specific framing). Placed AFTER
+    //    the data so the data is grounded by the time the model reads
+    //    its job description.
     parts.push(this.buildContextNote(ctx));
 
-    // 9-11. Output / SKIP / variation
+    // 9. Group framing — only when relevant. Pulled out of the
+    //    per-turn note so 1:1 prompts stay clean.
+    if (ctx.isGroup) parts.push(AWAY_GROUP_FRAMING);
+
+    // 10-12. Output / SKIP / variation
     parts.push(OUTPUT_FORMAT);
     parts.push(SKIP_OPT_OUT);
     parts.push(VARY_PHRASING);
 
-    // 12. Hard guardrail LAST — freshest in the model's attention
+    // 13. Hard guardrail LAST — freshest in the model's attention.
+    //     This is the load-bearing piece for an autonomous-send mode.
     parts.push(AWAY_NO_COMMIT);
 
     return parts.join('\n');
   }
 
   /** Per-turn instruction for Away. User override via
-   *  settings.prompt_away_system fully replaces this text. */
+   *  settings.prompt_away_system fully replaces this text.
+   *
+   *  Tightened from the legacy 6-paragraph block: dropped duplicates
+   *  of guidance that already lives in IDENTITY_BASE (don't impersonate
+   *  the user), OUTPUT_FORMAT (no customer-service phrasings), and
+   *  AWAY_NO_COMMIT (no fabricated commitments). What's left is the
+   *  unique-to-Away orientation: the user is OUT, your job is to keep
+   *  things alive without resolving anything, defer back so it lands
+   *  in the user's notes queue. */
   private buildContextNote(ctx: Context): string {
     const override = getSettings().prompt_away_system?.trim();
     if (override) {
@@ -120,12 +194,10 @@ export class AwayMode extends PromptMode<AwayInput> {
     }
     const recipientName = ctx.recipientName || 'them';
     return [
-      `You are GALT, the user's AI assistant. The user is currently away. You are covering for them in this iMessage conversation — handling routine back-and-forth so the user can catch up later. The recipient (${recipientName}) was told earlier in this thread that they're chatting with the user's AI; the runtime prefixes every message you send with "Galt: " so identity stays explicit. You speak as Galt, in Galt's voice (see voice profile above) — NOT as the user.`,
-      `You are responding to: ${recipientName}. Use their name naturally when it actually fits — but don't shoehorn it. A casual reply usually has no name in it; reserve it for moments where calling someone by name adds warmth or clarity.`,
-      "Behave like a friend's AI who's covering, not like customer service. Keep the conversation natural, varied, and alive. The recipient knows you're the AI — they don't need you to act human, but you also shouldn't make a thing of it every turn.",
-      "Match the energy of the most recent incoming message: if they're playful, be playful; if they're terse, be terse; if they ask a real question and the thread already gives you the answer, just answer.",
-      'When you genuinely cannot know something (specific times/places/money/promises the user has not confirmed in the thread, personal details about the user\'s day, anything only the real user can decide): defer back to the user. Examples — "no idea, I\'ll have him reach out about that" / "let me flag this so he can confirm when he\'s back" / "above my pay grade — he\'ll have to weigh in". Vary your phrasing.',
-      "What you should NOT do: pretend you ARE the user; use customer-service phrasings (\"apologies for the inconvenience\", \"thank you for reaching out\", \"how can I help\"); make up commitments; sound robotic.",
+      `AWAY MODE — the user is OUT and you are standing in for them on this thread. The recipient (${recipientName}) was told on first contact that they're chatting with the user's AI; the runtime prefixes every message you send with "Galt: " so identity stays unambiguous. You are covering, not deciding — your job is to keep the thread alive long enough for the user to pick it up later, NOT to resolve anything on their behalf.`,
+      `Talking to: ${recipientName}. Use their name only when it adds warmth or clarity — most casual replies skip it. Don't shoehorn it in.`,
+      "Match the contact's energy: playful with playful, terse with terse, serious with serious. Acknowledge what they said. If a question is purely about something already established in the thread, just answer it. If it's anything else — anything requiring the user's call — acknowledge and defer.",
+      `Defer phrasings — vary them, don't repeat the same one: "I'll flag this for him", "let me have him weigh in when he's back", "above my pay grade — he'll need to confirm", "I'll let him know you asked", "no idea, I'll loop him in". Anything you defer becomes a note in the user's follow-up queue. That's the whole design — defer LIBERALLY rather than guess.`,
     ].join('\n\n');
   }
 }

@@ -71,7 +71,25 @@ When in doubt: defer.`;
  *  ignoring them. Excludes SKIP_OPT_OUT from the same prompt. */
 export const NO_SKIP_THIS_TURN = `MUST REPLY THIS TURN — the user explicitly invoked you (the trigger phrase is in the latest message). Returning SKIP is NOT allowed on this turn. If the latest message names a SPECIFIC ask, answer that. If it's a bare summon with no clear topic, drop one short on-topic line picking up wherever the thread left off — like a friend who walked into the room and caught the last few minutes. Produce a real, non-empty reply.`;
 
+/** Group-chat framing for Away mode. The thread has multiple participants;
+ *  thread lines are prefixed with `them (Name):` to identify speakers. The
+ *  default behavior in groups should be quieter than 1:1 — only weigh in
+ *  on the latest message when it's clearly directed at the user (or is a
+ *  question the whole group needs the user's input on). When the latest
+ *  turn is just two other contacts talking to each other, SKIP is usually
+ *  the right move.
+ *
+ *  Named AWAY_* because the "stay quiet by default" posture is specific
+ *  to autonomous cover mode — Summon's group behavior is different. */
+export const AWAY_GROUP_FRAMING = `GROUP CHAT — multiple people in this thread. Each "them (Name): ..." line identifies the speaker. Be QUIETER than you would in a 1:1: only respond when the latest turn is plausibly aimed at the user (their name, a direct question to them, an @-style call-out, or a clear ask the user is expected to answer). When two other contacts are talking to each other and the user wasn't pulled in, SKIP is the right call — random chatter doesn't need the AI's voice in it.`;
+
 /** Anti-customer-service framing — explicit list of what NOT to say.
  *  Useful in summon mode where the failure mode is "I'm here, what
  *  can I do for you?" generic LLM helpfulness. */
 export const NEVER_ASK_HELP_DESK = `CRITICAL — NEVER ASK things like "what can I help with?", "how can I assist?", "what would you like to know?", "let me know what you need". The user invoked you; THEY know what they want. Just engage with the conversation as it stands. If there's no specific ask, drop one short on-topic comment picking up where the thread is.`;
+
+/** Hard brevity bias — for modes that should land like a friend
+ *  dropping a one-liner, not a paragraph. Stricter than the "usually
+ *  short" hint already in OUTPUT_FORMAT. Mode-agnostic; reuse in any
+ *  mode where a short reply is the correct shape. */
+export const KEEP_IT_SHORT = `KEEP IT SHORT. One or two iMessage lines. Three is already long. Default to a single sentence — earn extra length only when the latest message asks something a single sentence cannot answer (e.g. a real explanation, a list of steps). No throat-clearing, no recap, no preamble. If the answer is "yeah" — say "yeah".`;
