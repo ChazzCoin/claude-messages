@@ -225,6 +225,42 @@ discipline; spend it carefully.
 > "patch", "emergency") or a different escalation discipline
 > (e.g., on-call rotation triggers, paging policy).
 
+## Reference stamp
+
+The YAML frontmatter at the top of a kit-conventional markdown
+file — the machine-readable identity that skills parse. The body
+below the stamp is the qualitative context for humans and AI
+synthesis. One file per resource, one directory per concept.
+
+```markdown
+---
+name: <kebab-case-name>
+kind: <discriminator>
+<other structured fields>
+---
+
+# <Name>
+
+Body content — prose, gotchas, references...
+```
+
+Used by `.claude/clouds/` (v0.16.0), `.claude/runtimes/` and
+`.claude/tests/` (v0.18.0), and existing skill / agent files.
+The pattern is "structured fields where it helps + prose where
+it helps + one file" instead of "two files per resource" or
+"prose blobs that AI has to parse."
+
+Adding a new resource type that follows this pattern: ship a
+`bootstrap/<thing>.md.template`, scaffold the `.claude/<things>/`
+directory in MANIFEST, document in CHANGELOG, optionally add a
+SKILL.md / script for skill integration.
+
+> Override in `.claude/vocabulary-overrides.md` if your project
+> uses a different framing for this pattern. Most projects won't
+> need to — the term is descriptive, not prescriptive.
+
+---
+
 ## Closing report
 
 The mandatory completion report posted in chat when a task's PR is
