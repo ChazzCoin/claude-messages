@@ -21,6 +21,13 @@
         ]
       },
       {
+        "source": "/firebase-messaging-sw.js",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+          { "key": "Service-Worker-Allowed", "value": "/" }
+        ]
+      },
+      {
         "source": "**/*.@(js|css|svg|webmanifest|html)",
         "headers": [
           { "key": "Cache-Control", "value": "public, max-age=300, must-revalidate" }

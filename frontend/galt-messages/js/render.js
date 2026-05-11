@@ -33,6 +33,63 @@ export function renderAll(store) {
   renderState(store);
   renderAi(store);
   renderNotes(store);
+  renderPushPanel();
+}
+
+/* ---------- push notifications panel (settings sheet) ----------
+   Reads from Notification.permission + localStorage (set by
+   push.js on enable/disable). Re-renders on every store tick
+   because there's no observable for permission changes; this
+   keeps the panel honest if the user grants/revokes in OS
+   settings outside the app. */
+export function renderPushPanel() {
+  const titleEl = document.querySelector('[data-id="push-status-title"]');
+  const subEl   = document.querySelector('[data-id="push-status-sub"]');
+  const toggle  = document.querySelector('[data-id="push-toggle-btn"]');
+  const testBtn = document.querySelector('[data-id="push-test-btn"]');
+  if (!titleEl || !subEl || !toggle || !testBtn) return;
+
+  const supported = 'serviceWorker' in navigator
+                 && 'Notification' in window
+                 && 'PushManager' in window;
+  if (!supported) {
+    titleEl.textContent = 'Push notifications';
+    subEl.textContent = 'not supported in this browser';
+    toggle.disabled = true;
+    toggle.style.opacity = '0.5';
+    testBtn.disabled = true;
+    testBtn.style.opacity = '0.5';
+    return;
+  }
+
+  const perm = Notification.permission;
+  const hasToken = !!localStorage.getItem('galt:push:token');
+  const isOn = perm === 'granted' && hasToken;
+
+  if (perm === 'denied') {
+    subEl.textContent = 'blocked — enable in browser settings';
+    toggle.disabled = true;
+    toggle.style.opacity = '0.5';
+    toggle.textContent = 'Enable';
+  } else if (isOn) {
+    subEl.textContent = 'enabled — this device will receive pushes';
+    toggle.disabled = false;
+    toggle.style.opacity = '1';
+    toggle.textContent = 'Disable';
+  } else {
+    subEl.textContent = perm === 'granted'
+      ? 'permission granted — tap Enable to register this device'
+      : 'tap Enable to grant permission + register this device';
+    toggle.disabled = false;
+    toggle.style.opacity = '1';
+    toggle.textContent = 'Enable';
+  }
+
+  // Test button: needs at least one registered device. We always
+  // allow it when push is enabled on THIS device (so the user can
+  // smoke-test); the backend will fan out to all registered tokens.
+  testBtn.disabled = !isOn;
+  testBtn.style.opacity = isOn ? '1' : '0.5';
 }
 
 /* ---------- connection / health pill ---------- */

@@ -12,7 +12,8 @@
 // the user sees the click registered.
 
 import { sendCommand, getStore } from './state.js';
-import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet } from './render.js';
+import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel } from './render.js';
+import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
 
 /* ---------- the registry ---------- */
 
@@ -134,6 +135,17 @@ const HANDLERS = {
   },
   'sign-out': () => {
     showToast('no sign-in — see CLAUDE.md auth note', 'error');
+  },
+
+  /* push notifications — settings sheet */
+  'push-toggle': async () => {
+    const ok = isPushEnabled() ? await disablePush() : await enablePush();
+    // Re-render the panel either way so the button label + test-button
+    // disabled-state reflect the new world.
+    renderPushPanel();
+  },
+  'push-test': async () => {
+    await sendTestPush();
   },
 };
 

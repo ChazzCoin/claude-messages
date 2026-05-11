@@ -28,6 +28,7 @@ import {
 import { getContactNameForHandle, normalizeHandle } from './db/contacts.js';
 import { getMirrorDb, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
+import { saveDeviceToken, removeDevice, sendPushToAll } from './firebase-push.js';
 
 interface CommandResult {
   ok: boolean;
@@ -244,6 +245,36 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       // it's seeing the current snapshot instead of a stale RTDB cache.
       await pushStateSnapshotNow();
       return { refreshed_at: Date.now() };
+    }
+
+    case 'register_device_token': {
+      // Companion registers an FCM token after the user grants
+      // notification permission. Idempotent on the token itself —
+      // re-registering the same token updates the existing record.
+      const token = typeof p.token === 'string' ? p.token.trim() : '';
+      if (!token) throw new Error('token required');
+      const ua = typeof p.user_agent === 'string' ? p.user_agent : undefined;
+      const out = await saveDeviceToken({ token, user_agent: ua });
+      return { device_id: out.device_id };
+    }
+
+    case 'unregister_device_token': {
+      // Companion unregisters when the user disables notifications.
+      // Accepts either device_id (preferred) or raw token.
+      const deviceId = typeof p.device_id === 'string' ? p.device_id : '';
+      if (!deviceId) throw new Error('device_id required');
+      await removeDevice(deviceId);
+      return { removed_id: deviceId };
+    }
+
+    case 'send_test_push': {
+      // Smoke test from the Settings sheet — sends a one-shot push
+      // to every registered device. Returns the per-device result
+      // count so the UI can confirm delivery worked.
+      const title = (typeof p.title === 'string' && p.title.trim()) || 'Galt test';
+      const body = (typeof p.body === 'string' && p.body.trim()) || 'Push notifications are working.';
+      const result = await sendPushToAll({ title, body, click_url: 'https://galt-messages.web.app' });
+      return result;
     }
 
     case 'get_note_source': {

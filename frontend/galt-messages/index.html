@@ -185,6 +185,30 @@
         <div class="field-help">Used as the starting point when you turn Away on.</div>
       </div>
 
+      <!-- Notifications section.
+           Two controls:
+             1. Enable/disable toggle — requests browser permission +
+                registers FCM token with the backend on first enable.
+             2. Send-test button — fires a push at every registered
+                device. Useful to verify the pipeline before wiring
+                push into auto-notes / replies / flags.
+           Both render-state and button-enabled-ness are driven by
+           the renderPushPanel() function in render.js, which checks
+           Notification.permission + localStorage on every store
+           update. -->
+      <div class="field-group" data-id="push-panel">
+        <div class="field-label">Notifications</div>
+        <div class="push-row">
+          <div class="push-row-text">
+            <div class="push-row-title" data-id="push-status-title">Push notifications</div>
+            <div class="push-row-sub" data-id="push-status-sub">— checking —</div>
+          </div>
+          <button class="add-btn" data-id="push-toggle-btn" data-action="push-toggle">Enable</button>
+        </div>
+        <button class="add-btn" data-id="push-test-btn" data-action="push-test" disabled style="margin-top:8px; opacity:0.5;">Send test push</button>
+        <div class="field-help">Test before wiring push into auto-notes / replies / flags.</div>
+      </div>
+
       <button class="danger-btn" data-action="reset">Reset all data</button>
       <button class="danger-btn" data-action="sign-out" style="margin-top:6px;">Sign out</button>
     </div>

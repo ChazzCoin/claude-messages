@@ -524,6 +524,32 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   white-space: nowrap;
 }
 .add-btn:hover { background: var(--accent-dim); }
+.add-btn[disabled] { cursor: not-allowed; }
+
+/* Push notifications panel (settings sheet) */
+.push-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+.push-row-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.push-row-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.push-row-sub {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
 
 /* Watched contacts list inside settings */
 .contact-row {

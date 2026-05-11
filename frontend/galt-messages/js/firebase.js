@@ -29,3 +29,17 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
 export { ref, onValue, off, push, set, update, remove, get, child };
+
+/* ============================================================
+   Web Push (FCM) — public VAPID key
+   ============================================================
+   Required by getToken({ vapidKey }) when registering for web push.
+   PUBLIC — safe to commit; this is the identity the browser's push
+   service uses to recognize our project, not a secret. Get it from
+   Firebase Console → Project Settings → Cloud Messaging → "Web Push
+   certificates" → Generate key pair → copy the long base64-ish
+   string and paste below (no quotes, no whitespace).
+
+   The same key MUST stay stable for tokens issued under it to keep
+   working — rotating it invalidates every device's saved token. */
+export const WEB_PUSH_VAPID_KEY = 'PASTE_YOUR_VAPID_PUBLIC_KEY_HERE';
