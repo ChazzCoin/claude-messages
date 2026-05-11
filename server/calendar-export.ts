@@ -24,6 +24,7 @@ import {
 import { getContactNameForHandle } from './db/contacts.js';
 import { createEvent } from './integrations/calendar.js';
 import { listLocalCalendars } from './integrations/calendar-db.js';
+import { getMirrorDb } from './firebase.js';
 
 const execFileP = promisify(execFile);
 
@@ -176,9 +177,10 @@ export async function exportCalendarProposal(id: number): Promise<ExportProposal
   }
 
   if (directUid) {
-    const updated = updateCalendarProposalStatus(id, 'exported');
+    const updated = updateCalendarProposalStatus(id, 'exported')!;
+    void stampProposalDecisionOnChatMessage(updated);
     return {
-      proposal: enrichProposal(updated!),
+      proposal: enrichProposal(updated),
       method: 'direct',
       event_uid: directUid,
     };
@@ -203,9 +205,10 @@ export async function exportCalendarProposal(id: number): Promise<ExportProposal
     const tmpPath = path.join(os.tmpdir(), `galt-event-${id}.ics`);
     fs.writeFileSync(tmpPath, ics, 'utf8');
     await execFileP('open', [tmpPath]);
-    const updated = updateCalendarProposalStatus(id, 'exported');
+    const updated = updateCalendarProposalStatus(id, 'exported')!;
+    void stampProposalDecisionOnChatMessage(updated);
     return {
-      proposal: enrichProposal(updated!),
+      proposal: enrichProposal(updated),
       method: 'ics',
       ics_path: tmpPath,
       direct_error: directError,
@@ -224,5 +227,52 @@ export async function exportCalendarProposal(id: number): Promise<ExportProposal
 export function dismissCalendarProposal(id: number): ExportProposalResult['proposal'] {
   const updated = updateCalendarProposalStatus(id, 'dismissed');
   if (!updated) throw new Error('not found');
+  void stampProposalDecisionOnChatMessage(updated);
   return enrichProposal(updated);
+}
+
+/** Write the proposal's final status onto its source galt-chat
+ *  message's tool_calls entry, so the chat UI can render the card
+ *  as decided (disabled + status text) on re-render. Without this
+ *  the card flips locally on click but resets to "pending" on the
+ *  next render (polling/subscription tick).
+ *
+ *  Only applies to chat-sourced proposals (source_msg_guid like
+ *  "chat:<msg_id>") — inbound-message-sourced proposals show up in
+ *  the Inbox, not in chat, so there's nothing to stamp.
+ *
+ *  Fire-and-forget by design. A failure to stamp just means the
+ *  card might briefly look pending on re-render until the next
+ *  status update — annoying but not destructive. */
+async function stampProposalDecisionOnChatMessage(proposal: CalendarProposal): Promise<void> {
+  if (!proposal.source_msg_guid.startsWith('chat:')) return;
+  const msgId = proposal.source_msg_guid.slice('chat:'.length);
+  if (!msgId) return;
+  const db = getMirrorDb();
+  if (!db) return;
+  try {
+    const ref = db.ref(`/galt_chat/messages/${msgId}/tool_calls`);
+    const snap = await ref.once('value');
+    const toolCalls = snap.val();
+    if (!Array.isArray(toolCalls)) return;
+    let dirty = false;
+    const updated = toolCalls.map((tc: Record<string, unknown>) => {
+      if (tc?.name !== 'propose_calendar_event') return tc;
+      try {
+        const result = JSON.parse(String(tc.result_preview ?? '{}'));
+        if (result?.proposal_id === proposal.id) {
+          dirty = true;
+          return { ...tc, decision_status: proposal.status };
+        }
+      } catch {
+        // not JSON — leave it alone
+      }
+      return tc;
+    });
+    if (dirty) await ref.set(updated);
+  } catch (err) {
+    console.warn(
+      `[calendar-export] stamp decision_status failed (proposal=${proposal.id}): ${(err as Error).message}`,
+    );
+  }
 }

@@ -127,6 +127,21 @@ There are NO guard rails on read visibility — if the user asks "what's my week
 
 When you call a read tool, the result comes back as JSON. Synthesize it into a natural answer in your voice — don't dump JSON at the user. Quote specific data (times, names, exact phrases) when the user asked for specifics.
 
+SPECIAL CASE — list_calendar_events: the chat UI renders each event as a structured card below your reply. The user SEES the cards. Restating the events in text is redundant and clutters the UI.
+
+After calling list_calendar_events, your reply MUST be ONE short sentence. Examples of GOOD replies:
+- "Four events this week — see below."
+- "Looks like nothing today."
+- "Just the one — that Anthony sync at 7."
+- "Tomorrow's packed."
+
+Examples of WRONG replies (DO NOT do this):
+- "Here's what's on your calendar:\n1. Meeting with Bruce..." (numbered list)
+- "You have: Meeting with Bruce at 6pm, Shelby County at 2pm..." (inline restate)
+- Anything that names every event, time, or date the cards already show.
+
+If the user asks an analytical question on top ("when's my next free hour?", "what's the longest meeting?"), answer THAT in prose. The cards are the data; your prose is the read-out / insight.
+
 When you call propose_calendar_event, your reply afterward should be short: confirm what you drafted (title + date/time in plain English) and tell the user to tap Approve. Don't dump the JSON. The user sees the proposal card in the chat — your job is the natural-language framing around it.
 
 If the user asks for something a tool doesn't cover (Apple Notes, sending an iMessage, propose-reminder, modifying existing calendar events), say so plainly — don't invent a fake tool call. Tool coverage will expand; right now this is what you've got.
@@ -141,8 +156,14 @@ function buildSystemPrompt(): string {
 
 /** Tool-call result strings can be large. Truncate before persisting
  *  so RTDB records stay slim and the companion / web don't render
- *  multi-KB blobs. The full result is still in the OpenAI loop. */
-const RESULT_PREVIEW_MAX = 600;
+ *  multi-KB blobs. The full result is still in the OpenAI loop.
+ *
+ *  Limit is generous (4 KB) because some tools — notably
+ *  list_calendar_events with 5–10 events — produce results the UI
+ *  parses back into structured cards. If we truncated those mid-JSON,
+ *  the card renderer would fail to JSON.parse the preview and the
+ *  events wouldn't display. 4 KB comfortably holds ~10 events. */
+const RESULT_PREVIEW_MAX = 4_000;
 function preview(s: string): string {
   if (s.length <= RESULT_PREVIEW_MAX) return s;
   return s.slice(0, RESULT_PREVIEW_MAX) + `…[truncated, ${s.length - RESULT_PREVIEW_MAX} more chars]`;

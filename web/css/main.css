@@ -4764,6 +4764,32 @@ body::after {
   border-color: var(--accent-border);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
+
+/* Read-only event card — surfaces results from list_calendar_events
+   with the same visual language as the proposal card minus the
+   actions/picker. The kind label is dimmed so the read cards don't
+   visually fight with action-bearing proposal cards stacked above. */
+.galt-chat-event {
+  max-width: 76%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.galt-chat-event .galt-chat-proposal-kind.muted {
+  color: var(--text-faint);
+}
+.galt-chat-event-cal {
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .galt-chat-proposal-btn {
   flex: 1;
   padding: 7px 9px;

@@ -14,7 +14,7 @@
 import { sendCommand, getStore } from './state.js';
 import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
-import { sendChatTurn, sendChatText, clearChat } from './galt-chat.js';
+import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision } from './galt-chat.js';
 
 /* ---------- the registry ---------- */
 
@@ -83,11 +83,15 @@ const HANDLERS = {
      the user's response goes through the regular chat flow. */
   'approval-approve': async (target) => {
     const label = target.dataset.label || 'Approve';
+    const fp = target.dataset.approvalFp;
+    if (fp) recordApprovalDecision(fp, 'approved');
     markApprovalStatus(target, 'approved');
     await sendChatText(label);
   },
   'approval-deny': async (target) => {
     const label = target.dataset.label || 'Deny';
+    const fp = target.dataset.approvalFp;
+    if (fp) recordApprovalDecision(fp, 'denied');
     markApprovalStatus(target, 'denied');
     await sendChatText(label);
   },

@@ -855,6 +855,40 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
+
+/* Read-only event card — surfaces results from list_calendar_events.
+   Same visual vocabulary as the proposal card so the chat reads as
+   one coherent design, but no actions, no picker, no buttons. The
+   right-side of the head shows the source calendar name instead of
+   the status pill. */
+.chat-event-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-event-card .chat-proposal-head .chat-proposal-kind {
+  /* slightly cooler than the accent so read-only cards don't fight
+     for attention with the action-bearing proposal cards. */
+  color: var(--text-dim);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-size: 10.5px;
+}
+.chat-event-cal {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .chat-proposal-btn {
   flex: 1;
   padding: 8px 10px;

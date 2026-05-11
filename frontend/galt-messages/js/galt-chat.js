@@ -132,24 +132,66 @@ function renderMessages(messages) {
 
 function bubble(m) {
   const cls = m.role === 'user' ? 'me' : 'galt';
-  // Tool calls render in three flavors:
-  //   - "propose_*"           → structured proposal cards (perform side effect on approve)
+  // Tool calls render in four flavors:
+  //   - "propose_*"             → structured proposal cards (side effect on approve)
   //   - "request_user_approval" → inline approve/deny prompt (decision flows back as next turn)
-  //   - everything else        → compact <details> chip strip
+  //   - "list_calendar_events"  → read-only event cards (display only, no actions)
+  //   - everything else         → compact <details> chip strip
   const proposalCards = renderProposalCards(m.tool_calls);
   const approvalCards = renderApprovalCards(m.tool_calls);
+  const eventCards = renderEventListCards(m.tool_calls);
   const otherCalls = Array.isArray(m.tool_calls)
-    ? m.tool_calls.filter((tc) => !tc.name.startsWith('propose_') && tc.name !== 'request_user_approval')
+    ? m.tool_calls.filter((tc) =>
+        !tc.name.startsWith('propose_') &&
+        tc.name !== 'request_user_approval' &&
+        tc.name !== 'list_calendar_events')
     : [];
   const tools = otherCalls.length > 0 ? renderToolCalls(otherCalls) : '';
   return `
     <div class="chat-bubble-row ${cls}">
       <div class="chat-bubble-stack">
         ${tools}
+        ${eventCards}
         ${proposalCards}
         ${approvalCards}
         <div class="chat-bubble">${escape(m.text)}</div>
       </div>
+    </div>
+  `;
+}
+
+/** Render read-only event cards from list_calendar_events tool calls.
+ *  Same visual language as the propose-card but with no actions —
+ *  pure information display. Galt's natural-language reply still
+ *  appears below; cards give the structured view. */
+function renderEventListCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  const cards = [];
+  for (const tc of toolCalls) {
+    if (tc.name !== 'list_calendar_events') continue;
+    let r;
+    try { r = JSON.parse(tc.result_preview || '{}'); } catch { continue; }
+    const events = Array.isArray(r?.events) ? r.events : [];
+    for (const ev of events) cards.push(renderReadOnlyEventCard(ev));
+  }
+  return cards.filter(Boolean).join('');
+}
+
+function renderReadOnlyEventCard(ev) {
+  if (!ev || !ev.title) return '';
+  const start = ev.start_iso ? formatProposalTime(ev.start_iso) : '— no time —';
+  const end = ev.end_iso ? formatProposalTime(ev.end_iso) : null;
+  const when = end ? `${start} → ${end.split(' · ')[1] || end}` : start;
+  return `
+    <div class="chat-event-card">
+      <div class="chat-proposal-head">
+        <div class="chat-proposal-kind">Calendar event</div>
+        ${ev.calendar ? `<div class="chat-event-cal">${escape(ev.calendar)}</div>` : ''}
+      </div>
+      <div class="chat-proposal-title">${escape(ev.title)}</div>
+      <div class="chat-proposal-when">${escape(when)}</div>
+      ${ev.location ? `<div class="chat-proposal-meta">📍 ${escape(ev.location)}</div>` : ''}
+      ${ev.notes ? `<div class="chat-proposal-notes">${escape(ev.notes)}</div>` : ''}
     </div>
   `;
 }
@@ -187,23 +229,77 @@ function renderApprovalRequestCard(tc) {
   const approveLabel = r.approve_label || 'Approve';
   const denyLabel = r.deny_label || 'Deny';
   // Stable-ish id so the local data-status survives a click. Use
-  // the question's first chars + ts as a soft fingerprint.
+  // the question's first chars + ts as a soft fingerprint. Also
+  // used as the localStorage key so the decision persists across
+  // re-renders.
   const fingerprint = encodeURIComponent((r.question.slice(0, 32) + ':' + (tc.ms || 0)));
 
+  // request_user_approval has no server-side state — the decision
+  // is implicit in the conversation history. We persist locally
+  // via localStorage keyed on the fingerprint so a re-render
+  // (poll/subscription tick) doesn't reset the card to "awaiting"
+  // after the user already decided.
+  const decided = approvalDecisionFromStore(fingerprint);
+  const disabled = decided !== null;
+
+  const buttons = disabled
+    ? `
+      <div class="chat-approval-actions">
+        <button class="chat-proposal-btn dismiss" disabled>${escape(denyLabel)}</button>
+        <button class="chat-proposal-btn approve" disabled>${escape(approveLabel)}</button>
+      </div>`
+    : `
+      <div class="chat-approval-actions">
+        <button class="chat-proposal-btn dismiss" data-action="approval-deny" data-approval-fp="${fingerprint}" data-label="${escape(denyLabel)}">${escape(denyLabel)}</button>
+        <button class="chat-proposal-btn approve" data-action="approval-approve" data-approval-fp="${fingerprint}" data-label="${escape(approveLabel)}">${escape(approveLabel)}</button>
+      </div>`;
+
+  const status = decided ?? 'awaiting';
+
   return `
-    <div class="chat-approval-card" data-approval-fp="${fingerprint}">
+    <div class="chat-approval-card" data-approval-fp="${fingerprint}" data-status="${escape(status)}">
       <div class="chat-approval-head">
         <div class="chat-approval-kind">Decision</div>
-        <div class="chat-approval-status" data-id="approval-status-${fingerprint}">awaiting</div>
+        <div class="chat-approval-status" data-id="approval-status-${fingerprint}">${escape(status)}</div>
       </div>
       <div class="chat-approval-question">${escape(r.question)}</div>
       ${r.context ? `<div class="chat-approval-context">${escape(r.context)}</div>` : ''}
-      <div class="chat-approval-actions">
-        <button class="chat-proposal-btn dismiss" data-action="approval-deny" data-label="${escape(denyLabel)}">${escape(denyLabel)}</button>
-        <button class="chat-proposal-btn approve" data-action="approval-approve" data-label="${escape(approveLabel)}">${escape(approveLabel)}</button>
-      </div>
+      ${buttons}
     </div>
   `;
+}
+
+const APPROVAL_DECISIONS_KEY = 'galt:approvalDecisions';
+
+function approvalDecisionFromStore(fingerprint) {
+  try {
+    const raw = localStorage.getItem(APPROVAL_DECISIONS_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw);
+    return map[fingerprint] || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Public: record an approval decision keyed by fingerprint. Called
+ *  from actions.js on click so subsequent re-renders show the card
+ *  in its decided state. */
+export function recordApprovalDecision(fingerprint, status) {
+  try {
+    const raw = localStorage.getItem(APPROVAL_DECISIONS_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[fingerprint] = status;
+    // Cap stored decisions at ~200 — older ones drop off so we
+    // don't grow the local-storage entry unboundedly.
+    const keys = Object.keys(map);
+    if (keys.length > 200) {
+      for (const k of keys.slice(0, keys.length - 200)) delete map[k];
+    }
+    localStorage.setItem(APPROVAL_DECISIONS_KEY, JSON.stringify(map));
+  } catch {
+    // localStorage full / disabled → decision just won't persist
+  }
 }
 
 function renderCalendarProposalCard(tc) {
@@ -218,14 +314,36 @@ function renderCalendarProposalCard(tc) {
   const end = r.end_iso ? formatProposalTime(r.end_iso) : null;
   const when = end ? `${start} → ${end.split(' · ')[1] || end}` : start;
 
+  // Final decision sticks across re-renders. Backend stamps
+  // tc.decision_status onto the RTDB tool_calls entry when the
+  // proposal is exported / dismissed. Card data-status drives the
+  // CSS variant + button-disabled state.
+  const decided = tc.decision_status; // 'exported' | 'dismissed' | undefined
+  const status = decided === 'exported' ? 'approved'
+              : decided === 'dismissed' ? 'denied'
+              : 'pending';
+  const disabled = status !== 'pending';
+
   const calendars = (getStore().state && getStore().state.calendars) || [];
-  const calendarPicker = renderCalendarPicker(r.proposal_id, calendars);
+  const calendarPicker = disabled ? '' : renderCalendarPicker(r.proposal_id, calendars);
+
+  const buttons = disabled
+    ? `
+      <div class="chat-proposal-actions">
+        <button class="chat-proposal-btn dismiss" disabled>${escape(decided === 'dismissed' ? 'Denied' : 'Deny')}</button>
+        <button class="chat-proposal-btn approve" disabled>${escape(decided === 'exported' ? 'Approved' : 'Approve')}</button>
+      </div>`
+    : `
+      <div class="chat-proposal-actions">
+        <button class="chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escape(r.proposal_id)}">Deny</button>
+        <button class="chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escape(r.proposal_id)}">Approve & add to Calendar</button>
+      </div>`;
 
   return `
-    <div class="chat-proposal-card" data-proposal-id="${escape(r.proposal_id)}">
+    <div class="chat-proposal-card" data-proposal-id="${escape(r.proposal_id)}" data-status="${escape(status)}">
       <div class="chat-proposal-head">
         <div class="chat-proposal-kind">Calendar event</div>
-        <div class="chat-proposal-status" data-id="proposal-status-${escape(r.proposal_id)}">pending</div>
+        <div class="chat-proposal-status" data-id="proposal-status-${escape(r.proposal_id)}">${escape(status)}</div>
       </div>
       <div class="chat-proposal-title">${escape(r.title || 'Untitled')}</div>
       <div class="chat-proposal-when">${escape(when)}</div>
@@ -233,10 +351,7 @@ function renderCalendarProposalCard(tc) {
       ${r.participants ? `<div class="chat-proposal-meta">👥 ${escape(r.participants)}</div>` : ''}
       ${r.notes ? `<div class="chat-proposal-notes">${escape(r.notes)}</div>` : ''}
       ${calendarPicker}
-      <div class="chat-proposal-actions">
-        <button class="chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escape(r.proposal_id)}">Deny</button>
-        <button class="chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escape(r.proposal_id)}">Approve & add to Calendar</button>
-      </div>
+      ${buttons}
     </div>
   `;
 }

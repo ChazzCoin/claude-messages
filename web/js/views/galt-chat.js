@@ -138,22 +138,58 @@ function renderBubble(m) {
     ? `<div class="galt-chat-bubble-meta">${escapeHtml(m.model)}${m.ts ? ' · ' + escapeHtml(relTime(m.ts)) : ''}${m.rounds ? ' · ' + m.rounds + ' round' + (m.rounds === 1 ? '' : 's') : ''}</div>`
     : '';
   // Split tool calls: propose_* → calendar proposal cards;
-  // request_user_approval → inline Y/N prompt; everything else →
-  // compact chip strip.
+  // request_user_approval → inline Y/N prompt; list_calendar_events
+  // → read-only event cards; everything else → compact chip strip.
   const proposals = renderProposalCards(m.tool_calls);
   const approvals = renderApprovalCards(m.tool_calls);
+  const events = renderEventListCards(m.tool_calls);
   const readCalls = Array.isArray(m.tool_calls)
     ? m.tool_calls.filter((tc) =>
-        !tc.name?.startsWith('propose_') && tc.name !== 'request_user_approval')
+        !tc.name?.startsWith('propose_') &&
+        tc.name !== 'request_user_approval' &&
+        tc.name !== 'list_calendar_events')
     : [];
   const tools = readCalls.length > 0 ? renderToolStrip(readCalls) : '';
   return `
     <div class="galt-chat-row ${cls}">
       ${tools}
+      ${events}
       ${proposals}
       ${approvals}
       <div class="galt-chat-bubble">${escapeHtml(m.text)}</div>
       ${meta}
+    </div>
+  `;
+}
+
+function renderEventListCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  const cards = [];
+  for (const tc of toolCalls) {
+    if (tc.name !== 'list_calendar_events') continue;
+    let r;
+    try { r = JSON.parse(tc.result_preview || '{}'); } catch { continue; }
+    const events = Array.isArray(r?.events) ? r.events : [];
+    for (const ev of events) cards.push(renderReadOnlyEventCard(ev));
+  }
+  return cards.filter(Boolean).join('');
+}
+
+function renderReadOnlyEventCard(ev) {
+  if (!ev || !ev.title) return '';
+  const start = ev.start_iso ? fmtProposalTime(ev.start_iso) : '— no time —';
+  const end = ev.end_iso ? fmtProposalTime(ev.end_iso) : null;
+  const when = end ? `${start} → ${end.split(' · ')[1] || end}` : start;
+  return `
+    <div class="galt-chat-event">
+      <div class="galt-chat-proposal-head">
+        <span class="galt-chat-proposal-kind muted">Calendar event</span>
+        ${ev.calendar ? `<span class="galt-chat-event-cal">${escapeHtml(ev.calendar)}</span>` : ''}
+      </div>
+      <div class="galt-chat-proposal-title">${escapeHtml(ev.title)}</div>
+      <div class="galt-chat-proposal-when">${escapeHtml(when)}</div>
+      ${ev.location ? `<div class="galt-chat-proposal-meta">📍 ${escapeHtml(ev.location)}</div>` : ''}
+      ${ev.notes ? `<div class="galt-chat-proposal-notes">${escapeHtml(ev.notes)}</div>` : ''}
     </div>
   `;
 }
@@ -174,20 +210,62 @@ function renderApprovalRequestCard(tc) {
   const approveLabel = r.approve_label || 'Approve';
   const denyLabel = r.deny_label || 'Deny';
   const fingerprint = encodeURIComponent((r.question.slice(0, 32) + ':' + (tc.ms || 0)));
+
+  // Persisted decision (localStorage) — survives re-renders so a
+  // polling tick after the user clicks doesn't reset the card.
+  const decided = approvalDecisionFromStore(fingerprint);
+  const disabled = decided !== null;
+  const status = decided ?? 'awaiting';
+
+  const buttons = disabled
+    ? `
+      <div class="galt-chat-proposal-actions">
+        <button class="galt-chat-proposal-btn dismiss" disabled>${escapeHtml(denyLabel)}</button>
+        <button class="galt-chat-proposal-btn approve" disabled>${escapeHtml(approveLabel)}</button>
+      </div>`
+    : `
+      <div class="galt-chat-proposal-actions">
+        <button class="galt-chat-proposal-btn dismiss" data-action="approval-deny" data-approval-fp="${fingerprint}" data-label="${escapeHtml(denyLabel)}">${escapeHtml(denyLabel)}</button>
+        <button class="galt-chat-proposal-btn approve" data-action="approval-approve" data-approval-fp="${fingerprint}" data-label="${escapeHtml(approveLabel)}">${escapeHtml(approveLabel)}</button>
+      </div>`;
+
   return `
-    <div class="galt-chat-approval" data-approval-fp="${fingerprint}">
+    <div class="galt-chat-approval" data-approval-fp="${fingerprint}" data-status="${escapeHtml(status)}">
       <div class="galt-chat-proposal-head">
         <span class="galt-chat-proposal-kind">Decision</span>
-        <span class="galt-chat-proposal-status" data-id="galt-approval-status-${fingerprint}">awaiting</span>
+        <span class="galt-chat-proposal-status" data-id="galt-approval-status-${fingerprint}">${escapeHtml(status)}</span>
       </div>
       <div class="galt-chat-approval-question">${escapeHtml(r.question)}</div>
       ${r.context ? `<div class="galt-chat-approval-context">${escapeHtml(r.context)}</div>` : ''}
-      <div class="galt-chat-proposal-actions">
-        <button class="galt-chat-proposal-btn dismiss" data-action="approval-deny" data-label="${escapeHtml(denyLabel)}">${escapeHtml(denyLabel)}</button>
-        <button class="galt-chat-proposal-btn approve" data-action="approval-approve" data-label="${escapeHtml(approveLabel)}">${escapeHtml(approveLabel)}</button>
-      </div>
+      ${buttons}
     </div>
   `;
+}
+
+const APPROVAL_DECISIONS_KEY = 'galt:approvalDecisions';
+
+function approvalDecisionFromStore(fingerprint) {
+  try {
+    const raw = localStorage.getItem(APPROVAL_DECISIONS_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw);
+    return map[fingerprint] || null;
+  } catch {
+    return null;
+  }
+}
+
+function recordApprovalDecisionLocal(fingerprint, status) {
+  try {
+    const raw = localStorage.getItem(APPROVAL_DECISIONS_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[fingerprint] = status;
+    const keys = Object.keys(map);
+    if (keys.length > 200) {
+      for (const k of keys.slice(0, keys.length - 200)) delete map[k];
+    }
+    localStorage.setItem(APPROVAL_DECISIONS_KEY, JSON.stringify(map));
+  } catch { /* storage full/disabled */ }
 }
 
 function renderProposalCards(toolCalls) {
@@ -209,22 +287,41 @@ function renderCalendarProposalCard(tc) {
   const when = end ? `${start} → ${end.split(' · ')[1] || end}` : start;
   const id = r.proposal_id;
 
+  // Final decision sticks across re-renders — backend stamps
+  // decision_status onto the tool_calls entry when the proposal is
+  // exported/dismissed.
+  const decided = tc.decision_status;
+  const status = decided === 'exported' ? 'approved'
+              : decided === 'dismissed' ? 'denied'
+              : 'pending';
+  const disabled = status !== 'pending';
+
+  const picker = disabled ? '' : renderCalendarPicker(id);
+  const buttons = disabled
+    ? `
+      <div class="galt-chat-proposal-actions">
+        <button class="galt-chat-proposal-btn dismiss" disabled>${escapeHtml(decided === 'dismissed' ? 'Denied' : 'Deny')}</button>
+        <button class="galt-chat-proposal-btn approve" disabled>${escapeHtml(decided === 'exported' ? 'Approved' : 'Approve')}</button>
+      </div>`
+    : `
+      <div class="galt-chat-proposal-actions">
+        <button class="galt-chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escapeHtml(id)}">Deny</button>
+        <button class="galt-chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escapeHtml(id)}">Approve &amp; add to Calendar</button>
+      </div>`;
+
   return `
-    <div class="galt-chat-proposal" data-proposal-id="${escapeHtml(id)}">
+    <div class="galt-chat-proposal" data-proposal-id="${escapeHtml(id)}" data-status="${escapeHtml(status)}">
       <div class="galt-chat-proposal-head">
         <span class="galt-chat-proposal-kind">Calendar event</span>
-        <span class="galt-chat-proposal-status" data-id="galt-proposal-status-${escapeHtml(id)}">pending</span>
+        <span class="galt-chat-proposal-status" data-id="galt-proposal-status-${escapeHtml(id)}">${escapeHtml(status)}</span>
       </div>
       <div class="galt-chat-proposal-title">${escapeHtml(r.title || 'Untitled')}</div>
       <div class="galt-chat-proposal-when">${escapeHtml(when)}</div>
       ${r.location ? `<div class="galt-chat-proposal-meta">📍 ${escapeHtml(r.location)}</div>` : ''}
       ${r.participants ? `<div class="galt-chat-proposal-meta">👥 ${escapeHtml(r.participants)}</div>` : ''}
       ${r.notes ? `<div class="galt-chat-proposal-notes">${escapeHtml(r.notes)}</div>` : ''}
-      ${renderCalendarPicker(id)}
-      <div class="galt-chat-proposal-actions">
-        <button class="galt-chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escapeHtml(id)}">Deny</button>
-        <button class="galt-chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escapeHtml(id)}">Approve &amp; add to Calendar</button>
-      </div>
+      ${picker}
+      ${buttons}
     </div>
   `;
 }
@@ -401,23 +498,15 @@ async function handleApprovalClick(btn, action) {
   const card = btn.closest('.galt-chat-approval');
   if (!card) return;
   const label = btn.dataset.label || (action === 'approval-approve' ? 'Approve' : 'Deny');
+  const fp = btn.dataset.approvalFp;
   const newStatus = action === 'approval-approve' ? 'approved' : 'denied';
-  // Optimistic flip — buttons disable, status text updates. Failure
-  // of the underlying send is a rare network hiccup; we surface via
-  // alert but don't roll the card back (the user already saw their
-  // intent recorded).
+  // Persist locally so the card stays decided across re-renders
+  // (polling ticks would otherwise reset it to 'awaiting').
+  if (fp) recordApprovalDecisionLocal(fp, newStatus);
   setApprovalStatus(card, newStatus);
   try {
-    // Programmatically fill the input + submit, which routes through
-    // the existing send path. Keep the input filled briefly so the
-    // user can see what was sent.
     const input = document.getElementById('galt-chat-input');
-    if (input) {
-      input.value = label;
-    }
-    // Reuse the existing sendTurn() — it reads input value + clears it
-    // + sets thinking state + polls for the reply. Same code path
-    // typing manually would hit.
+    if (input) input.value = label;
     await sendTurn();
   } catch (err) {
     alert('send failed: ' + (err.message || 'unknown'));
