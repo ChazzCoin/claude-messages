@@ -42,4 +42,4 @@ export { ref, onValue, off, push, set, update, remove, get, child };
 
    The same key MUST stay stable for tokens issued under it to keep
    working — rotating it invalidates every device's saved token. */
-export const WEB_PUSH_VAPID_KEY = 'PASTE_YOUR_VAPID_PUBLIC_KEY_HERE';
+export const WEB_PUSH_VAPID_KEY = 'BIaWNwFwukN9RplQn1aZMI4WryuPygnkJwOSFf3tI4w389upTFkAgu01XZSuKWgo1_YlafVBNp-2CIS1OlOL_U8';
