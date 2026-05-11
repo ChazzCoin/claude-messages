@@ -419,28 +419,42 @@ export async function distillRadarProfile(input: RadarProfileInput): Promise<{
 /* auto-calendar — extract structured event from a scheduling msg      */
 /* ------------------------------------------------------------------ */
 
-const CAL_EXTRACT_SYSTEM = `You extract calendar events from iMessages. Run on every message a calendar-monitor rule sees; only flag the message as an event when it clearly commits the user (or sender) to a specific time and/or place.
-
-Output ONLY JSON of this exact shape:
-{
-  "is_event": boolean,
-  "title": "concise event title",
-  "start_iso": "YYYY-MM-DDTHH:MM" in local time, or null if not specified,
-  "end_iso":   "YYYY-MM-DDTHH:MM" in local time, or null,
-  "location":  "..." or null,
-  "participants": "comma-separated names" or null,
-  "notes": "one short sentence of context",
-  "confidence": 0..1,
-  "reasoning": "why you think this is/isn't an event"
-}
+const CAL_EXTRACT_SYSTEM = `You extract calendar events from natural language. Used for two flows:
+1) Inbound iMessage triage — only flag as event when the message clearly commits someone to a specific time and/or place.
+2) Direct user request via Galt chat — the user is explicitly asking to schedule something; the bar for is_event is much lower (treat as is_event=true unless the request is too vague to turn into a calendar entry).
 
 Rules:
 - The CURRENT date/time is provided in the user message; use it to resolve relative phrases like "tomorrow", "Friday", "next week", "in an hour".
-- If only a date is given (no time), use a reasonable default time and set is_event=true; set end_iso to null and the user can adjust.
+- If only a date is given (no time), default to a sensible time (9 AM for daytime requests, end_iso = null).
 - If only a time is given (no date), assume today.
 - Vague hangouts without a concrete time ("we should hang soon") → is_event=false.
 - Past events being recapped → is_event=false.
-- Be conservative on confidence. False positives are worse than missed events.`;
+- When in iMessage triage mode, be conservative on confidence — false positives clutter the proposal queue.
+- When in direct-request mode, trust the user — set high confidence unless ambiguous.`;
+
+/** Strict JSON Schema for OpenAI's structured outputs mode. Every
+ *  property must be in `required` and `additionalProperties: false`
+ *  is mandatory when `strict: true`. Use `["string", "null"]` for
+ *  nullable strings. */
+const CAL_EXTRACT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'is_event', 'title', 'start_iso', 'end_iso',
+    'location', 'participants', 'notes', 'confidence', 'reasoning',
+  ],
+  properties: {
+    is_event:     { type: 'boolean' },
+    title:        { type: 'string' },
+    start_iso:    { type: ['string', 'null'], description: 'YYYY-MM-DDTHH:MM in local time, or null.' },
+    end_iso:      { type: ['string', 'null'], description: 'YYYY-MM-DDTHH:MM in local time, or null.' },
+    location:     { type: ['string', 'null'] },
+    participants: { type: ['string', 'null'], description: 'Comma-separated names, or null.' },
+    notes:        { type: 'string' },
+    confidence:   { type: 'number', minimum: 0, maximum: 1 },
+    reasoning:    { type: 'string' },
+  },
+} as const;
 
 export interface CalendarExtractResult {
   is_event: boolean;
@@ -456,21 +470,90 @@ export interface CalendarExtractResult {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
+/** Hand-rolled validator for the structured response. Strict
+ *  json_schema mode at the API layer should make this always pass —
+ *  but we keep it as a backstop in case the SDK / model returns
+ *  something off (older models, schema bypass, etc.). */
+function validateCalendarExtract(parsed: Record<string, unknown>): CalendarExtractResult {
+  const errs: string[] = [];
+  const reqStr = (k: string): string => {
+    const v = parsed[k];
+    if (typeof v !== 'string') { errs.push(`${k} must be a string`); return ''; }
+    return v;
+  };
+  const optStr = (k: string): string | null => {
+    const v = parsed[k];
+    if (v == null) return null;
+    if (typeof v !== 'string') { errs.push(`${k} must be string or null`); return null; }
+    return v.trim() || null;
+  };
+  const result: CalendarExtractResult = {
+    is_event: parsed.is_event === true,
+    title: reqStr('title').trim(),
+    start_iso: optStr('start_iso'),
+    end_iso: optStr('end_iso'),
+    location: optStr('location'),
+    participants: optStr('participants'),
+    notes: typeof parsed.notes === 'string' ? parsed.notes : '',
+    confidence: typeof parsed.confidence === 'number'
+      ? Math.max(0, Math.min(1, parsed.confidence))
+      : 0.5,
+    reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
+    model: '',  // filled by caller
+  };
+  // Sanity: if is_event=true but title is empty, downgrade.
+  if (result.is_event && !result.title) {
+    result.is_event = false;
+    errs.push('is_event=true with empty title — downgraded to false');
+  }
+  // Sanity: start before end if both present.
+  if (result.start_iso && result.end_iso) {
+    const s = Date.parse(result.start_iso);
+    const e = Date.parse(result.end_iso);
+    if (Number.isFinite(s) && Number.isFinite(e) && s >= e) {
+      result.end_iso = null;
+      errs.push('end_iso was before start_iso — dropped');
+    }
+  }
+  if (errs.length > 0) {
+    console.warn('[calendar-extract] validator notes:', errs.join('; '));
+  }
+  return result;
+}
+
 export async function extractCalendarEvent(input: {
   sender: string;
   messageText: string;
   nowIso: string;
   timezone: string;
+  /** When set, the system prompt biases toward is_event=true since the
+   *  user is explicitly asking. Default 'inbound' for the existing
+   *  auto-extraction flow. */
+  mode?: 'inbound' | 'direct';
 }): Promise<CalendarExtractResult> {
   const client = getOpenAI();
+  const modeBanner = input.mode === 'direct'
+    ? 'Mode: DIRECT REQUEST FROM USER — they are asking you to schedule this. Set is_event=true unless truly unschedulable.'
+    : 'Mode: INBOUND MESSAGE TRIAGE — be conservative.';
   const resp = await client.chat.completions.create({
     model: effectiveModel(),
-    response_format: { type: 'json_object' },
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'calendar_extract',
+        schema: CAL_EXTRACT_SCHEMA,
+        strict: true,
+      },
+    },
     messages: [
       { role: 'system', content: CAL_EXTRACT_SYSTEM },
       {
         role: 'user',
-        content: `Current date/time: ${input.nowIso} (timezone: ${input.timezone})\nSender: ${input.sender}\nMessage: "${input.messageText}"`,
+        content:
+          `${modeBanner}\n` +
+          `Current date/time: ${input.nowIso} (timezone: ${input.timezone})\n` +
+          `Sender: ${input.sender}\n` +
+          `Text: "${input.messageText}"`,
       },
     ],
     max_tokens: 400,
@@ -484,27 +567,16 @@ export async function extractCalendarEvent(input: {
   } catch {
     parsed = {};
   }
-  const usage = resp.usage
-    ? {
-        prompt_tokens: resp.usage.prompt_tokens,
-        completion_tokens: resp.usage.completion_tokens,
-        total_tokens: resp.usage.total_tokens,
-      }
-    : undefined;
-  return {
-    is_event: parsed.is_event === true,
-    title: typeof parsed.title === 'string' ? parsed.title : '',
-    start_iso: typeof parsed.start_iso === 'string' && parsed.start_iso ? parsed.start_iso : null,
-    end_iso: typeof parsed.end_iso === 'string' && parsed.end_iso ? parsed.end_iso : null,
-    location: typeof parsed.location === 'string' && parsed.location ? parsed.location : null,
-    participants:
-      typeof parsed.participants === 'string' && parsed.participants ? parsed.participants : null,
-    notes: typeof parsed.notes === 'string' ? parsed.notes : '',
-    confidence: typeof parsed.confidence === 'number' ? Math.max(0, Math.min(1, parsed.confidence)) : 0.5,
-    reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning : '',
-    model: resp.model || effectiveModel(),
-    usage,
-  };
+  const validated = validateCalendarExtract(parsed);
+  validated.model = resp.model || effectiveModel();
+  if (resp.usage) {
+    validated.usage = {
+      prompt_tokens: resp.usage.prompt_tokens,
+      completion_tokens: resp.usage.completion_tokens,
+      total_tokens: resp.usage.total_tokens,
+    };
+  }
+  return validated;
 }
 
 /* ------------------------------------------------------------------ */

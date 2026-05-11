@@ -18,7 +18,7 @@
 // from the user-visible exchange).
 
 import { chatWithTools } from './client.js';
-import { CHAT_TOOLS } from './chat-tools.js';
+import { buildChatTools } from './chat-tools.js';
 import { getSettings } from '../db/app.js';
 import { getMirrorDb } from '../firebase.js';
 
@@ -92,7 +92,9 @@ Your job here:
 - iMessage-rhythm replies — usually short, occasionally longer when the topic earns it. No padding. No customer-service phrasings ("happy to help", "as an AI", etc.).
 - Plain text only. No JSON, no preamble, no quotes around your reply.
 
-YOU HAVE TOOLS — function-calls into the user's Mac. Use them aggressively when the user asks anything that touches their data:
+YOU HAVE TOOLS — function-calls into the user's Mac. Use them aggressively when the user asks anything that touches their data.
+
+READ TOOLS (call freely, no permission gate):
 - list_calendar_events — schedule, upcoming meetings, free slots
 - search_messages — full-text search of iMessage / SMS history
 - list_recent_messages — what's come in lately
@@ -101,11 +103,16 @@ YOU HAVE TOOLS — function-calls into the user's Mac. Use them aggressively whe
 - list_contact_notes — the user's per-contact memory bank
 - get_call_history — phone + FaceTime call history
 
-These tools are read-only. There are NO guard rails on visibility — if the user asks "what's my week look like" you should call list_calendar_events and answer with concrete events, not a hedge. Same for "who texted me today" (list_recent_messages), "what did Andrew say about the trip" (search_messages, then get_contact if name is ambiguous), "did mom call me yesterday" (get_call_history).
+WRITE PROPOSALS (call when the user asks you to schedule / add / create something — the user reviews and approves before anything lands):
+- propose_calendar_event — when the user asks to schedule a meeting, add an event, block out time, put something on the calendar. You parse the fields and submit; the user approves the resulting card in the chat. NEVER pretend you added an event without using this tool.
 
-When you call a tool, the result comes back as JSON. Synthesize it into a natural answer in your voice — don't dump JSON at the user. Quote specific data (times, names, exact phrases) when the user asked for specifics.
+There are NO guard rails on read visibility — if the user asks "what's my week look like" you should call list_calendar_events and answer with concrete events, not a hedge. Same for "who texted me today" (list_recent_messages), "what did Andrew say about the trip" (search_messages, then get_contact if name is ambiguous), "did mom call me yesterday" (get_call_history).
 
-If the user asks for something a tool doesn't cover (Apple Notes, sending an iMessage, modifying calendar events), say so plainly — don't invent a fake tool call. Tool coverage will expand; right now this is what you've got.
+When you call a read tool, the result comes back as JSON. Synthesize it into a natural answer in your voice — don't dump JSON at the user. Quote specific data (times, names, exact phrases) when the user asked for specifics.
+
+When you call propose_calendar_event, your reply afterward should be short: confirm what you drafted (title + date/time in plain English) and tell the user to tap Approve. Don't dump the JSON. The user sees the proposal card in the chat — your job is the natural-language framing around it.
+
+If the user asks for something a tool doesn't cover (Apple Notes, sending an iMessage, propose-reminder, modifying existing calendar events), say so plainly — don't invent a fake tool call. Tool coverage will expand; right now this is what you've got.
 
 If the user just wants to chat, banter, brainstorm, or draft — do that. No tool calls needed.`;
 
@@ -136,16 +143,36 @@ function toOpenAIMessages(history: ChatTurnMessage[]): Array<{ role: 'user' | 'a
 }
 
 /** Run one chat turn. `history` should already include the latest
- *  user message at the end. Returns Galt's reply text plus the
+ *  user message at the end. `galtMessageId` is the RTDB key under
+ *  which Galt's reply will be persisted — it's pre-computed in
+ *  sendChatTurn() so that write-proposal tools (e.g.
+ *  propose_calendar_event) can stamp it on their persisted row for
+ *  back-reference and dedup. Returns Galt's reply text plus the
  *  model, usage, tool call record. */
-export async function chatTurn(history: ChatTurnMessage[]): Promise<ChatTurnResult> {
+export async function chatTurn(
+  history: ChatTurnMessage[],
+  galtMessageId: string,
+): Promise<ChatTurnResult> {
   const systemPrompt = buildSystemPrompt();
   const messages = toOpenAIMessages(history);
+  const tools = buildChatTools(galtMessageId);
+
+  // Today's date in the user's local timezone — the model needs this
+  // to resolve relative phrases ("tomorrow", "Friday") to absolute
+  // times for propose_calendar_event. Stamped per-turn so the model
+  // doesn't have to ask. Format mirrors what extractCalendarEvent
+  // uses for the inbound flow.
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const nowSystem =
+    `CURRENT MOMENT\nNow: ${new Date().toISOString()} (UTC)\n` +
+    `User timezone: ${tz}\nLocal time: ${new Date().toLocaleString('en-US', { timeZone: tz })}\n` +
+    `When you write start_iso / end_iso for propose_calendar_event, use local time in YYYY-MM-DDTHH:MM format (no timezone suffix).`;
+  const fullSystem = `${systemPrompt}\n\n${nowSystem}`;
 
   const result = await chatWithTools({
-    systemPrompt,
+    systemPrompt: fullSystem,
     messages,
-    tools: CHAT_TOOLS,
+    tools,
     purpose: 'galt_chat',
     temperature: 0.7,
     maxTokens: 800,
@@ -215,12 +242,18 @@ export async function sendChatTurn(text: string): Promise<SendChatTurnResult> {
     return false;
   });
 
-  // 3. Run the turn.
-  const result = await chatTurn(history);
-
-  // 4. Append Galt's reply (with any tool calls so the companion can
-  //    render them).
+  // 3. Pre-compute the Galt reply's RTDB key. push() generates the
+  //    key locally without writing; we pass it into chatTurn so any
+  //    write-proposal tool can stamp it on its row (used for dedup
+  //    and back-reference: "which chat turn proposed this event?").
   const galtMsgRef = messagesRef.push();
+  const galtMsgKey = galtMsgRef.key as string;
+
+  // 4. Run the turn with the pre-computed key in hand.
+  const result = await chatTurn(history, galtMsgKey);
+
+  // 5. Append Galt's reply (with any tool calls so the companion can
+  //    render them).
   await galtMsgRef.set({
     role: 'galt',
     text: result.reply,
@@ -233,7 +266,7 @@ export async function sendChatTurn(text: string): Promise<SendChatTurnResult> {
 
   return {
     user_message_id: userMsgRef.key as string,
-    galt_message_id: galtMsgRef.key as string,
+    galt_message_id: galtMsgKey,
     reply: result.reply,
     model: result.model,
   };

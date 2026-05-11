@@ -70,6 +70,7 @@ export async function renderGaltChatView() {
   await loadAndRender();
   wireInput();
   wireClear();
+  wireProposalActions();
 
   // Light polling so messages from the companion / backend appear
   // without a refresh. Tight cadence on this page; gets canceled
@@ -121,16 +122,67 @@ function renderBubble(m) {
   const meta = m.role === 'galt' && m.model
     ? `<div class="galt-chat-bubble-meta">${escapeHtml(m.model)}${m.ts ? ' · ' + escapeHtml(relTime(m.ts)) : ''}${m.rounds ? ' · ' + m.rounds + ' round' + (m.rounds === 1 ? '' : 's') : ''}</div>`
     : '';
-  const tools = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
-    ? renderToolStrip(m.tool_calls)
-    : '';
+  // Split tool calls: propose_* render as approval cards, everything
+  // else as the compact chip strip.
+  const proposals = renderProposalCards(m.tool_calls);
+  const readCalls = Array.isArray(m.tool_calls)
+    ? m.tool_calls.filter((tc) => !tc.name?.startsWith('propose_'))
+    : [];
+  const tools = readCalls.length > 0 ? renderToolStrip(readCalls) : '';
   return `
     <div class="galt-chat-row ${cls}">
       ${tools}
+      ${proposals}
       <div class="galt-chat-bubble">${escapeHtml(m.text)}</div>
       ${meta}
     </div>
   `;
+}
+
+function renderProposalCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .filter((tc) => tc.name === 'propose_calendar_event')
+    .map(renderCalendarProposalCard)
+    .filter(Boolean)
+    .join('');
+}
+
+function renderCalendarProposalCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || r.ok === false || !r.proposal_id) return '';
+
+  const start = r.start_iso ? fmtProposalTime(r.start_iso) : '— no time —';
+  const end = r.end_iso ? fmtProposalTime(r.end_iso) : null;
+  const when = end ? `${start} → ${end.split(' · ')[1] || end}` : start;
+  const id = r.proposal_id;
+
+  return `
+    <div class="galt-chat-proposal" data-proposal-id="${escapeHtml(id)}">
+      <div class="galt-chat-proposal-head">
+        <span class="galt-chat-proposal-kind">Calendar event</span>
+        <span class="galt-chat-proposal-status" data-id="galt-proposal-status-${escapeHtml(id)}">pending</span>
+      </div>
+      <div class="galt-chat-proposal-title">${escapeHtml(r.title || 'Untitled')}</div>
+      <div class="galt-chat-proposal-when">${escapeHtml(when)}</div>
+      ${r.location ? `<div class="galt-chat-proposal-meta">📍 ${escapeHtml(r.location)}</div>` : ''}
+      ${r.participants ? `<div class="galt-chat-proposal-meta">👥 ${escapeHtml(r.participants)}</div>` : ''}
+      ${r.notes ? `<div class="galt-chat-proposal-notes">${escapeHtml(r.notes)}</div>` : ''}
+      <div class="galt-chat-proposal-actions">
+        <button class="galt-chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escapeHtml(id)}">Dismiss</button>
+        <button class="galt-chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escapeHtml(id)}">Approve &amp; add to Calendar</button>
+      </div>
+    </div>
+  `;
+}
+
+function fmtProposalTime(iso) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return iso;
+  const day = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${day} · ${time}`;
 }
 
 function renderToolStrip(calls) {
@@ -212,6 +264,48 @@ function wireClear() {
       alert('clear failed: ' + (err.message || 'unknown'));
     }
   });
+}
+
+/** Delegate approve/dismiss clicks for any proposal card in the chat
+ *  feed. Same flow as the companion's RTDB command, but local HTTP
+ *  here — same shared backend helper either way. */
+function wireProposalActions() {
+  const scroll = document.getElementById('galt-chat-scroll');
+  if (!scroll) return;
+  scroll.addEventListener('click', async (e) => {
+    const btn = e.target.closest?.('[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action !== 'proposal-approve' && action !== 'proposal-dismiss') return;
+    const id = parseInt(btn.dataset.proposalId, 10);
+    if (!Number.isFinite(id)) return;
+    const card = btn.closest('.galt-chat-proposal');
+    if (!card) return;
+    setProposalStatus(card, 'sending');
+    try {
+      if (action === 'proposal-approve') {
+        await api(`/api/calendar/proposals/${id}/export`, { method: 'POST', body: {} });
+        setProposalStatus(card, 'approved');
+      } else {
+        await api(`/api/calendar/proposals/${id}/dismiss`, { method: 'POST', body: {} });
+        setProposalStatus(card, 'dismissed');
+      }
+    } catch (err) {
+      setProposalStatus(card, 'pending');
+      alert((action === 'proposal-approve' ? 'approve' : 'dismiss') + ' failed: ' + (err.message || 'unknown'));
+    }
+  });
+}
+
+function setProposalStatus(card, status) {
+  card.dataset.status = status;
+  const statusEl = card.querySelector('[data-id^="galt-proposal-status-"]');
+  if (statusEl) statusEl.textContent = status;
+  if (status === 'approved' || status === 'dismissed') {
+    for (const btn of card.querySelectorAll('.galt-chat-proposal-btn')) {
+      btn.setAttribute('disabled', 'true');
+    }
+  }
 }
 
 let _sending = false;

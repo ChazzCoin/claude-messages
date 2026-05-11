@@ -1564,6 +1564,38 @@ export function countPendingCalendarProposals(): number {
   return row?.n ?? 0;
 }
 
+/** Insert a chat-sourced calendar proposal. Sentinel values are used
+ *  for the message-bound columns since the existing schema requires
+ *  them NOT NULL (the schema predates chat-sourced proposals). The
+ *  source_msg_guid is `chat:<galt_message_id>` for dedup. */
+export function insertChatCalendarProposal(input: {
+  galt_message_id: string;
+  title: string;
+  start_ms: number | null;
+  end_ms: number | null;
+  location: string | null;
+  participants: string | null;
+  notes: string | null;
+  confidence: number | null;
+  reasoning: string | null;
+}): CalendarProposal | null {
+  return insertCalendarProposal({
+    source_msg_guid: `chat:${input.galt_message_id}`,
+    message_rowid: 0,
+    chat_id: 0,
+    handle: '',
+    title: input.title,
+    start_ms: input.start_ms,
+    end_ms: input.end_ms,
+    location: input.location,
+    participants: input.participants,
+    notes: input.notes,
+    confidence: input.confidence,
+    reasoning: input.reasoning,
+    source_rule_id: null,
+  });
+}
+
 /* ---------- away mode: opt-in contacts + sessions ---------- */
 
 export interface AwayContact {

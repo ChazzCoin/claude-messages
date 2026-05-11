@@ -118,17 +118,76 @@ function renderMessages(messages) {
 
 function bubble(m) {
   const cls = m.role === 'user' ? 'me' : 'galt';
+  // Tool calls render in two flavors:
+  //   - "propose_*" calls become structured approval cards
+  //   - everything else becomes the compact <details> chip strip
+  const proposalCards = renderProposalCards(m.tool_calls);
   const tools = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
-    ? renderToolCalls(m.tool_calls)
+    ? renderToolCalls(m.tool_calls.filter((tc) => !tc.name.startsWith('propose_')))
     : '';
   return `
     <div class="chat-bubble-row ${cls}">
       <div class="chat-bubble-stack">
         ${tools}
+        ${proposalCards}
         <div class="chat-bubble">${escape(m.text)}</div>
       </div>
     </div>
   `;
+}
+
+/** Render approval cards for any `propose_*` tool calls on this turn.
+ *  Each card shows the structured proposal with [Approve] [Dismiss]
+ *  buttons; the chat-action handlers in actions.js call into the
+ *  RTDB commands bus. */
+function renderProposalCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  const cards = toolCalls
+    .filter((tc) => tc.name === 'propose_calendar_event')
+    .map(renderCalendarProposalCard)
+    .filter(Boolean);
+  return cards.join('');
+}
+
+function renderCalendarProposalCard(tc) {
+  // Parse the result preview as JSON. The tool's structured
+  // execute() result is what was persisted — proposal_id, title,
+  // start_iso, end_iso, location, participants, notes.
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || r.ok === false || !r.proposal_id) return '';
+
+  const start = r.start_iso ? formatProposalTime(r.start_iso) : '— no time —';
+  const end = r.end_iso ? formatProposalTime(r.end_iso) : null;
+  const when = end ? `${start} → ${end.split(' · ')[1] || end}` : start;
+
+  return `
+    <div class="chat-proposal-card" data-proposal-id="${escape(r.proposal_id)}">
+      <div class="chat-proposal-head">
+        <div class="chat-proposal-kind">Calendar event</div>
+        <div class="chat-proposal-status" data-id="proposal-status-${escape(r.proposal_id)}">pending</div>
+      </div>
+      <div class="chat-proposal-title">${escape(r.title || 'Untitled')}</div>
+      <div class="chat-proposal-when">${escape(when)}</div>
+      ${r.location ? `<div class="chat-proposal-meta">📍 ${escape(r.location)}</div>` : ''}
+      ${r.participants ? `<div class="chat-proposal-meta">👥 ${escape(r.participants)}</div>` : ''}
+      ${r.notes ? `<div class="chat-proposal-notes">${escape(r.notes)}</div>` : ''}
+      <div class="chat-proposal-actions">
+        <button class="chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escape(r.proposal_id)}">Dismiss</button>
+        <button class="chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escape(r.proposal_id)}">Approve & add to Calendar</button>
+      </div>
+    </div>
+  `;
+}
+
+/** "2026-05-14T15:00:00.000Z" → "Thu, May 14 · 3:00 PM" in user's
+ *  local timezone. */
+function formatProposalTime(iso) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return iso;
+  const day = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${day} · ${time}`;
 }
 
 /** Render the tool-call strip that sits ABOVE Galt's bubble — shows

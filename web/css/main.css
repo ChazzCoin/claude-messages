@@ -4661,6 +4661,95 @@ body::after {
 .galt-chat-tool.err > summary .galt-chat-tool-name { color: var(--red); }
 .galt-chat-tool.err .galt-chat-tool-body { color: var(--red); }
 
+/* Approval card — propose_* tool calls render as structured cards. */
+.galt-chat-proposal {
+  max-width: 76%;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.galt-chat-proposal[data-status="approved"] {
+  border-color: var(--green);
+  opacity: 0.75;
+}
+.galt-chat-proposal[data-status="dismissed"] {
+  border-color: var(--border);
+  opacity: 0.5;
+}
+.galt-chat-proposal[data-status="sending"] { opacity: 0.6; }
+.galt-chat-proposal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.galt-chat-proposal-kind { color: var(--accent); }
+.galt-chat-proposal-status { color: var(--text-faint); font-family: var(--mono); }
+.galt-chat-proposal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 2px;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.galt-chat-proposal-when {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.galt-chat-proposal-meta {
+  font-size: 12px;
+  color: var(--text-faint);
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.galt-chat-proposal-notes {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 3px;
+  line-height: 1.45;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.galt-chat-proposal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.galt-chat-proposal-btn {
+  flex: 1;
+  padding: 7px 9px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 0;
+}
+.galt-chat-proposal-btn.approve {
+  background: var(--accent);
+  color: var(--bg);
+}
+.galt-chat-proposal-btn.approve:hover { background: var(--accent-deep); }
+.galt-chat-proposal-btn.dismiss {
+  background: var(--bg-card-2);
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+}
+.galt-chat-proposal-btn.dismiss:hover { color: var(--text); }
+.galt-chat-proposal-btn[disabled] {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 .galt-chat-empty {
   margin: auto;
   padding: 40px 24px;

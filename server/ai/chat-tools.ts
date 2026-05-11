@@ -22,6 +22,7 @@
 import type { ToolDefinition } from './client.js';
 import { listEventsInWindow } from '../integrations/calendar-db.js';
 import { listRecentCalls } from '../integrations/call-history.js';
+import { insertChatCalendarProposal } from '../db/app.js';
 import {
   appleDateToUnixMs,
   getChatDb,
@@ -383,12 +384,141 @@ const get_call_history: ToolDefinition = {
 };
 
 /* ============================================================
+   Write-with-approval — propose a calendar event
+   ============================================================
+   This is a structured-output WRITE proposal, not a direct write.
+   Galt fills in the fields via the tool's strict args schema
+   (OpenAI validates before we even see the call); we re-validate
+   server-side; the row lands in `calendar_proposals` with
+   status='pending'. The chat UI then renders an approval card that
+   the user has to tap before anything touches Calendar.app. Same
+   queue as the inbound-message extraction flow — the existing
+   /api/calendar/proposals/:id/export and /dismiss endpoints handle
+   approve / reject.
+
+   Galt should call this tool whenever the user asks to schedule /
+   add / create an event. Never makes a write itself. */
+
+function buildProposeCalendarEventTool(galtMessageId: string): ToolDefinition {
+  return {
+    name: 'propose_calendar_event',
+    description:
+      "Propose a calendar event for the user to review. Use this whenever the user asks you to schedule, add, or create an event/meeting/appointment. You parse the fields from their request; the user reviews and approves before anything is written to Calendar.app. Today's date is in the system context — resolve relative phrases (tomorrow, Friday, next week) to absolute ISO times in the user's local timezone. If anything is genuinely ambiguous, ask the user instead of guessing.",
+    parameters: {
+      type: 'object',
+      required: ['title', 'start_iso', 'end_iso', 'location', 'participants', 'notes'],
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Concise event title in the user\'s voice. E.g. "Lunch with Sarah" not "Have lunch with Sarah".',
+        },
+        start_iso: {
+          type: 'string',
+          description: 'Start in local-time ISO format YYYY-MM-DDTHH:MM, e.g. "2026-05-14T15:00".',
+        },
+        end_iso: {
+          type: ['string', 'null'],
+          description: 'End in YYYY-MM-DDTHH:MM, or null. Default duration is 1 hour if you don\'t know.',
+        },
+        location: {
+          type: ['string', 'null'],
+          description: 'Physical address, video-call URL, or place name. Null if unspecified.',
+        },
+        participants: {
+          type: ['string', 'null'],
+          description: 'Comma-separated list of attendees, or null. Doesn\'t send invites — purely descriptive.',
+        },
+        notes: {
+          type: 'string',
+          description: 'One-sentence context for the event. Becomes the event description.',
+        },
+      },
+      additionalProperties: false,
+    },
+    async execute(args) {
+      const title = typeof args.title === 'string' ? args.title.trim() : '';
+      if (!title) throw new Error('title required');
+      const startIsoRaw = typeof args.start_iso === 'string' ? args.start_iso.trim() : '';
+      if (!startIsoRaw) throw new Error('start_iso required');
+      const startMs = Date.parse(startIsoRaw);
+      if (!Number.isFinite(startMs)) throw new Error(`start_iso is not a valid date: "${startIsoRaw}"`);
+
+      let endMs: number | null = null;
+      if (typeof args.end_iso === 'string' && args.end_iso.trim()) {
+        const parsed = Date.parse(args.end_iso.trim());
+        if (Number.isFinite(parsed)) {
+          endMs = parsed > startMs ? parsed : null;
+        }
+      }
+
+      const location = typeof args.location === 'string' && args.location.trim() ? args.location.trim() : null;
+      const participants = typeof args.participants === 'string' && args.participants.trim() ? args.participants.trim() : null;
+      const notes = typeof args.notes === 'string' ? args.notes.trim() : '';
+
+      const proposal = insertChatCalendarProposal({
+        galt_message_id: galtMessageId,
+        title,
+        start_ms: startMs,
+        end_ms: endMs,
+        location,
+        participants,
+        notes: notes || null,
+        confidence: 0.95,  // user explicitly asked, so high
+        reasoning: 'user_request_via_galt_chat',
+      });
+
+      if (!proposal) {
+        // INSERT OR IGNORE returned no row — a proposal with this
+        // source_msg_guid already exists. Surface that so Galt can
+        // tell the user.
+        return {
+          ok: false,
+          error: 'a proposal for this chat turn already exists',
+        };
+      }
+
+      // Embed the rendered card in the result so the chat UI can
+      // surface an approve/dismiss control without re-fetching.
+      // The model also sees this and can phrase its reply around it.
+      return {
+        ok: true,
+        proposal_id: proposal.id,
+        title: proposal.title,
+        start_iso: proposal.start_ms ? new Date(proposal.start_ms).toISOString() : null,
+        end_iso: proposal.end_ms ? new Date(proposal.end_ms).toISOString() : null,
+        location: proposal.location,
+        participants: proposal.participants,
+        notes: proposal.notes,
+        next_step: 'Tell the user briefly what you drafted and that they need to tap Approve to add it to Calendar.',
+      };
+    },
+  };
+}
+
+/* ============================================================
    Public registry
    ============================================================ */
 
-/** Every tool Galt can call from the direct-chat surface. Order
- *  doesn't matter to the model but mirrors complexity (simple ↔
- *  complex) for readability when scanning the source. */
+/** Every tool Galt can call from the direct-chat surface, given the
+ *  Galt-message id of the turn currently being generated. We pass the
+ *  id in so any proposal tool can stamp it on the row for dedup +
+ *  back-reference (which chat turn proposed this event). */
+export function buildChatTools(galtMessageId: string): ToolDefinition[] {
+  return [
+    list_calendar_events,
+    search_messages,
+    list_recent_messages,
+    list_auto_notes,
+    get_contact,
+    list_contact_notes,
+    get_call_history,
+    buildProposeCalendarEventTool(galtMessageId),
+  ];
+}
+
+/** Legacy export for places that don't have a galt_message_id handy
+ *  (e.g. introspection tools). The propose-* family is omitted here
+ *  since those need a turn id. */
 export const CHAT_TOOLS: ToolDefinition[] = [
   list_calendar_events,
   search_messages,

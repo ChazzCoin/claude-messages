@@ -25,6 +25,7 @@ import {
   getAutoNote,
   listAutoNotes,
 } from './db/app.js';
+import { exportCalendarProposal, dismissCalendarProposal } from './calendar-export.js';
 import { getContactNameForHandle, normalizeHandle } from './db/contacts.js';
 import { getMirrorDb, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
@@ -285,6 +286,24 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       // Wipe the entire chat history. Destructive.
       await clearChatHistory();
       return { cleared: true };
+    }
+
+    case 'export_calendar_proposal': {
+      // Companion taps "Approve" on a proposal card. Same path the
+      // local web's HTTP /export endpoint uses — writes an .ics file
+      // and `open`s it so Calendar.app's native importer takes over.
+      const id = typeof p.id === 'number' ? p.id : NaN;
+      if (!Number.isFinite(id)) throw new Error('id required');
+      const out = await exportCalendarProposal(id);
+      return { proposal: out.proposal };
+    }
+
+    case 'dismiss_calendar_proposal': {
+      // Companion taps "Dismiss". No Calendar.app side effect.
+      const id = typeof p.id === 'number' ? p.id : NaN;
+      if (!Number.isFinite(id)) throw new Error('id required');
+      const proposal = dismissCalendarProposal(id);
+      return { proposal };
     }
 
     case 'send_test_push': {

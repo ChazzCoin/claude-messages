@@ -737,6 +737,106 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .chat-tool.chat-tool-err > summary .chat-tool-name { color: var(--red); }
 .chat-tool.chat-tool-err .chat-tool-body { color: var(--red); }
 
+/* Approval cards — propose_* tools surface as a structured card the
+   user has to act on before anything writes. Sits in the same
+   .chat-bubble-stack as the bubble + tool chips, just below them.
+   Status flips via [data-status] when the user taps approve/dismiss. */
+.chat-proposal-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-proposal-card[data-status="approved"] {
+  border-color: var(--green);
+  opacity: 0.7;
+}
+.chat-proposal-card[data-status="dismissed"] {
+  border-color: var(--border-2);
+  opacity: 0.5;
+}
+.chat-proposal-card[data-status="sending"] {
+  opacity: 0.6;
+}
+.chat-proposal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.chat-proposal-kind {
+  color: var(--accent);
+}
+.chat-proposal-status {
+  color: var(--text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.chat-proposal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 2px;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.chat-proposal-when {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.chat-proposal-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.chat-proposal-notes {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-top: 4px;
+  line-height: 1.45;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.chat-proposal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.chat-proposal-btn {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+}
+.chat-proposal-btn.approve {
+  background: var(--accent);
+  color: var(--bg);
+}
+.chat-proposal-btn.approve:hover { background: var(--accent-dim); }
+.chat-proposal-btn.dismiss {
+  background: var(--bg-3);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.chat-proposal-btn.dismiss:hover { color: var(--text); background: var(--bg-elev); }
+.chat-proposal-btn[disabled] {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 /* "Galt is thinking…" — animated dots in a small galt-bubble shape. */
 .chat-typing {
   display: flex;

@@ -31,6 +31,37 @@ const HANDLERS = {
 
   'chat-send':     () => { void sendChatTurn(); },
   'chat-clear':    () => { void clearChat(); },
+
+  /* calendar proposal approve / dismiss — sent via the /commands bus
+     (export_calendar_proposal / dismiss_calendar_proposal). Backend
+     marks the row exported (writes .ics + opens Calendar.app's
+     importer) or dismissed. We surface the result inline on the
+     card by flipping its data-status. */
+  'proposal-approve': async (target) => {
+    const id = parseInt(target.dataset.proposalId, 10);
+    if (!Number.isFinite(id)) return;
+    markProposalStatus(target, 'sending');
+    try {
+      await sendCommand('export_calendar_proposal', { id });
+      markProposalStatus(target, 'approved');
+      showToast('opened in Calendar.app — click Add', 'ok');
+    } catch (err) {
+      markProposalStatus(target, 'pending');
+      showToast(err.message, 'error');
+    }
+  },
+  'proposal-dismiss': async (target) => {
+    const id = parseInt(target.dataset.proposalId, 10);
+    if (!Number.isFinite(id)) return;
+    markProposalStatus(target, 'sending');
+    try {
+      await sendCommand('dismiss_calendar_proposal', { id });
+      markProposalStatus(target, 'dismissed');
+    } catch (err) {
+      markProposalStatus(target, 'pending');
+      showToast(err.message, 'error');
+    }
+  },
   'refresh':       async () => {
     try {
       await sendCommand('refresh_state');
@@ -157,6 +188,27 @@ const HANDLERS = {
     await sendTestPush();
   },
 };
+
+/* ---------- proposal-card status flip ---------- */
+
+function markProposalStatus(target, status) {
+  // Walk up to the .chat-proposal-card so we can stamp data-status
+  // on the whole card (drives the CSS variant — approved / dismissed
+  // / sending all dim the card differently).
+  const card = target.closest('.chat-proposal-card');
+  if (!card) return;
+  card.dataset.status = status;
+  const statusEl = card.querySelector('[data-id^="proposal-status-"]');
+  if (statusEl) statusEl.textContent = status;
+  // Disable the buttons once the user has decided, regardless of
+  // which one they picked. The chat history will eventually re-render
+  // from RTDB but we want the click to be visibly final immediately.
+  if (status === 'approved' || status === 'dismissed') {
+    for (const btn of card.querySelectorAll('.chat-proposal-btn')) {
+      btn.setAttribute('disabled', 'true');
+    }
+  }
+}
 
 /* ---------- toggles (Summon, Away) ---------- */
 

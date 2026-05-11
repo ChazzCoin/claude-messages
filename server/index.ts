@@ -1265,9 +1265,7 @@ app.post(
 
 /* ---------- routes: calendar proposals ---------- */
 
-function enrichProposal<T extends { handle: string }>(p: T): T & { contact_name: string | null } {
-  return { ...p, contact_name: getContactNameForHandle(p.handle) };
-}
+import { exportCalendarProposal, enrichProposal } from './calendar-export.js';
 
 app.get('/api/calendar/proposals', (req, res) => {
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
@@ -1294,85 +1292,24 @@ app.delete('/api/calendar/proposals/:id', (req, res) => {
   return ok ? res.status(204).end() : res.status(404).json({ error: 'not found' });
 });
 
-/** Export a calendar proposal to Calendar.app via .ics file → open. */
 app.post(
   '/api/calendar/proposals/:id/export',
   asyncHandler(async (req, res) => {
     const id = parseInt(req.params.id ?? '', 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
-    const p = getCalendarProposal(id);
-    if (!p) return res.status(404).json({ error: 'not found' });
-    if (!p.start_ms) {
-      return res
-        .status(400)
-        .json({ error: 'proposal has no start time — edit it first or dismiss' });
-    }
-
-    const startMs = p.start_ms;
-    // Default end: +1 hour if not specified
-    const endMs = p.end_ms ?? startMs + 60 * 60 * 1000;
-
-    const ics = buildIcs({
-      uid: `galt-${p.id}-${Date.now()}@local`,
-      title: p.title,
-      startMs,
-      endMs,
-      location: p.location,
-      description: [p.notes, p.participants ? `Participants: ${p.participants}` : null]
-        .filter(Boolean)
-        .join('\n\n'),
-    });
-
-    const tmpPath = path.join(os.tmpdir(), `galt-event-${id}.ics`);
-    fs.writeFileSync(tmpPath, ics, 'utf8');
-
     try {
-      await execFileP('open', [tmpPath]);
+      const out = await exportCalendarProposal(id);
+      res.json(out);
     } catch (err) {
-      return res.status(500).json({ error: `open failed: ${(err as Error).message}` });
+      const msg = (err as Error).message;
+      const code =
+        msg === 'not found' ? 404
+        : msg.startsWith('proposal has no start time') ? 400
+        : 500;
+      res.status(code).json({ error: msg });
     }
-
-    const updated = updateCalendarProposalStatus(id, 'exported');
-    res.json({ proposal: enrichProposal(updated!), ics_path: tmpPath });
   }),
 );
-
-function buildIcs(input: {
-  uid: string;
-  title: string;
-  startMs: number;
-  endMs: number;
-  location: string | null;
-  description: string;
-}): string {
-  const fmt = (ms: number): string => {
-    const d = new Date(ms);
-    const yyyy = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const dd = String(d.getUTCDate()).padStart(2, '0');
-    const HH = String(d.getUTCHours()).padStart(2, '0');
-    const MM = String(d.getUTCMinutes()).padStart(2, '0');
-    const SS = String(d.getUTCSeconds()).padStart(2, '0');
-    return `${yyyy}${mm}${dd}T${HH}${MM}${SS}Z`;
-  };
-  const escape = (s: string) =>
-    s.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
-  const lines = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//galt//EN',
-    'BEGIN:VEVENT',
-    `UID:${input.uid}`,
-    `DTSTAMP:${fmt(Date.now())}`,
-    `DTSTART:${fmt(input.startMs)}`,
-    `DTEND:${fmt(input.endMs)}`,
-    `SUMMARY:${escape(input.title)}`,
-  ];
-  if (input.location) lines.push(`LOCATION:${escape(input.location)}`);
-  if (input.description) lines.push(`DESCRIPTION:${escape(input.description)}`);
-  lines.push('END:VEVENT', 'END:VCALENDAR');
-  return lines.join('\r\n') + '\r\n';
-}
 
 /* ---------- routes: away mode ---------- */
 
