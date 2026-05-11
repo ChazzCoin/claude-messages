@@ -41,7 +41,11 @@ import {
   listAutoNotes,
   listNotesForHandle,
   getContactProfile,
+  listGChatSpaces,
+  listGChatMessages,
+  searchGChatMessages,
 } from '../db/app.js';
+import { googleChat } from '../integrations/google-chat.js';
 
 /* ============================================================
    Calendar
@@ -570,6 +574,96 @@ const request_user_approval: ToolDefinition = {
    accessible on the Mac. Synchronous in Phase 1 (Galt waits for
    Claude to finish); a streaming task layer is Phase 2/3. */
 
+/* ============================================================
+   Google Chat
+   ============================================================ */
+
+const list_gchat_spaces: ToolDefinition = {
+  name: 'list_gchat_spaces',
+  description:
+    "List all Google Chat spaces the user is a member of, including which ones are being monitored. Use this when the user asks about their Google Chat spaces, wants to know what's being watched, or before sending a message to confirm the correct space name.",
+  parameters: { type: 'object', properties: {}, required: [] },
+  async execute() {
+    const spaces = listGChatSpaces();
+    return {
+      spaces: spaces.map((s) => ({
+        name: s.name,
+        display_name: s.display_name,
+        space_type: s.space_type,
+        watched: s.watched === 1,
+        last_message_time: s.last_message_time,
+      })),
+    };
+  },
+};
+
+const list_gchat_messages: ToolDefinition = {
+  name: 'list_gchat_messages',
+  description:
+    'Read recent messages from a Google Chat space. Use this when the user asks what was discussed in a space, wants to catch up on a conversation, or needs context before sending a message.',
+  parameters: {
+    type: 'object',
+    properties: {
+      space_name: {
+        type: 'string',
+        description: 'The space resource name, e.g. "spaces/XXXXXXX". Get this from list_gchat_spaces.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Max messages to return (default 50, max 200).',
+      },
+    },
+    required: ['space_name'],
+  },
+  async execute(args: { space_name: string; limit?: number }) {
+    const limit = Math.max(1, Math.min(200, args.limit ?? 50));
+    const messages = listGChatMessages(args.space_name, { limit });
+    return { messages: messages.reverse() }; // oldest first for readability
+  },
+};
+
+const send_gchat_message: ToolDefinition = {
+  name: 'send_gchat_message',
+  description:
+    "Send a message to a Google Chat space. Use this when the user explicitly asks to send a message, post a standup, share an update, or reply to a space. Always confirm the text with the user before sending unless they've provided the exact message to send.",
+  parameters: {
+    type: 'object',
+    properties: {
+      space_name: {
+        type: 'string',
+        description: 'The space resource name, e.g. "spaces/XXXXXXX".',
+      },
+      text: {
+        type: 'string',
+        description: 'The message text to send.',
+      },
+    },
+    required: ['space_name', 'text'],
+  },
+  async execute(args: { space_name: string; text: string }) {
+    const msg = await googleChat.sendMessage(args.space_name, args.text);
+    return { ok: true, message: { name: msg.name, text: msg.text, create_time: msg.createTime } };
+  },
+};
+
+const search_gchat_messages: ToolDefinition = {
+  name: 'search_gchat_messages',
+  description:
+    'Search through Google Chat message history by keyword. Searches across all spaces unless space_name is provided. Use for finding specific conversations, decisions, or context.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Keyword or phrase to search for.' },
+      space_name: { type: 'string', description: 'Optional: limit to a specific space.' },
+    },
+    required: ['query'],
+  },
+  async execute(args: { query: string; space_name?: string }) {
+    const messages = searchGChatMessages(args.query, args.space_name);
+    return { messages };
+  },
+};
+
 /** Build the claude_ask tool for a specific Galt chat turn. The
  *  message id stamps the resulting task row so the chat UI can
  *  render a live task card tied to this exact Galt turn. */
@@ -694,6 +788,10 @@ export function buildChatTools(galtMessageId: string): ToolDefinition[] {
     request_user_approval,
     buildClaudeAskTool(galtMessageId),
     claude_list_sessions,
+    list_gchat_spaces,
+    list_gchat_messages,
+    send_gchat_message,
+    search_gchat_messages,
   ];
 }
 
@@ -710,4 +808,8 @@ export const CHAT_TOOLS: ToolDefinition[] = [
   get_call_history,
   request_user_approval,
   claude_list_sessions,
+  list_gchat_spaces,
+  list_gchat_messages,
+  send_gchat_message,
+  search_gchat_messages,
 ];

@@ -123,6 +123,16 @@ import {
   type CalendarProposalStatus,
   type AwaySession,
   type SummonSession,
+  // google chat
+  upsertGChatSpace,
+  listGChatSpaces,
+  listWatchedSpaces,
+  setGChatSpaceWatched,
+  insertGChatMessage,
+  setGChatMessageNoteId,
+  listGChatMessages,
+  searchGChatMessages,
+  type GChatSpaceRow,
 } from './db/app.js';
 import { sendMessageViaAppleScript, sendToChat } from './send.js';
 import { Context, type ContextInput } from './ai/context.js';
@@ -130,6 +140,8 @@ import { awayMode } from './ai/modes/away.js';
 import { summonMode } from './ai/modes/summon.js';
 import type { ChatTarget } from './db/messages.js';
 import { messageWatcher } from './watcher.js';
+import { googleChatWatcher } from './google-chat-watcher.js';
+import { googleChat } from './integrations/google-chat.js';
 import { mirrorAutoNote, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
 import { startCommandListener, stopCommandListener } from './firebase-commands.js';
@@ -1745,6 +1757,100 @@ app.post('/api/tasks/:id/cancel', (req, res) => {
   return res.json({ ok: true, task });
 });
 
+/* ======================================================= */
+/* Google Chat API routes                                  */
+/* ======================================================= */
+
+/** Auth health check. */
+app.get('/api/gchat/health', async (_req, res) => {
+  const auth = await googleChat.checkAuth();
+  const spaces = listGChatSpaces();
+  const watched = spaces.filter((s) => s.watched);
+  res.json({
+    auth_ok: auth.ok,
+    auth_error: auth.error ?? null,
+    watcher_running: googleChatWatcher.isRunning(),
+    spaces_known: spaces.length,
+    spaces_watched: watched.length,
+  });
+});
+
+/** List all known spaces (synced from Chat API). */
+app.get('/api/gchat/spaces', (_req, res) => {
+  res.json({ spaces: listGChatSpaces() });
+});
+
+/** Sync spaces from Chat API — discovers all spaces the user is in. */
+app.post('/api/gchat/spaces/sync', async (_req, res) => {
+  try {
+    const remote = await googleChat.listSpaces();
+    for (const s of remote) {
+      upsertGChatSpace({ name: s.name, display_name: s.displayName, space_type: s.spaceType });
+    }
+    const spaces = listGChatSpaces();
+    res.json({ ok: true, synced: remote.length, spaces });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/** Toggle watch on a space. Starting/stopping the watcher as needed. */
+app.post('/api/gchat/spaces/:name(*)/watch', (req, res) => {
+  const spaceName = String(req.params.name ?? '');  // "spaces/XXXXXXX"
+  const { watched } = req.body as { watched: boolean };
+  const ok = setGChatSpaceWatched(spaceName, !!watched);
+  if (!ok) return res.status(404).json({ error: 'space not found' });
+
+  // Auto-manage watcher lifecycle.
+  const watchedSpaces = listWatchedSpaces();
+  if (watchedSpaces.length > 0 && !googleChatWatcher.isRunning()) {
+    googleChatWatcher.start();
+  } else if (watchedSpaces.length === 0 && googleChatWatcher.isRunning()) {
+    googleChatWatcher.stop();
+  }
+
+  return res.json({ ok: true, spaces: listGChatSpaces() });
+});
+
+/** Recent messages in a space. */
+app.get('/api/gchat/spaces/:name(*)/messages', (req, res) => {
+  const spaceName = String(req.params.name ?? '');
+  const limit = Math.max(1, Math.min(500, parseInt(String(req.query.limit ?? '100'), 10) || 100));
+  const messages = listGChatMessages(spaceName, { limit });
+  res.json({ messages });
+});
+
+/** Send a message to a space. */
+app.post('/api/gchat/spaces/:name(*)/messages', async (req, res) => {
+  const spaceName = String(req.params.name ?? '');
+  const { text } = req.body as { text?: string };
+  if (!text?.trim()) return res.status(400).json({ error: 'text is required' });
+  try {
+    const msg = await googleChat.sendMessage(spaceName, text.trim());
+    // Persist our own sent message for history.
+    insertGChatMessage({
+      name: msg.name,
+      space_name: msg.spaceName,
+      sender_name: msg.senderName,
+      sender_type: 'HUMAN',
+      text: msg.text,
+      create_time: msg.createTime,
+      thread_name: msg.threadName,
+    });
+    return res.json({ ok: true, message: msg });
+  } catch (err) {
+    return res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/** Search messages across spaces. */
+app.get('/api/gchat/search', (req, res) => {
+  const q = String(req.query.q ?? '').trim();
+  if (!q) return res.status(400).json({ error: 'q is required' });
+  const space = typeof req.query.space === 'string' ? req.query.space : undefined;
+  res.json({ messages: searchGChatMessages(q, space) });
+});
+
 /* ---------- watcher → away-mode auto-responder ---------- */
 
 /**
@@ -2711,6 +2817,81 @@ messageWatcher.onMessages((messages: MessageRow[]) => {
   }
 });
 
+/* ---------- Google Chat watcher → extraction ---------- */
+
+googleChatWatcher.onMessages(async (messages, space) => {
+  for (const msg of messages) {
+    // Skip bot messages and messages with no text.
+    if (msg.senderType === 'BOT' || !msg.text.trim()) continue;
+
+    // Persist raw message for search / history.
+    const isNew = insertGChatMessage({
+      name: msg.name,
+      space_name: msg.spaceName,
+      sender_name: msg.senderName,
+      sender_type: msg.senderType,
+      text: msg.text,
+      create_time: msg.createTime,
+      thread_name: msg.threadName,
+    });
+
+    if (!isNew) continue; // already processed
+
+    // Run auto-note extraction — same AI pipeline as iMessages.
+    void extractGChatNote(msg, space);
+  }
+});
+
+async function extractGChatNote(
+  msg: import('./integrations/google-chat.js').GChatMessage,
+  space: GChatSpaceRow,
+): Promise<void> {
+  if (!isAIConfigured()) return;
+  // Use GChat message name (sanitized) as the guid for dedup.
+  const guid = msg.name.replace(/\//g, '_');
+  if (autoNoteAlreadyExists(guid)) return;
+
+  try {
+    const { extractAutoNote } = await import('./ai.js');
+    const result = await extractAutoNote({
+      sender: `${msg.senderName} (in ${space.display_name || space.name})`,
+      messageText: msg.text,
+    });
+
+    if (!result.shouldNote || !result.summary) return;
+
+    const note = insertAutoNote({
+      session_id: null,
+      handle: space.display_name || space.name,
+      message_guid: guid,
+      message_rowid: null,
+      message_text: msg.text,
+      summary: result.summary,
+      category: result.category,
+      reasoning: result.reasoning,
+      source: 'gchat',
+      source_meta: JSON.stringify({
+        space_name: msg.spaceName,
+        space_display_name: space.display_name,
+        sender_name: msg.senderName,
+        message_name: msg.name,
+      }),
+    });
+
+    if (!note) return;
+    setGChatMessageNoteId(msg.name, note.id);
+
+    sseBroadcast('autonote.created', { note });
+    void mirrorAutoNote({ note, contactName: msg.senderName, deviceId: getDeviceId() });
+
+    console.log(
+      `[gchat-extract] note created id=${note.id} space=${space.display_name} sender=${msg.senderName} category=${note.category}`,
+    );
+  } catch (err) {
+    console.error('[gchat-extract] failed:', (err as Error).message);
+  }
+}
+
 /* ---------- scheduler tick: send due messages ---------- */
 
 const SCHEDULER_TICK_MS = 30_000;
@@ -2802,6 +2983,20 @@ const server = app.listen(config.port, config.host, () => {
   } catch (err) {
     console.warn(`  watcher: ${(err as Error).message}`);
   }
+  // Start Google Chat watcher — polls watched spaces every 30s.
+  // Auth errors are surface-level only; if ADC lacks Chat scopes the
+  // watcher logs warnings per-poll but doesn't crash the server.
+  try {
+    const watchedSpaces = listWatchedSpaces();
+    if (watchedSpaces.length > 0) {
+      googleChatWatcher.start();
+      console.log(`  gchat-watcher: started (${watchedSpaces.length} space(s) watched)`);
+    } else {
+      console.log('  gchat-watcher: standby (no watched spaces yet)');
+    }
+  } catch (err) {
+    console.warn(`  gchat-watcher: ${(err as Error).message}`);
+  }
   // Push initial state snapshot so the remote console reflects the live
   // server immediately on boot, not only after the first user mutation.
   void pushStateSnapshotNow();
@@ -2815,6 +3010,7 @@ function shutdown(signal: string) {
   clearInterval(schedulerInterval);
   stopCommandListener();
   messageWatcher.stop();
+  googleChatWatcher.stop();
   for (const c of sseClients) {
     try {
       c.end();

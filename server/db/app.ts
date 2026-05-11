@@ -324,6 +324,30 @@ function migrate(db: DB) {
     );
     CREATE INDEX IF NOT EXISTS idx_task_events_task_ts ON task_events(task_id, ts);
 
+    -- Google Chat spaces: all known spaces + watch state / polling watermark.
+    CREATE TABLE IF NOT EXISTS gchat_spaces (
+      name              TEXT PRIMARY KEY,      -- "spaces/XXXXXXX"
+      display_name      TEXT,
+      space_type        TEXT,                  -- SPACE | GROUP_CHAT | DIRECT_MESSAGE
+      watched           INTEGER DEFAULT 0,     -- 1 = watcher polls this space
+      last_message_time TEXT,                  -- ISO watermark for createTime filter
+      added_at          INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    );
+
+    -- Google Chat messages: raw log for dedup + search.
+    CREATE TABLE IF NOT EXISTS gchat_messages (
+      name         TEXT PRIMARY KEY,           -- "spaces/XXX/messages/YYY"
+      space_name   TEXT NOT NULL,
+      sender_name  TEXT,
+      sender_type  TEXT,                       -- HUMAN | BOT
+      text         TEXT,
+      create_time  TEXT,
+      thread_name  TEXT,
+      note_id      INTEGER,                    -- FK → auto_notes.id if extracted
+      indexed_at   INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_gchat_messages_space ON gchat_messages(space_name, create_time);
+
     CREATE TABLE IF NOT EXISTS state (
       key          TEXT PRIMARY KEY,
       value        TEXT NOT NULL
@@ -439,6 +463,18 @@ function migrate(db: DB) {
       COMMIT;
     `);
     console.log('[migrate] away_notes renamed to auto_notes');
+  }
+
+  // Add source + source_meta to auto_notes (Google Chat notes flow into the
+  // same table; source distinguishes origin). Idempotent via PRAGMA check.
+  const autoNoteCols = db.prepare('PRAGMA table_info(auto_notes)').all() as Array<{ name: string }>;
+  if (!autoNoteCols.some((c) => c.name === 'source')) {
+    db.exec("ALTER TABLE auto_notes ADD COLUMN source TEXT NOT NULL DEFAULT 'imessage'");
+    console.log('[migrate] auto_notes: added source column');
+  }
+  if (!autoNoteCols.some((c) => c.name === 'source_meta')) {
+    db.exec('ALTER TABLE auto_notes ADD COLUMN source_meta TEXT');
+    console.log('[migrate] auto_notes: added source_meta column');
   }
 
   // Rename kv key summon_persona → galt_voice_profile. Galt's voice was
@@ -2024,6 +2060,7 @@ export function activeSummonChatIds(): Set<number> {
 /* ---------- auto notes (24/7 inbound triage — substantive items to follow up on) ---------- */
 
 export type AutoNoteCategory = 'urgent' | 'business' | 'personal';
+export type AutoNoteSource = 'imessage' | 'gchat';
 
 export interface AutoNote {
   id: number;
@@ -2037,10 +2074,14 @@ export interface AutoNote {
   reasoning: string | null;
   created_at: number;
   reviewed_at: number | null;
+  /** 'imessage' (default) or 'gchat' */
+  source: AutoNoteSource;
+  /** JSON string — for gchat: { space_name, space_display_name, sender_name } */
+  source_meta: string | null;
 }
 
 const AUTO_NOTE_COLS =
-  'id, session_id, handle, message_guid, message_rowid, message_text, summary, category, reasoning, created_at, reviewed_at';
+  'id, session_id, handle, message_guid, message_rowid, message_text, summary, category, reasoning, created_at, reviewed_at, source, source_meta';
 
 export function autoNoteAlreadyExists(messageGuid: string): boolean {
   const db = getAppDb();
@@ -2058,13 +2099,15 @@ export function insertAutoNote(input: {
   summary: string;
   category: AutoNoteCategory;
   reasoning: string | null;
+  source?: AutoNoteSource;
+  source_meta?: string | null;
 }): AutoNote | null {
   const db = getAppDb();
   const info = db
     .prepare(
       `INSERT OR IGNORE INTO auto_notes
-        (session_id, handle, message_guid, message_rowid, message_text, summary, category, reasoning)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        (session_id, handle, message_guid, message_rowid, message_text, summary, category, reasoning, source, source_meta)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.session_id,
@@ -2075,6 +2118,8 @@ export function insertAutoNote(input: {
       input.summary,
       input.category,
       input.reasoning,
+      input.source ?? 'imessage',
+      input.source_meta ?? null,
     );
   if (info.changes === 0) return null;
   return db
@@ -2400,4 +2445,126 @@ export function listTaskEvents(taskId: string, opts: { sinceId?: number; limit?:
       ts: Number(row.ts),
     };
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Google Chat spaces                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface GChatSpaceRow {
+  name: string;
+  display_name: string | null;
+  space_type: string | null;
+  watched: number;    // 0 | 1
+  last_message_time: string | null;
+  added_at: number;
+}
+
+export function upsertGChatSpace(input: {
+  name: string;
+  display_name: string;
+  space_type: string;
+}): GChatSpaceRow {
+  const db = getAppDb();
+  db.prepare(`
+    INSERT INTO gchat_spaces (name, display_name, space_type)
+    VALUES (?, ?, ?)
+    ON CONFLICT(name) DO UPDATE SET
+      display_name = excluded.display_name,
+      space_type   = excluded.space_type
+  `).run(input.name, input.display_name, input.space_type);
+  return db.prepare('SELECT * FROM gchat_spaces WHERE name = ?').get(input.name) as GChatSpaceRow;
+}
+
+export function listGChatSpaces(): GChatSpaceRow[] {
+  return getAppDb()
+    .prepare('SELECT * FROM gchat_spaces ORDER BY display_name ASC')
+    .all() as GChatSpaceRow[];
+}
+
+export function listWatchedSpaces(): GChatSpaceRow[] {
+  return getAppDb()
+    .prepare('SELECT * FROM gchat_spaces WHERE watched = 1 ORDER BY display_name ASC')
+    .all() as GChatSpaceRow[];
+}
+
+export function setGChatSpaceWatched(name: string, watched: boolean): boolean {
+  const info = getAppDb()
+    .prepare('UPDATE gchat_spaces SET watched = ? WHERE name = ?')
+    .run(watched ? 1 : 0, name);
+  return info.changes > 0;
+}
+
+export function updateGChatSpaceWatermark(name: string, lastMessageTime: string): void {
+  getAppDb()
+    .prepare('UPDATE gchat_spaces SET last_message_time = ? WHERE name = ?')
+    .run(lastMessageTime, name);
+}
+
+/* ------------------------------------------------------------------ */
+/* Google Chat messages                                                */
+/* ------------------------------------------------------------------ */
+
+export interface GChatMessageRow {
+  name: string;
+  space_name: string;
+  sender_name: string | null;
+  sender_type: string | null;
+  text: string | null;
+  create_time: string | null;
+  thread_name: string | null;
+  note_id: number | null;
+  indexed_at: number;
+}
+
+/** Insert a GChat message; idempotent (INSERT OR IGNORE). Returns true if new. */
+export function insertGChatMessage(input: {
+  name: string;
+  space_name: string;
+  sender_name: string;
+  sender_type: string;
+  text: string;
+  create_time: string;
+  thread_name: string | null;
+}): boolean {
+  const info = getAppDb().prepare(`
+    INSERT OR IGNORE INTO gchat_messages
+      (name, space_name, sender_name, sender_type, text, create_time, thread_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    input.name, input.space_name, input.sender_name, input.sender_type,
+    input.text, input.create_time, input.thread_name,
+  );
+  return info.changes > 0;
+}
+
+export function setGChatMessageNoteId(messageName: string, noteId: number): void {
+  getAppDb()
+    .prepare('UPDATE gchat_messages SET note_id = ? WHERE name = ?')
+    .run(noteId, messageName);
+}
+
+export function listGChatMessages(
+  spaceName: string,
+  opts: { limit?: number } = {},
+): GChatMessageRow[] {
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 100));
+  return getAppDb()
+    .prepare(
+      'SELECT * FROM gchat_messages WHERE space_name = ? ORDER BY create_time DESC LIMIT ?',
+    )
+    .all(spaceName, limit) as GChatMessageRow[];
+}
+
+export function searchGChatMessages(query: string, spaceName?: string): GChatMessageRow[] {
+  const db = getAppDb();
+  const like = `%${query}%`;
+  if (spaceName) {
+    return db
+      .prepare('SELECT * FROM gchat_messages WHERE space_name = ? AND text LIKE ? ORDER BY create_time DESC LIMIT 50')
+      .all(spaceName, like) as GChatMessageRow[];
+  }
+  return db
+    .prepare('SELECT * FROM gchat_messages WHERE text LIKE ? ORDER BY create_time DESC LIMIT 50')
+    .all(like) as GChatMessageRow[];
 }
