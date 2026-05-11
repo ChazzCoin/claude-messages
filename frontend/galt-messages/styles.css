@@ -523,6 +523,11 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   flex-direction: column;
   height: 100vh;
   background: var(--bg);
+  /* Belt-and-suspenders: nothing should ever cause horizontal scroll
+     in chat. Long tool arg strings + iOS rubber-banding both
+     conspire to produce it without this. */
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 .app[data-route="chat"] .desktop-layout,
 .app[data-route="chat"] .mobile-layout { display: none; }
@@ -557,6 +562,7 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .chat-scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 14px 14px 4px;
   display: flex;
   flex-direction: column;
@@ -652,6 +658,7 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   flex-direction: column;
   gap: 4px;
   max-width: 78%;
+  min-width: 0;
   align-items: flex-start;
 }
 .chat-bubble-row.me .chat-bubble-stack { align-items: flex-end; }
@@ -660,6 +667,8 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   display: flex;
   flex-direction: column;
   gap: 3px;
+  width: 100%;
+  min-width: 0;
 }
 .chat-tool {
   background: var(--bg-2);
@@ -668,6 +677,8 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   font-size: 11.5px;
   color: var(--text-dim);
   overflow: hidden;
+  max-width: 100%;
+  min-width: 0;
 }
 .chat-tool[open] {
   background: var(--bg-3);
@@ -679,20 +690,28 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Don't wrap individual children, but let the row truncate as a
+     whole via the flex+min-width:0 trick on `.chat-tool-args`. */
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
 }
 .chat-tool > summary::-webkit-details-marker { display: none; }
 .chat-tool-name {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   color: var(--accent);
   font-weight: 600;
+  flex-shrink: 0;
 }
 .chat-tool-args {
   color: var(--text-faint);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 10.5px;
+  /* flex:1 + min-width:0 makes the args the truncation point — it
+     shrinks to fit available space and ellipsizes when content
+     overflows. */
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -701,6 +720,7 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   color: var(--text-faint);
   font-size: 10.5px;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  flex-shrink: 0;
 }
 .chat-tool-body {
   margin: 0;
