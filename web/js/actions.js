@@ -119,6 +119,27 @@ async function onClick(e) {
     return;
   }
 
+  /* ---------- Galt page — mode tabs + preview ---------- */
+  if (action === 'galt-switch-mode') {
+    const name = btn.dataset.mode;
+    if (!name) return;
+    const { setGaltMode } = await import('./views/galt.js');
+    setGaltMode(name);
+    return;
+  }
+  if (action === 'galt-preview') {
+    const name = btn.dataset.mode;
+    if (!name) return;
+    const { showGaltPreview } = await import('./views/galt.js');
+    await showGaltPreview(name);
+    return;
+  }
+  if (action === 'galt-preview-close') {
+    const { closeGaltPreview } = await import('./views/galt.js');
+    closeGaltPreview();
+    return;
+  }
+
   if (action === 'open-thread-by-handle') {
     const handle = btn.dataset.handle;
     const meta = chatsCache.find((c) => c.identifier === handle);

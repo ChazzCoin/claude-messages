@@ -17,10 +17,10 @@
 //       greeting() returns null;
 //       handler calls draft() per usual.
 
-import { PromptMode } from './mode.js';
+import { PromptMode, type ModeStage } from './mode.js';
 import type { Context } from '../context.js';
 import { applyTemplate } from '../../ai.js';
-import { getSettings } from '../../db/app.js';
+import { getSettings, SETTING_DEFAULTS } from '../../db/app.js';
 import {
   IDENTITY_BASE,
   OUTPUT_FORMAT,
@@ -30,6 +30,18 @@ import {
   NEVER_ASK_HELP_DESK,
   KEEP_IT_SHORT,
 } from '../guardrails.js';
+
+/** Default per-turn instruction for Summon. Exposed as a constant so
+ *  stages() can show it as the editable default; buildContextNote
+ *  branches on triggerFromUser at runtime — the default shown in the
+ *  UI is the user-trigger branch (the most common case). */
+const SUMMON_DEFAULT_CONTEXT_NOTE = `SUMMON MODE — the user has invoked you into this LIVE conversation. The user ({userName}) is PRESENT and engaged in this thread; you (Galt) are joining as a third voice. You are NOT covering for the user — they are right here. The other person in the conversation is {recipientName}.
+
+THE LATEST MESSAGE is from {userName} (the user) — directed at YOU. Handle it as one of these three cases:
+- ASK or DIRECTIVE ("what is X", "explain Y", "look up Z", "should I A"): just answer or do it. No preamble.
+- BARE SUMMON (trigger phrase alone, or naming you with no specific topic): one short on-topic line picking up where the thread is. Don't ask what they want.
+- META / between-{userName}-and-{recipientName} chatter that doesn't actually need you: SKIP (or stay light).
+Note: {userName}'s typed messages mid-session are for YOU even WITHOUT the trigger phrase. The trigger only opens the session; once open, treat any directive from {userName} as Galt's to answer.`;
 
 export interface SummonInput {
   /** True when the LATEST message in the thread is the user's own
@@ -205,6 +217,161 @@ export class SummonMode extends PromptMode<SummonInput> {
     }
 
     return sections.join('\n\n');
+  }
+
+  /** Pipeline view for the UI. Mirrors buildSystemPrompt order; the
+   *  greeting is included as the first stage even though it's pre-AI
+   *  (the UI shows the full mode flow, not just the AI assembly). */
+  stages(): ModeStage[] {
+    const s = getSettings();
+    const out: ModeStage[] = [];
+
+    // 0. Greeting (pre-AI literal send for bare summons)
+    out.push({
+      id: 'greeting',
+      label: 'Acknowledgment',
+      description: 'Short literal send when the user fires the trigger with no actual ask. Bypasses the AI. (Ask-summons skip this and go straight to the AI.)',
+      fires: 'on bare-summon activation only',
+      settingsKey: 'summon_acknowledgment',
+      defaultText: SETTING_DEFAULTS.summon_acknowledgment,
+      text: s.summon_acknowledgment || SETTING_DEFAULTS.summon_acknowledgment,
+      rows: 2,
+    });
+
+    // 1. Identity
+    out.push({
+      id: 'identity',
+      label: 'Identity',
+      description: 'Universal Galt framing. Hardcoded.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: IDENTITY_BASE,
+      text: IDENTITY_BASE,
+    });
+
+    // 2. Per-turn instruction — moved EARLY in Summon (right after
+    //    identity) so the third-voice / user-is-here framing is set
+    //    before the model sees data and slips into help-desk mode.
+    out.push({
+      id: 'context_note',
+      label: 'Per-turn instruction',
+      description: 'Tells the model its job for THIS turn — third voice, user is present, what the latest message IS. Override fully replaces the default. Supports {recipientName} / {userName}.',
+      fires: 'always',
+      settingsKey: 'summon_system_prompt',
+      defaultText: SUMMON_DEFAULT_CONTEXT_NOTE,
+      text: s.summon_system_prompt?.trim() || SUMMON_DEFAULT_CONTEXT_NOTE,
+      rows: 12,
+    });
+
+    // 3. Voice
+    out.push({
+      id: 'voice',
+      label: "Galt's voice",
+      description: "Galt's voice profile (system-wide AI voice — used in every mode).",
+      fires: 'when galt_voice_profile is set',
+      settingsKey: 'galt_voice_profile',
+      defaultText: '',
+      text: s.galt_voice_profile || '',
+      rows: 5,
+    });
+
+    // 4-7. Per-contact / system data sections (read from the contact
+    //      and macOS apps; not user-editable here)
+    out.push({
+      id: 'contact_profile',
+      label: 'Contact profile',
+      description: "User's prose description of the contact. Edited from the contact's workbench, not here.",
+      fires: 'when the contact has a profile set',
+      settingsKey: null,
+      defaultText: '(per-contact, set on the contact)',
+      text: '(per-contact, set on the contact)',
+    });
+    out.push({
+      id: 'address_book',
+      label: 'Address book',
+      description: 'macOS Contacts.app data for this contact. Read-only.',
+      fires: 'when contact has a macOS Contacts entry',
+      settingsKey: null,
+      defaultText: '(read from macOS Contacts.app)',
+      text: '(read from macOS Contacts.app)',
+    });
+    out.push({
+      id: 'calendar',
+      label: 'Calendar',
+      description: 'macOS Calendar.app availability — only used when the thread asks about scheduling.',
+      fires: 'when calendar events fall in the window AND thread is scheduling-related',
+      settingsKey: null,
+      defaultText: '(read from macOS Calendar.app)',
+      text: '(read from macOS Calendar.app)',
+    });
+    out.push({
+      id: 'contact_notes',
+      label: 'Contact notes',
+      description: 'Per-contact short-fact bullets. Edited from the contact\'s workbench, not here.',
+      fires: 'when the contact has notes',
+      settingsKey: null,
+      defaultText: '(per-contact, set on the contact)',
+      text: '(per-contact, set on the contact)',
+    });
+
+    // 8. Output format
+    out.push({
+      id: 'output_format',
+      label: 'Output format',
+      description: 'Plain text only, iMessage rhythm, no preamble or sign-offs. Hardcoded.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: OUTPUT_FORMAT,
+      text: OUTPUT_FORMAT,
+    });
+
+    // 9. KEEP_IT_SHORT — Summon-specific brevity bias
+    out.push({
+      id: 'keep_it_short',
+      label: 'Brevity bias',
+      description: 'Pushes Summon replies to one or two iMessage lines, not paragraphs.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: KEEP_IT_SHORT,
+      text: KEEP_IT_SHORT,
+    });
+
+    // 10. SKIP policy — depends on whether this is the activation turn
+    out.push({
+      id: 'skip_policy',
+      label: 'SKIP policy',
+      description: 'Activation turns force a non-SKIP reply (NO_SKIP_THIS_TURN). Continuation turns allow SKIP (silence is OK if Galt has nothing useful).',
+      fires: 'NO_SKIP_THIS_TURN on activation; SKIP_OPT_OUT on continuation',
+      settingsKey: null,
+      defaultText: `${NO_SKIP_THIS_TURN}\n\n— OR —\n\n${SKIP_OPT_OUT}`,
+      text: `${NO_SKIP_THIS_TURN}\n\n— OR —\n\n${SKIP_OPT_OUT}`,
+    });
+
+    // 11. Vary phrasing
+    out.push({
+      id: 'vary_phrasing',
+      label: 'Vary phrasing',
+      description: 'Tells the model to read its own previous Galt: lines and not repeat openings/hedges.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: VARY_PHRASING,
+      text: VARY_PHRASING,
+    });
+
+    // 12. NEVER_ASK_HELP_DESK — LAST so it's freshest in attention.
+    //     Summon's biggest failure mode is the model defaulting to
+    //     "what can I help with?" — the position matters.
+    out.push({
+      id: 'never_ask_help_desk',
+      label: 'No help-desk phrasing',
+      description: 'CRITICAL — forbids "how can I help?" / "what would you like?" customer-service mode. Pinned LAST so it\'s the freshest thing the model reads.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: NEVER_ASK_HELP_DESK,
+      text: NEVER_ASK_HELP_DESK,
+    });
+
+    return out;
   }
 }
 

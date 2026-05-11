@@ -1579,6 +1579,124 @@ app.delete('/api/summon/sessions/:id', (req, res) => {
   res.json({ session: enrichSummon(ended) });
 });
 
+/* ---------- routes: modes (per-mode pipeline view + preview) ---------- */
+
+const MODES_BY_NAME = {
+  away: awayMode,
+  summon: summonMode,
+} as const;
+type ModeName = keyof typeof MODES_BY_NAME;
+
+/** Build a sample Context for prompt previews. When chat_id is given,
+ *  pulls that chat's actual recent thread + contact data — preview
+ *  shows what would REALLY be sent for that conversation. Without
+ *  chat_id, returns a synthetic placeholder Context (good enough to
+ *  see the assembly shape, not a real reply). */
+async function buildPreviewContext(chatId: number | null): Promise<Context> {
+  const settings = getSettings();
+  if (chatId == null) {
+    return new Context({
+      chatId: 0,
+      isGroup: false,
+      recipientName: '<recipient>',
+      userName: 'the user',
+      thread: [
+        { author: 'them', text: '<their latest message>' },
+      ],
+      voiceProfile: settings.galt_voice_profile,
+      contactProfile: '',
+      contactNotes: [],
+      addressBookContext: '',
+      userAvailability: '',
+    });
+  }
+  const target = getChatTarget(chatId);
+  if (!target) {
+    throw new Error(`chat ${chatId} not found`);
+  }
+  const messagesDesc = listMessagesForChat(chatId, 0, settings.ai_context_count);
+  const thread = buildThreadFromMessages(messagesDesc);
+  const handle = target.handle ?? target.chatIdentifier;
+  const recipientName = handle ? (getContactNameForHandle(handle) ?? handle) : 'them';
+  const { addressBookContext, userAvailability } = await resolveDraftContext(handle ?? '');
+  return new Context({
+    chatId,
+    isGroup: target.isGroup,
+    recipientName,
+    userName: 'the user',
+    thread,
+    voiceProfile: settings.galt_voice_profile,
+    contactProfile: handle ? getContactProfile(handle).profile : '',
+    contactNotes: handle ? listNotesForHandle(handle).map((n) => n.body) : [],
+    addressBookContext,
+    userAvailability,
+  });
+}
+
+/** List both modes with their stages — feeds the Galt page. */
+app.get('/api/modes', (_req, res) => {
+  res.json({
+    modes: (Object.keys(MODES_BY_NAME) as ModeName[]).map((name) => ({
+      name,
+      stages: MODES_BY_NAME[name].stages(),
+    })),
+  });
+});
+
+/** Preview the assembled system prompt + user content for one mode.
+ *  Optional ?chat_id=N pulls real data from that chat; absent uses a
+ *  synthetic placeholder Context. */
+app.get(
+  '/api/modes/:name/preview',
+  asyncHandler(async (req, res) => {
+    const name = req.params.name as ModeName;
+    const mode = MODES_BY_NAME[name];
+    if (!mode) return res.status(404).json({ error: `unknown mode: ${name}` });
+
+    const chatIdParam = req.query.chat_id;
+    const chatId = typeof chatIdParam === 'string' && chatIdParam
+      ? parseInt(chatIdParam, 10)
+      : null;
+    if (chatId !== null && !Number.isFinite(chatId)) {
+      return res.status(400).json({ error: 'chat_id must be an integer' });
+    }
+
+    let ctx: Context;
+    try {
+      ctx = await buildPreviewContext(chatId);
+    } catch (err) {
+      return res.status(404).json({ error: (err as Error).message });
+    }
+
+    // Each mode's preview takes its own input shape — pick a reasonable
+    // default for each one. Away assumes the persona is whatever the
+    // user has set; Summon assumes a user-triggered ask (most common).
+    let prompt: { systemPrompt: string; userContent: string };
+    if (name === 'away') {
+      prompt = awayMode.preview(ctx, { persona: getSettings().away_persona || '' });
+    } else {
+      prompt = summonMode.preview(ctx, {
+        triggerFromUser: true,
+        isActivation: true,
+        isBareSummon: false,
+      });
+    }
+
+    return res.json({
+      mode: name,
+      chat_id: chatId,
+      systemPrompt: prompt.systemPrompt,
+      userContent: prompt.userContent,
+      // Useful for the UI to also surface the greeting (which lives
+      // outside the system prompt). Both modes' greetings are pre-AI
+      // literal sends; show what would be sent if the mode greets.
+      greeting: name === 'away'
+        ? awayMode.greeting(ctx, { persona: getSettings().away_persona || '' })
+        : summonMode.greeting(ctx, { triggerFromUser: true, isActivation: true, isBareSummon: true }),
+    });
+  }),
+);
+
 /* ---------- watcher → away-mode auto-responder ---------- */
 
 /**

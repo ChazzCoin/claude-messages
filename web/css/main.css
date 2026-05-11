@@ -4162,6 +4162,209 @@ body::after {
   overflow-y: auto;
 }
 
+/* ============================================================
+   Galt page — per-mode pipeline view
+   ============================================================
+   Top-level layout: tab strip (Away | Summon) → mode pane.
+   Each pane has an intro block, a stages list (reusing the existing
+   .galt-flow-card chrome), a preview bar, and an optional preview
+   panel that the Preview button injects below.
+
+   Stages come in two visual variants:
+     .editable  — settings-backed, has a textarea + Save/Reset
+     .readonly  — guardrail constants + per-contact data sections,
+                  click to expand, see the literal text in a <pre>.
+   ============================================================ */
+.galt-page {
+  max-width: 940px;
+  margin: 0 auto;
+}
+
+/* Tab strip */
+.galt-mode-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 22px;
+}
+.galt-mode-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 12px 18px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+.galt-mode-tab:hover { color: var(--text); }
+.galt-mode-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.galt-mode-tab.active[data-accent="red"]   { border-bottom-color: var(--red); }
+.galt-mode-tab.active[data-accent="amber"] { border-bottom-color: var(--accent); }
+
+/* Mode pane intro */
+.galt-mode-intro {
+  margin-bottom: 22px;
+  padding: 16px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+}
+.galt-mode-pane[data-accent="red"]   .galt-mode-intro { border-left-color: var(--red); }
+.galt-mode-pane[data-accent="amber"] .galt-mode-intro { border-left-color: var(--accent); }
+.galt-mode-tagline {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.galt-mode-pane[data-accent="red"]   .galt-mode-tagline { color: var(--red); }
+.galt-mode-blurb {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.galt-mode-stats {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.galt-mode-stats .num       { color: var(--text); font-weight: 600; }
+.galt-mode-stats .num.amber { color: var(--accent); }
+.galt-mode-stats .sep       { color: var(--text-mute); }
+
+/* Stages list */
+.galt-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+/* The "fires when" badge in each card summary */
+.galt-flow-card-fires {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.2px;
+  margin-left: auto;
+  margin-right: 10px;
+  text-align: right;
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Read-only stage variant */
+.galt-flow-card.readonly { border-style: dashed; }
+.galt-flow-card.readonly[open] { background: var(--bg-card-2); }
+.galt-flow-card-state.readonly { color: var(--text-faint); }
+.galt-flow-readonly-text {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* Preview button bar */
+.galt-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.galt-preview-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Preview panel — expanded prompt readout */
+.galt-preview {
+  margin-top: 14px;
+  background: var(--bg-card-2);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.galt-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.galt-preview-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.galt-preview-stats {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: auto;
+}
+.galt-preview-section { display: flex; flex-direction: column; gap: 6px; }
+.galt-preview-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--accent);
+}
+.galt-preview-note {
+  color: var(--text-faint);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0.2px;
+  margin-left: 6px;
+}
+.galt-preview-text {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
 /* Error/status text inside card */
 .galt-flow-card .settings-status,
 .galt-flow-card [data-error] {

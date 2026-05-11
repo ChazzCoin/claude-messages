@@ -23,10 +23,10 @@
 //     vs 0.7), tighter maxTokens (240 vs 300). Both pull the model
 //     toward shorter, safer replies that defer rather than improvise.
 
-import { PromptMode } from './mode.js';
+import { PromptMode, type ModeStage } from './mode.js';
 import type { Context } from '../context.js';
 import { applyTemplate } from '../../ai.js';
-import { getSettings } from '../../db/app.js';
+import { getSettings, SETTING_DEFAULTS } from '../../db/app.js';
 import {
   IDENTITY_BASE,
   OUTPUT_FORMAT,
@@ -35,6 +35,20 @@ import {
   AWAY_GROUP_FRAMING,
   AWAY_NO_COMMIT,
 } from '../guardrails.js';
+
+/** Default per-turn instruction for Away mode. Exposed as a constant
+ *  so stages() can show it as the editable default; buildContextNote
+ *  substitutes {recipientName} / {userName} at runtime. */
+const AWAY_DEFAULT_CONTEXT_NOTE = `AWAY MODE — the user is OUT and you are standing in for them on this thread. The recipient ({recipientName}) was told on first contact that they're chatting with the user's AI; the runtime prefixes every message you send with "Galt: " so identity stays unambiguous. You are covering, not deciding — your job is to keep the thread alive long enough for the user to pick it up later, NOT to resolve anything on their behalf.
+
+Talking to: {recipientName}. Use their name only when it adds warmth or clarity — most casual replies skip it. Don't shoehorn it in.
+
+Match the contact's energy: playful with playful, terse with terse, serious with serious. Acknowledge what they said. If a question is purely about something already established in the thread, just answer it. If it's anything else — anything requiring the user's call — acknowledge and defer.
+
+Defer phrasings — vary them, don't repeat the same one: "I'll flag this for him", "let me have him weigh in when he's back", "above my pay grade — he'll need to confirm", "I'll let him know you asked", "no idea, I'll loop him in". Anything you defer becomes a note in the user's follow-up queue. That's the whole design — defer LIBERALLY rather than guess.`;
+
+/** Persona block format. Body is the user's away_persona text. */
+const AWAY_PERSONA_WRAPPER = `\nUSER'S COVER-MODE NOTES — explicit guidance from the user for how Galt should behave while covering for them. Apply on top of Galt's voice profile (these tune banter level, deflection style, joke posture for this user's preferred cover feel). When this conflicts with a generic default, this wins:\n"""\n{body}\n"""`;
 
 export interface AwayInput {
   /** Cover-mode persona text (settings.away_persona). Empty string
@@ -148,9 +162,7 @@ export class AwayMode extends PromptMode<AwayInput> {
     // 7. Cover-mode persona (only when set)
     const persona = (input.persona || '').trim();
     if (persona) {
-      parts.push(
-        `\nUSER'S COVER-MODE NOTES — explicit guidance from the user for how Galt should behave while covering for them. Apply on top of Galt's voice profile (these tune banter level, deflection style, joke posture for this user's preferred cover feel). When this conflicts with a generic default, this wins:\n"""\n${persona}\n"""`,
-      );
+      parts.push(applyTemplate(AWAY_PERSONA_WRAPPER, { body: persona }));
     }
 
     // 8. Per-turn instruction (mode-specific framing). Placed AFTER
@@ -186,19 +198,170 @@ export class AwayMode extends PromptMode<AwayInput> {
    *  in the user's notes queue. */
   private buildContextNote(ctx: Context): string {
     const override = getSettings().prompt_away_system?.trim();
-    if (override) {
-      return applyTemplate(override, {
-        recipientName: ctx.recipientName || 'them',
-        userName: ctx.userName || 'the user',
-      });
-    }
-    const recipientName = ctx.recipientName || 'them';
-    return [
-      `AWAY MODE — the user is OUT and you are standing in for them on this thread. The recipient (${recipientName}) was told on first contact that they're chatting with the user's AI; the runtime prefixes every message you send with "Galt: " so identity stays unambiguous. You are covering, not deciding — your job is to keep the thread alive long enough for the user to pick it up later, NOT to resolve anything on their behalf.`,
-      `Talking to: ${recipientName}. Use their name only when it adds warmth or clarity — most casual replies skip it. Don't shoehorn it in.`,
-      "Match the contact's energy: playful with playful, terse with terse, serious with serious. Acknowledge what they said. If a question is purely about something already established in the thread, just answer it. If it's anything else — anything requiring the user's call — acknowledge and defer.",
-      `Defer phrasings — vary them, don't repeat the same one: "I'll flag this for him", "let me have him weigh in when he's back", "above my pay grade — he'll need to confirm", "I'll let him know you asked", "no idea, I'll loop him in". Anything you defer becomes a note in the user's follow-up queue. That's the whole design — defer LIBERALLY rather than guess.`,
-    ].join('\n\n');
+    const template = override || AWAY_DEFAULT_CONTEXT_NOTE;
+    return applyTemplate(template, {
+      recipientName: ctx.recipientName || 'them',
+      userName: ctx.userName || 'the user',
+    });
+  }
+
+  /** Pipeline view for the UI. Mirrors buildSystemPrompt order; the
+   *  greeting is included as the first stage even though it's pre-AI
+   *  (the UI shows the full mode flow, not just the AI assembly). */
+  stages(): ModeStage[] {
+    const s = getSettings();
+    const out: ModeStage[] = [];
+
+    // 0. Greeting (pre-AI literal send)
+    out.push({
+      id: 'greeting',
+      label: 'Greeting',
+      description: 'Canned message sent verbatim on first contact in an away period. Bypasses the AI.',
+      fires: 'first contact in an away period',
+      settingsKey: 'away_message',
+      defaultText: SETTING_DEFAULTS.away_message,
+      text: s.away_message || SETTING_DEFAULTS.away_message,
+      rows: 4,
+    });
+
+    // 1. Identity
+    out.push({
+      id: 'identity',
+      label: 'Identity',
+      description: 'Universal Galt framing. Hardcoded.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: IDENTITY_BASE,
+      text: IDENTITY_BASE,
+    });
+
+    // 2. Voice
+    out.push({
+      id: 'voice',
+      label: "Galt's voice",
+      description: "Galt's voice profile (system-wide AI voice — used in every mode).",
+      fires: 'when galt_voice_profile is set',
+      settingsKey: 'galt_voice_profile',
+      defaultText: '',
+      text: s.galt_voice_profile || '',
+      rows: 5,
+    });
+
+    // 3-6. Per-contact / system data sections (not user-editable here;
+    //      they're per-contact data managed elsewhere)
+    out.push({
+      id: 'contact_profile',
+      label: 'Contact profile',
+      description: "User's prose description of the contact (relationship, sensitivities, how to talk to them). Edited from the contact's workbench, not here.",
+      fires: 'when the contact has a profile set',
+      settingsKey: null,
+      defaultText: '(per-contact, set on the contact)',
+      text: '(per-contact, set on the contact)',
+    });
+    out.push({
+      id: 'address_book',
+      label: 'Address book',
+      description: 'macOS Contacts.app data for this contact (role, birthday, freeform notes). Read-only — pulled live from your AddressBook.',
+      fires: 'when contact has a macOS Contacts entry',
+      settingsKey: null,
+      defaultText: '(read from macOS Contacts.app)',
+      text: '(read from macOS Contacts.app)',
+    });
+    out.push({
+      id: 'calendar',
+      label: 'Calendar',
+      description: 'macOS Calendar.app availability — only used when the thread asks about scheduling.',
+      fires: 'when calendar events fall in the window AND thread is scheduling-related',
+      settingsKey: null,
+      defaultText: '(read from macOS Calendar.app)',
+      text: '(read from macOS Calendar.app)',
+    });
+    out.push({
+      id: 'contact_notes',
+      label: 'Contact notes',
+      description: 'Per-contact short-fact bullets. Edited from the contact\'s workbench, not here.',
+      fires: 'when the contact has notes',
+      settingsKey: null,
+      defaultText: '(per-contact, set on the contact)',
+      text: '(per-contact, set on the contact)',
+    });
+
+    // 7. Cover-mode persona
+    out.push({
+      id: 'persona',
+      label: 'Cover-mode persona',
+      description: 'Tunes Galt\'s posture while covering — banter level, deflection style, joke calibration. Layered on top of voice.',
+      fires: 'when set',
+      settingsKey: 'away_persona',
+      defaultText: '',
+      text: s.away_persona || '',
+      rows: 4,
+    });
+
+    // 8. Per-turn instruction
+    out.push({
+      id: 'context_note',
+      label: 'Per-turn instruction',
+      description: 'Tells the model its job for THIS draft — covering, deferring, not deciding. Override fully replaces the default. Supports {recipientName} / {userName}.',
+      fires: 'always',
+      settingsKey: 'prompt_away_system',
+      defaultText: AWAY_DEFAULT_CONTEXT_NOTE,
+      text: s.prompt_away_system?.trim() || AWAY_DEFAULT_CONTEXT_NOTE,
+      rows: 12,
+    });
+
+    // 9. Group framing (conditional)
+    out.push({
+      id: 'group_framing',
+      label: 'Group framing',
+      description: 'Tells the model to be quieter in groups — only weigh in when the latest turn is plausibly aimed at the user.',
+      fires: 'only in group chats',
+      settingsKey: null,
+      defaultText: AWAY_GROUP_FRAMING,
+      text: AWAY_GROUP_FRAMING,
+    });
+
+    // 10-12. Output / SKIP / variation
+    out.push({
+      id: 'output_format',
+      label: 'Output format',
+      description: 'Plain text only, iMessage rhythm, no preamble or sign-offs. Hardcoded.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: OUTPUT_FORMAT,
+      text: OUTPUT_FORMAT,
+    });
+    out.push({
+      id: 'skip_opt_out',
+      label: 'SKIP opt-out',
+      description: 'Lets the model bow out with literal SKIP when no good reply exists. Silence is a valid Away outcome.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: SKIP_OPT_OUT,
+      text: SKIP_OPT_OUT,
+    });
+    out.push({
+      id: 'vary_phrasing',
+      label: 'Vary phrasing',
+      description: 'Tells the model to read its own previous Galt: lines and not repeat openings/hedges.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: VARY_PHRASING,
+      text: VARY_PHRASING,
+    });
+
+    // 13. AWAY_NO_COMMIT — the load-bearing piece. LAST so it's freshest.
+    out.push({
+      id: 'no_commit_guardrail',
+      label: 'No-commit guardrail',
+      description: 'CRITICAL — forbids any commitment-style language since the user hasn\'t authorized one. Pinned LAST so it\'s the freshest thing the model reads before generating.',
+      fires: 'always',
+      settingsKey: null,
+      defaultText: AWAY_NO_COMMIT,
+      text: AWAY_NO_COMMIT,
+    });
+
+    return out;
   }
 }
 

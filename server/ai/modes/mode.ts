@@ -23,6 +23,40 @@
 import { chat, type ChatCallResult } from '../client.js';
 import type { Context } from '../context.js';
 
+/** A single stage in a mode's prompt assembly. The UI consumes a list
+ *  of these to render an editable per-mode pipeline view; mode authors
+ *  expose the list via PromptMode.stages().
+ *
+ *  Stages are descriptive — they document what the mode COULD inject
+ *  in what order and which pieces the user can customize. The runtime
+ *  source of truth is still buildSystemPrompt; stages() must mirror
+ *  that order. Drift between the two is a bug. */
+export interface ModeStage {
+  /** Stable id for the UI (data-stage-id). Don't rename without
+   *  thinking about cached UI state. */
+  id: string;
+  /** Human-readable name. */
+  label: string;
+  /** Optional one-line description shown under the label. */
+  description?: string;
+  /** When this stage actually fires, in plain English.
+   *  Examples: "always" · "only when persona is set" ·
+   *  "only in group chats" · "only on activation turns" */
+  fires: string;
+  /** Settings key the user can edit to customize this stage. Null when
+   *  the stage is hardcoded (a guardrail constant). */
+  settingsKey: string | null;
+  /** What this stage WOULD currently inject — either the user's
+   *  override (when settingsKey is set + non-empty) or the default. */
+  text: string;
+  /** Default text for the stage. Used by the UI to diff overrides
+   *  and offer "reset to default". Same as `text` when there's no
+   *  override in play. */
+  defaultText: string;
+  /** Suggested textarea row count for the editor. */
+  rows?: number;
+}
+
 export abstract class PromptMode<TInput = void> {
   /** Identifier for logging and the AI usage panel (counts under
    *  this purpose). Concrete classes set 'away' / 'summon' / etc. */
@@ -42,6 +76,12 @@ export abstract class PromptMode<TInput = void> {
    *  thread MUST NOT be included here — by framework convention the
    *  thread is the user role, sent latest-last. */
   abstract buildSystemPrompt(ctx: Context, input: TInput): string;
+
+  /** Ordered descriptor of the mode's stages — what could be injected,
+   *  in what order, which pieces the user can edit. The UI renders
+   *  this; the runtime ignores it (buildSystemPrompt is authoritative).
+   *  Mode authors must keep this in sync with buildSystemPrompt order. */
+  abstract stages(): ModeStage[];
 
   /** Per-call temperature. Override for hotter/cooler modes. */
   protected temperature(): number { return 0.7; }

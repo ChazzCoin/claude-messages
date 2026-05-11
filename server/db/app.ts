@@ -561,7 +561,7 @@ export interface AppSettings {
   wrapper_away_persona: string;
 }
 
-const SETTING_DEFAULTS: AppSettings = {
+export const SETTING_DEFAULTS: AppSettings = {
   ai_context_count: 20,
   away_mode_enabled: 0,
   away_message:
