@@ -11,6 +11,29 @@ Read this when:
 - Working on iOS code from a non-iOS repo (e.g., a web/Python project
   consuming an iOS-app-related artifact)
 - Cross-referencing iOS patterns in cross-platform discussions
+- **Starting a new iOS project** — the "Default stack" section below
+  is the kit's opinionated default
+
+## Default stack (the kit's opinion)
+
+For a new iOS app, the kit defaults to this stack unless the project
+explicitly opts out and documents the reason in `CLAUDE.md`:
+
+| Layer | Choice |
+|---|---|
+| UI | **SwiftUI** (UIKit interop via `@UIApplicationDelegateAdaptor` only when needed) |
+| Language | **Swift 5.9+** |
+| Project | Single `*.xcodeproj` (workspace only when SPM with a local package is involved) |
+| Dependency manager | **Swift Package Manager (SPM)** — `Package.swift` + `Package.resolved` |
+| Local DB | **Realm Swift** (when offline cache is needed; cloud is authoritative) |
+| Cloud | **Firebase** (Auth + Realtime DB or Firestore) |
+| Tests | **XCTest** (unit) + **XCUITest** (UI flows). `Maestro` allowed when XCUITest cost is high. |
+| Release | **TestFlight via App Store Connect**, automated by `/ios-release` |
+
+If a project deviates (UIKit-first app, no Firebase, Combine-heavy
+architecture, third-party DB instead of Realm), document the deviation
+and the reason in `CLAUDE.md`. The default exists to remove a
+decision; it doesn't override real project requirements.
 
 ## Top-level shape (typical SwiftUI app)
 
@@ -57,6 +80,131 @@ struct MyAppApp: App {
     var body: some Scene { … }
 }
 ```
+
+## Navigation
+
+The kit default is **`NavigationStack` with a typed path** (iOS 16+).
+`NavigationView` is deprecated; new code uses `NavigationStack`. Set
+up real navigation on day one — sheet-presenting from a root view as
+the only navigation pattern collapses fast.
+
+```swift
+@main
+struct MyAppApp: App {
+    var body: some Scene {
+        WindowGroup { RootView() }
+    }
+}
+
+struct RootView: View {
+    @State private var path = NavigationPath()
+    var body: some View {
+        NavigationStack(path: $path) {
+            HomeView()
+                .navigationDestination(for: Vehicle.self) { v in
+                    VehicleDetailView(vehicle: v)
+                }
+                .navigationDestination(for: Inspection.self) { i in
+                    InspectionDetailView(inspection: i)
+                }
+        }
+    }
+}
+```
+
+Conventions:
+
+- **One typed `NavigationPath` per main flow.** Push values onto the
+  path; views bind via `.navigationDestination(for:)`. Don't sprinkle
+  `NavigationLink(destination:)` ad-hoc — it makes deep linking,
+  state restoration, and programmatic back-stack manipulation
+  impossible.
+- **Enum-driven path** is an alternative when destinations are
+  closed-set: `enum Route { case vehicle(Vehicle), inspection(Inspection) }`,
+  then `path: [Route]`. Useful when the same value type can lead to
+  different screens depending on context.
+- **One navigator per tab / per main flow.** A `TabView` with three
+  tabs has three independent `NavigationStack` instances, each with
+  its own `path`. Don't share a path across tabs.
+- **Sheet vs. push.** Sheets are modal (settings, transient flows,
+  forms). Pushes are linear (drill-down). If the user expects "go
+  back," it's a push; if they expect "dismiss," it's a sheet.
+- **Deep-link aware.** Every screen reachable from a typed value or
+  enum case. Persist `path` in `@SceneStorage` for state restoration
+  so cold-start lands where the user left off.
+
+## Architecture — ViewModels (separation of concerns)
+
+The kit default separates business logic from SwiftUI views. Views
+render and dispatch intents; ViewModels own state, Firebase calls,
+Realm queries, and derived computation.
+
+iOS 17+ with `@Observable`:
+
+```swift
+@Observable
+final class VehicleListViewModel {
+    var vehicles: [Vehicle] = []
+    var isLoading = false
+    var error: Error?
+
+    private let store: VehicleStore
+
+    init(store: VehicleStore = .shared) { self.store = store }
+
+    func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        do { vehicles = try await store.fetchAll() }
+        catch { self.error = error }
+    }
+}
+
+struct VehicleListView: View {
+    @State private var vm = VehicleListViewModel()
+    var body: some View {
+        List(vm.vehicles) { VehicleRow(vehicle: $0) }
+            .task { await vm.load() }
+    }
+}
+```
+
+Pre-iOS-17 (`ObservableObject` + `@Published`, view holds a
+`@StateObject`):
+
+```swift
+final class VehicleListViewModel: ObservableObject {
+    @Published var vehicles: [Vehicle] = []
+    // ...
+}
+
+struct VehicleListView: View {
+    @StateObject private var vm = VehicleListViewModel()
+    // ...
+}
+```
+
+Rules that fall out:
+
+- **Views don't call Realm, Firebase, or networking directly.** They
+  call ViewModel methods. Data access lives in the ViewModel — or in
+  a `Store` / `Repository` the ViewModel composes.
+- **Views don't transform data.** Filtering, sorting, grouping live
+  on the ViewModel as derived state (`var filtered: [Vehicle] { … }`),
+  not inline in the view body.
+- **One ViewModel per screen by default.** Shared services
+  (`AuthStore`, `VehicleStore`) are injected into multiple ViewModels
+  — they're the data-access layer.
+- **Ownership.** `@StateObject` (or `@State` for `@Observable`) when
+  the view *owns* the ViewModel. `@ObservedObject` (or `@Bindable`)
+  when the ViewModel is owned by an ancestor.
+- **The layer you change for a logic bug is not the layer you change
+  for a UI tweak.** If a Realm query lives next to a `Color`
+  modifier in the same view file, the architecture is wrong.
+
+For larger flows (multi-screen wizards, tab sections), a coordinator
+ViewModel can manage navigation state and shared values across
+sub-screens — but keep the boundary clear.
 
 ## Config files and what's in them
 

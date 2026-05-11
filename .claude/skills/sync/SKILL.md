@@ -471,7 +471,22 @@ and stop. Commit when you're ready.
 
 ### Step 6 — Apply approved changes
 
-Only after the user picks what to apply:
+Only after the user picks what to apply.
+
+**Preserve exec bit on script files.** For every copy operation
+below — safe pulls, conflict "take kit", new files, overlap
+Options 2 and 4 — if the destination matches any of these patterns,
+run `chmod +x <dest>` after the copy:
+
+- Any file under `kit/skills/**/` (project path `.claude/skills/**/`)
+  matching `*.sh`, `*.py`, `*.ts`, `*.js`, or `*.mjs`
+- Any file under `bin/` (these are always executables)
+
+The executable bit is not guaranteed to survive `Read`/`Write` or
+plain `cp` (depends on tooling). Script-driven skills depend on
+their `<name>.sh` being executable (or invoked as `bash <script>`,
+which is the SKILL.md convention — but chmod'ing belt-and-suspenders
+the contract). See `script-craft.md` for the broader convention.
 
 1. **Safe pulls**: copy kit version → local.
 2. **Conflict resolutions**: per the user's choice.

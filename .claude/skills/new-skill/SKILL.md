@@ -15,7 +15,7 @@ default to "yes, let's create one".
 
 ## Behavior contract
 
-- **Ask before scaffolding.** The skill needs five things from
+- **Ask before scaffolding.** The skill needs six things from
   the user before writing anything:
   1. **Name** (kebab-case, single word preferred — e.g. `wrangle`,
      `blast-radius`).
@@ -29,6 +29,16 @@ default to "yes, let's create one".
   5. **Mutation model** — does the skill (a) only render a
      report, (b) write durable `.md` files under `docs/`, or (c)
      edit source code? Each mode has a different consent boilerplate.
+  6. **Script mechanics** — could the mechanics of this skill be
+     locked into a script that runs in a defined manner, separating
+     "what files to touch / what plumbing to do" (deterministic,
+     script) from "what content / judgment the AI brings"
+     (synthesis, AI)? Options: **none** (pure AI judgment — e.g.
+     `/brainstorm`, `/decision`), **partial** (script owns
+     plumbing, AI owns synthesis — like `/save`), or **full**
+     (script owns end-to-end, AI just routes choices — rare for
+     skills, common for `bin/`). See `script-craft.md` for the
+     split.
 - **Check for collisions.** Before writing, list existing skills
   (kit-level: `kit/skills/`; project-level: `.claude/skills/`).
   If the proposed name exists, surface it and ask whether to
@@ -49,12 +59,12 @@ default to "yes, let's create one".
 
 ## Process
 
-### Step 1 — Gather the five inputs
+### Step 1 — Gather the six inputs
 
 Ask in one block:
 
 ```markdown
-Before I scaffold, I need five things:
+Before I scaffold, I need six things:
 
 1. **Name** (kebab-case): _____
 2. **One-sentence purpose** — what problem does it solve? _____
@@ -63,10 +73,23 @@ Before I scaffold, I need five things:
 4. **Scope** — kit-wide (propagates to all projects) or
    project-local (this repo only)? _____
 5. **Mutation model** — report-only / writes-docs / edits-code? _____
+6. **Script mechanics** — could the mechanics be locked into a
+   script that runs in a defined manner? **none** (pure AI
+   judgment), **partial** (script owns plumbing, AI owns synthesis
+   — like `/save`), or **full** (script owns end-to-end)?
+   See `script-craft.md`. _____
 ```
 
 If the user gives partial answers, ask follow-ups for the missing
 items — don't infer.
+
+**Push back on the script question if the answer doesn't fit.**
+If they pick "partial" or "full" but the purpose is pure synthesis
+or judgment, say so: "the purpose you described is AI reasoning —
+a script can't replace that. Should this be 'none' instead?"
+Same direction: if they pick "none" but the description is full
+of deterministic file plumbing, point out the candidate mechanics
+that belong in a script.
 
 ### Step 2 — Sanity check
 
@@ -99,6 +122,10 @@ Write the SKILL.md with this exact shape, substituting the
 user's answers and leaving TODO markers everywhere the user
 still owes substance.
 
+If the script-mechanics answer was **partial** or **full**, also
+write a second file: `<dest>/<name>.sh` using the **Script
+skeleton** below. Both files land uncommitted in the working tree.
+
 Use the **Skeleton template** (below) as the literal output,
 with these substitutions:
 
@@ -106,6 +133,7 @@ with these substitutions:
 - `<purpose>` → user's one-sentence purpose
 - `<trigger-phrases>` → user's triggers, comma-separated
 - `<mutation-mode-clause>` — pick one (Step 5)
+- `<script-mode-clause>` — pick one (Step 6)
 
 ### Step 5 — Pick the mutation-model clause
 
@@ -135,36 +163,75 @@ behavior contract. Use exactly one.
 > auto-commits. Never applies edits the user didn't explicitly
 > approve.
 
-### Step 6 — Confirm and write
+### Step 6 — Pick the script-mechanics clause
+
+Three pre-written paragraphs. Use exactly one.
+
+**(none) Pure AI:**
+
+> **No standalone script.** All work happens via AI synthesis and
+> tool calls. The mechanics are described in this SKILL.md; the
+> AI interprets them on each invocation. Appropriate when the
+> work is judgment or prose, not deterministic plumbing.
+
+**(partial) Script-driven (partial):**
+
+> **Script-driven mechanics.** The deterministic plumbing (file
+> moves, archive, format generation, validation) lives in
+> `<name>.sh` in this skill's folder, per `script-craft.md`. The
+> AI's job is to synthesize content and route choices; do NOT
+> hand-write the files the script manages. Always invoke the
+> script as `bash <skill-dir>/<name>.sh ...` — mode-bit-independent.
+
+**(full) Script-driven (full):**
+
+> **Script-driven, end-to-end.** `<name>.sh` in this skill's
+> folder handles the full operation. The AI's role is to gather
+> inputs from the user, route them to the right subcommand, and
+> surface the script's output verbatim. Per `script-craft.md`.
+> Always invoke as `bash <skill-dir>/<name>.sh ...`.
+
+### Step 7 — Confirm and write
 
 Show a summary:
 
 ```markdown
-About to create `<path>` with:
+About to create:
+- `<path>/SKILL.md`
+- `<path>/<name>.sh` *(only if script-mechanics is partial or full)*
+
+With:
 - Name: `<name>`
 - Triggers: <trigger phrases>
 - Scope: <kit-wide|project-local>
 - Mutation: <report-only|writes-docs|edits-code>
+- Script mechanics: <none|partial|full>
 
 This is a skeleton — every required section is present, but
 sections marked `<!-- TODO -->` need your substance before the
 skill is actually useful. Proceed?
 ```
 
-On approval: write the file. On decline: stop, no file written.
+On approval: write the file(s). On decline: stop, nothing written.
 
-### Step 7 — Closing pointer
+### Step 8 — Closing pointer
 
 After writing:
 
 ```markdown
-✅ Skeleton written: `<path>`
+✅ Skeleton written:
+- `<path>/SKILL.md`
+- `<path>/<name>.sh` *(only if script-mechanics is partial or full)*
 
 Next steps:
-1. Read through the skeleton and replace each `<!-- TODO -->`
+1. Read through the skeleton(s) and replace each `<!-- TODO -->`
    with substance.
-2. Once filled, test by invoking the skill on a real task.
-3. If kit-wide: commit + push, then downstream projects pick it
+2. If a script was scaffolded, read `script-craft.md` and use
+   `kit/skills/save/save.sh` as the working reference. Test the
+   script in a sandbox repo before wiring it into the SKILL.md
+   process.
+3. Once filled, test by invoking the skill on a real task.
+4. If kit-wide: commit + push, then downstream projects pick it
    up via `/sync`.
 
 Tip: `/audit kit/skills/<name>/SKILL.md` once it's filled in,
@@ -195,6 +262,7 @@ narratives, no soft no's, etc.>
 ## Behavior contract
 
 - <mutation-mode-clause>
+- <script-mode-clause>
 - **<TODO: rule>** — <TODO: one-line rationale>
 - **<TODO: rule>** — <TODO: one-line rationale>
 - **<TODO: rule>** — <TODO: one-line rationale>
@@ -295,10 +363,91 @@ with. What changed, what they should do next (typically: `git
 diff` + commit, or "read X and decide").>
 ````
 
+## Script skeleton
+
+Only written when the script-mechanics answer was **partial** or
+**full**. Lives at `<dest>/<name>.sh` alongside the SKILL.md.
+Follows `script-craft.md` conventions; mirrors `kit/skills/save/save.sh`
+in shape.
+
+```bash
+#!/usr/bin/env bash
+# <name>.sh — <TODO: one-line purpose, same as SKILL.md tagline>
+#
+# <TODO: 2-3 lines describing what plumbing this handles vs. what
+# the AI synthesizes. See script-craft.md for the split.>
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+<name>.sh — <TODO: one-line purpose>
+
+USAGE:
+  <name>.sh status
+      <TODO: one-line — what state does this report?>
+
+  <name>.sh <TODO: verb> [<TODO: args>]
+      <TODO: one-line description of this subcommand.>
+
+EXIT CODES:
+  0  success
+  1  operational error (missing file, write failure)
+  2  usage error (bad flag, missing required argument)
+  3  refused (preconditions not met)
+EOF
+}
+
+repo_root() {
+  git rev-parse --show-toplevel 2>/dev/null || {
+    echo "error: not inside a git repo" >&2
+    return 1
+  }
+}
+
+# <TODO: helper functions here. Small, named, single-purpose.>
+
+cmd_status() {
+  # <TODO: implement. One line of state to stdout.>
+  echo "status: TODO"
+}
+
+# <TODO: add more cmd_<verb> handlers — one per subcommand.>
+
+main() {
+  local action="${1:-}"
+  shift || true
+
+  case "$action" in
+    -h|--help|help|"")
+      usage
+      return 0
+      ;;
+  esac
+
+  local root
+  root="$(repo_root)" || return 1
+
+  case "$action" in
+    status)
+      cmd_status
+      ;;
+    # <TODO: route additional subcommands here>
+    *)
+      echo "error: unknown action: $action" >&2
+      usage >&2
+      return 2
+      ;;
+  esac
+}
+
+main "$@"
+```
+
 ## Style rules
 
-- **Question block, not interrogation.** Ask the five inputs in
-  one message, not five back-to-back prompts.
+- **Question block, not interrogation.** Ask the six inputs in
+  one message, not six back-to-back prompts.
 - **Honest collision feedback.** "Yes, this duplicates /audit"
   is more useful than "Sure, scaffolding now."
 - **TODO markers are sacred.** They're how the skeleton stays
@@ -330,6 +479,15 @@ diff` + commit, or "read X and decide").>
 - **User can't decide on mutation model.** Default to
   report-only. It's the lowest-risk shape; can always be
   upgraded later.
+- **User can't decide on script mechanics.** Default to **none**.
+  A skill can always be upgraded to partial/full later by adding
+  a `<name>.sh` and updating the SKILL.md per `script-craft.md`.
+  Reverse direction (partial → none) requires deleting the script
+  and is a more deliberate decision.
+- **Script-mechanics answer mismatches the purpose.** User says
+  "partial" for a purely synthetic skill like `/brainstorm`, or
+  "none" for a skill that's clearly deterministic file plumbing.
+  Push back per Step 1's pushback rule before scaffolding.
 - **Scope mismatch.** User says "kit-wide" while in a project
   repo. Stop, explain, offer project-local instead.
 
@@ -345,7 +503,10 @@ diff` + commit, or "read X and decide").>
 ## What "done" looks like for a /new-skill session
 
 A new directory at `kit/skills/<name>/` (or `.claude/skills/<name>/`)
-containing a single `SKILL.md` skeleton with the user's name,
-purpose, triggers, and mutation-model clause filled in, and TODO
-markers everywhere else. Uncommitted. The user knows the next
-step is to fill in the substance and test the skill.
+containing a `SKILL.md` skeleton with the user's name, purpose,
+triggers, mutation-model clause, and script-mode clause filled
+in, and TODO markers everywhere else. If the script-mechanics
+answer was **partial** or **full**, also a `<name>.sh` skeleton
+following `script-craft.md` conventions. Uncommitted. The user
+knows the next step is to fill in the substance, test the script
+(if any) in a sandbox repo, and wire it up.
