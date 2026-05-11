@@ -358,6 +358,7 @@ function migrate(db: DB) {
       platform        TEXT,
       description     TEXT,
       active          INTEGER DEFAULT 1,
+      auto_pull       INTEGER DEFAULT 1,
       last_polled_at  INTEGER,
       last_commit_sha TEXT,
       added_at        INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
@@ -528,6 +529,13 @@ function migrate(db: DB) {
   if (!autoNoteCols.some((c) => c.name === 'source_meta')) {
     db.exec('ALTER TABLE auto_notes ADD COLUMN source_meta TEXT');
     console.log('[migrate] auto_notes: added source_meta column');
+  }
+
+  // repos: auto_pull column (added alongside SSH pull support)
+  const repoCols = db.prepare('PRAGMA table_info(repos)').all() as Array<{ name: string }>;
+  if (!repoCols.some((c) => c.name === 'auto_pull')) {
+    db.exec('ALTER TABLE repos ADD COLUMN auto_pull INTEGER DEFAULT 1');
+    console.log('[migrate] repos: added auto_pull column');
   }
 
   // Rename kv key summon_persona → galt_voice_profile. Galt's voice was
@@ -2635,6 +2643,7 @@ export interface RepoRow {
   platform: string | null;
   description: string | null;
   active: number;
+  auto_pull: number;   // 1 = pull before each extract; 0 = read-only
   last_polled_at: number | null;
   last_commit_sha: string | null;
   added_at: number;
@@ -2715,6 +2724,11 @@ export function getRepo(id: number): RepoRow | null {
 
 export function setRepoActive(id: number, active: boolean): boolean {
   const info = getAppDb().prepare('UPDATE repos SET active = ? WHERE id = ?').run(active ? 1 : 0, id);
+  return info.changes > 0;
+}
+
+export function setRepoAutoPull(id: number, autoPull: boolean): boolean {
+  const info = getAppDb().prepare('UPDATE repos SET auto_pull = ? WHERE id = ?').run(autoPull ? 1 : 0, id);
   return info.changes > 0;
 }
 

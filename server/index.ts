@@ -138,6 +138,7 @@ import {
   listRepos,
   getRepo,
   setRepoActive,
+  setRepoAutoPull,
   upsertRepoSnapshot,
   listRepoPhases,
   listRepoTasks,
@@ -1907,6 +1908,20 @@ app.post('/api/repos', async (req, res) => {
   res.json({ repo: row });
 });
 
+/** All active tasks across all repos — must be before /:id to avoid route clash. */
+app.get('/api/repos/tasks/active', (_req, res) => {
+  res.json({ tasks: listAllActiveTasks() });
+});
+
+/** Search tasks across repos — must be before /:id to avoid route clash. */
+app.get('/api/repos/tasks/search', (req, res) => {
+  const q = String(req.query.q ?? '').trim();
+  if (!q) return res.status(400).json({ error: 'q is required' });
+  const state = typeof req.query.state === 'string' ? req.query.state : undefined;
+  const repoId = req.query.repo_id ? parseInt(req.query.repo_id as string) : undefined;
+  res.json({ tasks: searchRepoTasks(q, { state, repoId }) });
+});
+
 /** Get one repo's full snapshot. */
 app.get('/api/repos/:id', (req, res) => {
   const id = parseInt(req.params.id);
@@ -1919,13 +1934,13 @@ app.get('/api/repos/:id', (req, res) => {
   res.json({ repo, phases, tasks, audit });
 });
 
-/** Toggle a repo active/inactive. */
+/** Update repo settings: active and/or auto_pull. */
 app.patch('/api/repos/:id', (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
-  const { active } = req.body as { active?: boolean };
-  if (typeof active !== 'boolean') return res.status(400).json({ error: 'active (boolean) required' });
-  setRepoActive(id, active);
+  const body = req.body as { active?: boolean; auto_pull?: boolean };
+  if (body.active !== undefined) setRepoActive(id, body.active);
+  if (body.auto_pull !== undefined) setRepoAutoPull(id, body.auto_pull);
   res.json({ ok: true });
 });
 
@@ -1942,20 +1957,6 @@ app.post('/api/repos/:id/refresh', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
-});
-
-/** All active tasks across all repos. */
-app.get('/api/repos/tasks/active', (_req, res) => {
-  res.json({ tasks: listAllActiveTasks() });
-});
-
-/** Search tasks across repos. */
-app.get('/api/repos/tasks/search', (req, res) => {
-  const q = String(req.query.q ?? '').trim();
-  if (!q) return res.status(400).json({ error: 'q is required' });
-  const state = typeof req.query.state === 'string' ? req.query.state : undefined;
-  const repoId = req.query.repo_id ? parseInt(req.query.repo_id as string) : undefined;
-  res.json({ tasks: searchRepoTasks(q, { state, repoId }) });
 });
 
 /* ---------- repo-watcher → auto-notes (stale + audit) ---------- */

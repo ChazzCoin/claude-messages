@@ -7,10 +7,24 @@
 //   - tasks that just moved to done/ since last poll
 //   - 🚀/🔥 audit entries that appeared since last poll
 //
+// SSH / private repos
+// -------------------
+// When a repo has auto_pull=1 the watcher runs `git pull --ff-only`
+// before each extract so the snapshot tracks remote HEAD rather than
+// the last manual pull.
+//
+// Under launchd the process doesn't inherit SSH_AUTH_SOCK from the
+// user's shell session. We recover it via:
+//   launchctl asuser <uid> launchctl getenv SSH_AUTH_SOCK
+// That returns the same socket the user's terminal sees, which holds
+// whatever keys they've added (including keys loaded from macOS Keychain
+// via `ssh-add --apple-use-keychain`).
+//
 // Same onSnapshot listener pattern as MessageWatcher.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import os from 'node:os';
 import {
   listRepos,
   upsertRepoSnapshot,
@@ -30,6 +44,112 @@ const POLL_INTERVAL_MS = 5 * 60_000;   // 5 minutes
 export const STALE_DAYS = 10;           // flag active tasks older than this
 
 type SnapshotListener = (snapshot: RepoSnapshot, repo: RepoRow) => void;
+
+/* ------------------------------------------------------------------ */
+/* SSH agent discovery                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Cache the SSH_AUTH_SOCK so we only run launchctl once per process. */
+let cachedSshAuthSock: string | null | undefined = undefined;  // undefined = not yet resolved
+
+/**
+ * Find the SSH agent socket for the current user.
+ *
+ * Order of preference:
+ *  1. Already in environment (dev / manual run with SSH agent in shell).
+ *  2. Ask launchd for the socket (covers LaunchAgent / background service
+ *     on macOS — the user's terminal session and the agent share the same
+ *     socket returned by `launchctl asuser <uid> launchctl getenv SSH_AUTH_SOCK`).
+ *
+ * Returns null if no agent is reachable.
+ */
+async function getSshAuthSock(): Promise<string | null> {
+  if (cachedSshAuthSock !== undefined) return cachedSshAuthSock;
+
+  // 1. Inherited from the parent shell.
+  if (process.env.SSH_AUTH_SOCK) {
+    cachedSshAuthSock = process.env.SSH_AUTH_SOCK;
+    return cachedSshAuthSock;
+  }
+
+  // 2. Ask launchd — works on macOS regardless of how the process started.
+  try {
+    const uid = process.getuid?.() ?? os.userInfo().uid;
+    const { stdout } = await execFileP(
+      'launchctl',
+      ['asuser', String(uid), 'launchctl', 'getenv', 'SSH_AUTH_SOCK'],
+      { timeout: 3_000 },
+    );
+    const sock = stdout.trim();
+    if (sock) {
+      cachedSshAuthSock = sock;
+      console.log(`[repo-watcher] SSH_AUTH_SOCK: ${sock} (via launchctl)`);
+      return cachedSshAuthSock;
+    }
+  } catch { /* launchctl not available or no agent */ }
+
+  cachedSshAuthSock = null;
+  console.log('[repo-watcher] SSH_AUTH_SOCK: none found — SSH pulls will be skipped');
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Git pull helper                                                      */
+/* ------------------------------------------------------------------ */
+
+interface PullResult {
+  ok: boolean;
+  changed: boolean;   // true if new commits arrived
+  message: string;
+}
+
+/**
+ * Fast-forward pull from origin.
+ *
+ * - Uses SSH_AUTH_SOCK so private repos work without a passphrase prompt.
+ * - BatchMode=yes makes SSH fail immediately (not hang) if the agent
+ *   can't authenticate — so a missing key doesn't stall the poll loop.
+ * - StrictHostKeyChecking=accept-new silently accepts new host keys
+ *   (github.com, bitbucket, etc.) without an interactive prompt.
+ * - ff-only means we never create a merge commit. If the remote diverged
+ *   (shouldn't happen on personal branches) we just skip and log.
+ */
+async function gitPull(repoPath: string): Promise<PullResult> {
+  const sock = await getSshAuthSock();
+
+  const gitSshCmd = [
+    'ssh',
+    '-o', 'BatchMode=yes',
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'ConnectTimeout=10',
+  ].join(' ');
+
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_SSH_COMMAND: gitSshCmd,
+    GIT_TERMINAL_PROMPT: '0',   // never prompt for credentials
+  };
+  if (sock) env.SSH_AUTH_SOCK = sock;
+
+  try {
+    const { stdout } = await execFileP(
+      'git',
+      ['pull', '--ff-only', '--quiet'],
+      { cwd: repoPath, timeout: 30_000, env },
+    );
+    // "Already up to date." → no new commits
+    const changed = !stdout.includes('Already up to date');
+    return { ok: true, changed, message: stdout.trim() || 'up to date' };
+  } catch (err) {
+    const msg = (err as Error & { stderr?: string }).stderr?.trim()
+      ?? (err as Error).message;
+    return { ok: false, changed: false, message: msg };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Watcher                                                              */
+/* ------------------------------------------------------------------ */
 
 export class RepoWatcher {
   private pollTimer: NodeJS.Timeout | null = null;
@@ -77,7 +197,20 @@ export class RepoWatcher {
 
   private async pollRepo(repo: RepoRow): Promise<void> {
     try {
-      // Cheap change check — skip full extract if no new commits.
+      // --- 1. Auto-pull if enabled ---
+      if (repo.auto_pull) {
+        const pull = await gitPull(repo.local_path);
+        if (!pull.ok) {
+          // Non-fatal: log and continue with local state.
+          console.warn(
+            `[repo-watcher] pull failed for ${repo.name}: ${pull.message}`,
+          );
+        } else if (pull.changed) {
+          console.log(`[repo-watcher] pulled new commits for ${repo.name}`);
+        }
+      }
+
+      // --- 2. Cheap change check — skip full extract if SHA unchanged ---
       const lastSha = getRepoLastPollSha(repo.id);
       const { sha: currentSha } = await getHeadSha(repo.local_path);
 
@@ -87,6 +220,7 @@ export class RepoWatcher {
         return;
       }
 
+      // --- 3. Full extract ---
       const snapshot = await extractRepo(repo.local_path);
       upsertRepoSnapshot(repo.id, snapshot, snapshot.latest_commit_sha);
 

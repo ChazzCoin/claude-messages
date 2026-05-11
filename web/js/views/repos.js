@@ -67,7 +67,7 @@ export async function renderReposView() {
 
 async function loadRepos(silent = false) {
   try {
-    const data = await api('/repos');
+    const data = await api('/api/repos');
     allRepos = data.repos ?? [];
     renderSidebar(allRepos);
     if (selectedRepoId) {
@@ -141,7 +141,7 @@ async function loadRepoDetail(repoId, silent = false) {
   }
 
   try {
-    const data = await api(`/repos/${repoId}`);
+    const data = await api(`/api/repos/${repoId}`);
     const { repo, phases, tasks, audit } = data;
 
     const activeTasks = tasks.filter((t) => t.state === 'active');
@@ -157,6 +157,10 @@ async function loadRepoDetail(repoId, silent = false) {
           <button class="repo-btn" id="repo-refresh-btn">↻ Refresh</button>
           <button class="repo-btn${repo.active ? ' active' : ''}" id="repo-toggle-btn">
             ${repo.active ? '● Active' : '○ Inactive'}
+          </button>
+          <button class="repo-btn${repo.auto_pull ? ' active' : ''}" id="repo-autopull-btn"
+                  title="When on, the watcher runs git pull before each extract so snapshots track remote HEAD (requires SSH key access)">
+            ${repo.auto_pull ? '⬇ Auto-pull on' : '⬇ Auto-pull off'}
           </button>
         </div>
       </div>
@@ -208,7 +212,7 @@ async function loadRepoDetail(repoId, silent = false) {
       btn.disabled = true;
       btn.textContent = '↻ Refreshing…';
       try {
-        await api(`/repos/${repoId}/refresh`, { method: 'POST' });
+        await api(`/api/repos/${repoId}/refresh`, { method: 'POST' });
         await loadRepoDetail(repoId);
         await loadRepos(true);
       } catch (err) {
@@ -222,12 +226,27 @@ async function loadRepoDetail(repoId, silent = false) {
       const btn = e.currentTarget;
       btn.disabled = true;
       try {
-        await api(`/repos/${repoId}`, {
+        await api(`/api/repos/${repoId}`, {
           method: 'PATCH',
-          body: JSON.stringify({ active: !repo.active }),
+          body: { active: !repo.active },
         });
         await loadRepoDetail(repoId);
         await loadRepos(true);
+      } catch (err) {
+        btn.disabled = false;
+        alert(`Failed: ${err.message}`);
+      }
+    });
+
+    document.getElementById('repo-autopull-btn').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        await api(`/api/repos/${repoId}`, {
+          method: 'PATCH',
+          body: { auto_pull: !repo.auto_pull },
+        });
+        await loadRepoDetail(repoId);
       } catch (err) {
         btn.disabled = false;
         alert(`Failed: ${err.message}`);
@@ -276,7 +295,7 @@ function renderAuditEntry(e) {
 async function runTaskSearch(q) {
   const list = document.getElementById('repos-list');
   try {
-    const data = await api(`/repos/tasks/search?q=${encodeURIComponent(q)}`);
+    const data = await api(`/api/repos/tasks/search?q=${encodeURIComponent(q)}`);
     const tasks = data.tasks ?? [];
 
     if (!tasks.length) {
@@ -360,7 +379,7 @@ function showAddRepoModal() {
     try {
       await api('/repos', {
         method: 'POST',
-        body: JSON.stringify({ local_path, company }),
+        body: { local_path, company },
       });
       modal.remove();
       await loadRepos();
