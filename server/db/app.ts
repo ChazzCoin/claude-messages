@@ -506,6 +506,11 @@ export interface AppSettings {
    *  summon-mode instruction text is overridden. Supports two placeholder
    *  substitutions: {userName} and {recipientName}. Empty = use built-in. */
   summon_system_prompt: string;
+  /** Pre-AI literal "yes I'm here" acknowledgment Galt sends when the
+   *  trigger phrase opens a new summon session AND the trigger is bare
+   *  (no actual ask attached). Sent verbatim, bypasses the model.
+   *  Mirrors away_message but for the summon side. Default: "yes...". */
+  summon_acknowledgment: string;
   /** Auto Notes: master switch for the 24/7 inbound-message triage that
    *  extracts substantive follow-up items into the auto_notes table.
    *  When 0, no AI extraction runs on inbound messages (away mode and
@@ -571,6 +576,7 @@ const SETTING_DEFAULTS: AppSettings = {
   summon_max_replies_per_session: 30,
   summon_idle_timeout_min: 30,
   summon_system_prompt: '',
+  summon_acknowledgment: 'yes...',
   auto_notes_enabled: 1,
   auto_notes_min_confidence: 0,
   auto_notes_excluded_handles: '[]',
@@ -641,6 +647,8 @@ export function getSettings(): AppSettings {
     ),
     summon_system_prompt:
       getState('summon_system_prompt') ?? SETTING_DEFAULTS.summon_system_prompt,
+    summon_acknowledgment:
+      getState('summon_acknowledgment') ?? SETTING_DEFAULTS.summon_acknowledgment,
     auto_notes_enabled: parseIntOr(
       getState('auto_notes_enabled'),
       SETTING_DEFAULTS.auto_notes_enabled,
@@ -721,6 +729,9 @@ export function updateSettings(patch: Partial<AppSettings>): AppSettings {
   }
   if (patch.summon_system_prompt !== undefined) {
     setState('summon_system_prompt', String(patch.summon_system_prompt));
+  }
+  if (patch.summon_acknowledgment !== undefined) {
+    setState('summon_acknowledgment', String(patch.summon_acknowledgment));
   }
   if (patch.auto_notes_enabled !== undefined) {
     setState('auto_notes_enabled', String(patch.auto_notes_enabled ? 1 : 0));

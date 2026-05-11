@@ -124,6 +124,10 @@ import {
   type SummonSession,
 } from './db/app.js';
 import { sendMessageViaAppleScript, sendToChat } from './send.js';
+import { Context, type ContextInput } from './ai/context.js';
+import { awayMode } from './ai/modes/away.js';
+import { summonMode } from './ai/modes/summon.js';
+import type { ChatTarget } from './db/messages.js';
 import { messageWatcher } from './watcher.js';
 import { mirrorAutoNote, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
@@ -162,6 +166,7 @@ import {
   classifyIncoming,
   draftReply,
   buildThreadFromMessages,
+  type ThreadTurn,
   summarizeThread,
   evaluateRuleAgainstMessage,
   extractRadarSignals,
@@ -188,6 +193,37 @@ function pickPromptOverrides(s: ReturnType<typeof getSettings>): PromptOverrides
     wrapper_temperament: s.wrapper_temperament,
     wrapper_away_persona: s.wrapper_away_persona,
   };
+}
+
+/** Build a Context for an AI mode call. Centralizes the per-handler
+ *  "load all the data the mode might want" step so AwayMode + SummonMode
+ *  receive the same shape. The userName fallback is intentional — we
+ *  don't track the user's first-party name in any structured field
+ *  today; the voice profile usually carries it implicitly. */
+function buildModeContext(opts: {
+  msg: MessageRow;
+  target: ChatTarget | null;
+  recipientName: string;
+  thread: ThreadTurn[];
+  voiceProfile: string;
+  contactProfile: string;
+  contactNotes: string[];
+  addressBookContext: string;
+  userAvailability: string;
+}): Context {
+  const input: ContextInput = {
+    chatId: opts.msg.chat_id ?? 0,
+    isGroup: !!opts.target?.isGroup,
+    recipientName: opts.recipientName,
+    userName: 'the user',
+    thread: opts.thread,
+    voiceProfile: opts.voiceProfile,
+    contactProfile: opts.contactProfile,
+    contactNotes: opts.contactNotes,
+    addressBookContext: opts.addressBookContext,
+    userAvailability: opts.userAvailability,
+  };
+  return new Context(input);
 }
 
 const app = express();
@@ -1989,23 +2025,21 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
   const session = sessionHere();
 
   // FIRST contact in this away period → send the canned greeting.
+  // The greeting is owned by AwayMode — it pulls settings.away_message
+  // and substitutes placeholders. Bypasses the model entirely.
   if (!session) {
-    // Run the user's greeting through the universal placeholder substitutor
-    // so {recipientName} / {userName} expand. Most greetings have no
-    // placeholders and pass through unchanged. (This is the ONLY pre-AI
-    // step in away mode — the greeting is sent as a literal text on first
-    // contact; subsequent replies go through the full AI pipeline below.)
     const recipientName = msg.contact_name || msg.handle || 'them';
-    const greetingTemplate = (settings.away_message || '').trim();
-    const greeting = applyTemplate(greetingTemplate, { recipientName, userName: 'the user' });
+    const ctxForGreeting = buildModeContext({
+      msg, target, recipientName, thread: [],
+      voiceProfile: '', contactProfile: '', contactNotes: [],
+      addressBookContext: '', userAvailability: '',
+    });
+    const greeting = awayMode.greeting(ctxForGreeting, { persona: settings.away_persona || '' });
     if (!greeting) {
       console.warn('[away] enabled but away_message is empty — skipping greeting');
       return;
     }
     try {
-      // Abort if a session was created for this conversation in the
-      // meantime (parallel inbound) or away mode was toggled off during
-      // the delay. Group sessions are chat-keyed; 1:1 by handle.
       const handle = msg.handle; // capture for closure (TS narrowing is lost in arrow fn)
       const chatId = msg.chat_id; // same — narrowing is lost in the arrow
       const result = await aiAutoSend({
@@ -2053,45 +2087,29 @@ async function handleAwayModeMessage(msg: MessageRow): Promise<void> {
     return;
   }
 
-  // Continue the conversation: full thread context, voice profile, contact notes.
+  // Continue the conversation: build a Context, hand it to AwayMode.
+  // AwayMode owns the full prompt assembly — see server/ai/modes/away.ts.
   try {
     const messagesDesc = listMessagesForChat(msg.chat_id ?? 0, 0, settings.ai_context_count);
     const thread = buildThreadFromMessages(messagesDesc);
     if (thread.length === 0) return;
 
-    const contactNotes = listNotesForHandle(msg.handle).map((n) => n.body);
-    const contactProfile = getContactProfile(msg.handle).profile;
     const recipientName = msg.contact_name || msg.handle || 'them';
     const { addressBookContext, userAvailability } = await resolveDraftContext(msg.handle);
-    // User-provided override (Galt → Prompts → Away mode → "Custom prompt")
-    // wins when non-empty. Pass the RAW template — draftReply substitutes
-    // every {placeholder} ({recipientName}, {persona}, {messages}, etc.)
-    // in one place using the universal context.
-    const awayPromptOverride = settings.prompt_away_system.trim();
-    const awayContextNote = awayPromptOverride
-      || buildAwayContextNote(recipientName);
 
-    const result = await draftReply({
+    const ctx = buildModeContext({
+      msg,
+      target,
+      recipientName,
       thread,
-      // Galt is the system-wide AI voice. Pass galt_voice_profile here
-      // — the recipient already sees "Galt:" on every reply, so the AI
-      // should speak in Galt's voice rather than mimicking the user.
-      // (Used to be settings.voice_profile; that's deprecated.)
       voiceProfile: settings.galt_voice_profile,
-      contactNotes,
-      contactProfile,
+      contactProfile: getContactProfile(msg.handle).profile,
+      contactNotes: listNotesForHandle(msg.handle).map((n) => n.body),
       addressBookContext,
       userAvailability,
-      contextNote: awayContextNote,
-      temperament: 'normal',
-      count: 1,
-      awayMode: true,
-      promptOverrides: pickPromptOverrides(settings),
-      templateVars: {
-        recipientName,
-        persona: settings.away_persona || '',
-      },
     });
+
+    const result = await awayMode.draft(ctx, { persona: settings.away_persona || '' });
     const usable = result.variants.find((v) => !v.skipped && v.body.trim().length > 0);
     if (!usable) {
       console.log('[away] model returned SKIP for continuation — staying silent');
@@ -2202,7 +2220,51 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
     session = createSummonSession(msg.chat_id, msg.handle);
     console.log(`[summon] session ${session.id} opened (trigger from user, chat ${msg.chat_id} → ${msg.handle})`);
     sseBroadcast('summon.session_started', { session: enrichSummon(session) });
-    // Fall through — Galt drafts a reply to the trigger message.
+
+    // BARE-SUMMON activation — user typed JUST the trigger phrase with
+    // no actual ask. Send the acknowledgment ("yes...") and stop here.
+    // The user will follow up with their real ask which goes through
+    // the AI draft path on the next watcher tick.
+    const stripped = text.replace(trigger, '').replace(/[!?.,@\s]+/g, '').trim();
+    const isBareSummon = stripped.length === 0;
+    if (isBareSummon) {
+      const ackCtx = buildModeContext({
+        msg,
+        target: getChatTarget(msg.chat_id) ?? null,
+        recipientName: msg.contact_name || msg.handle || 'them',
+        thread: [],
+        voiceProfile: '', contactProfile: '', contactNotes: [],
+        addressBookContext: '', userAvailability: '',
+      });
+      const greeting = summonMode.greeting(ackCtx, {
+        triggerFromUser: true,
+        isActivation: true,
+        isBareSummon: true,
+      });
+      if (greeting) {
+        try {
+          const result = await aiAutoSend({
+            handle: msg.handle,
+            chat_id: msg.chat_id,
+            body: greeting,
+            delayProfile: 'off',  // ack should be snappy — no humanizing delay
+            logTag: `[summon] ack to ${msg.handle} (session ${session.id})`,
+          });
+          if (result.sent) {
+            sseBroadcast('summon.replied', {
+              session: enrichSummon(session),
+              body: result.prefixedBody,
+              thread_turns: 0,
+              usage: null,
+            });
+          }
+        } catch (err) {
+          console.error('[summon] ack send failed:', (err as Error).message);
+        }
+      }
+      return;
+    }
+    // Fall through — ask-summon: AI drafts a reply to the trigger message.
   } else if (isTrigger && session) {
     // Already active — treat as "weigh in on this message" re-summon.
     console.log(`[summon] re-trigger in active session ${session.id}`);
@@ -2250,56 +2312,32 @@ async function handleSummonModeMessage(msg: MessageRow): Promise<void> {
   }
   draftingForChat.add(msg.chat_id);
 
-  // Thread context, voice profile, contact context, and the summon system note.
+  // Build a Context, hand it to SummonMode. SummonMode owns the full
+  // prompt assembly — see server/ai/modes/summon.ts.
   try {
     const messagesDesc = listMessagesForChat(msg.chat_id, 0, settings.ai_context_count);
     const thread = buildThreadFromMessages(messagesDesc);
     if (thread.length === 0) return;
 
-    const contactNotes = listNotesForHandle(msg.handle).map((n) => n.body);
-    const contactProfile = getContactProfile(msg.handle).profile;
-    // Address book + calendar context — same shape as the regular draft
-    // path and away mode use. Galt-as-third-voice should know who they're
-    // talking to and (when relevant) the user's availability.
-    const { addressBookContext, userAvailability } = await resolveDraftContext(msg.handle);
     const recipientName = msg.contact_name || msg.handle || 'them';
-    // The user's display name from contacts. Falls back to "the user" so
-    // Galt has SOMETHING to call them rather than going nameless.
-    const userName = (() => {
-      // First-party self-name isn't tracked anywhere structured. Use a
-      // generic "the user" — Galt's prompt can ask the model to use first
-      // names if voice profile has them.
-      return 'the user';
-    })();
+    const { addressBookContext, userAvailability } = await resolveDraftContext(msg.handle);
 
-    // User-provided override (Galt → Prompts → Summon mode) wins when
-    // non-empty. Pass the RAW template — draftReply substitutes every
-    // {placeholder} ({userName}, {recipientName}, {messages}, etc.) in
-    // one place using the universal context.
-    const customPrompt = settings.summon_system_prompt.trim();
-    const contextNote = customPrompt
-      || buildSummonContextNote({
-          userName,
-          recipientName,
-          triggerFromUser: msg.is_from_me === 1,
-          isActivation: isTrigger,
-        });
-
-    const result = await draftReply({
+    const ctx = buildModeContext({
+      msg,
+      target: getChatTarget(msg.chat_id) ?? null,
+      recipientName,
       thread,
-      // Galt's voice (the system-wide AI voice). All AI calls use this
-      // — away, summon, manual. (The user's old voice_profile concept
-      // was retired; see CLAUDE.md.)
       voiceProfile: settings.galt_voice_profile,
-      contactNotes,
-      contactProfile,
+      contactProfile: getContactProfile(msg.handle).profile,
+      contactNotes: listNotesForHandle(msg.handle).map((n) => n.body),
       addressBookContext,
       userAvailability,
-      contextNote,
-      temperament: 'normal',
-      count: 1,
-      promptOverrides: pickPromptOverrides(settings),
-      templateVars: { userName, recipientName },
+    });
+
+    const result = await summonMode.draft(ctx, {
+      triggerFromUser: msg.is_from_me === 1,
+      isActivation: isTrigger,
+      isBareSummon: false,  // bare-summon is handled above and returns early
     });
 
     const usable = result.variants.find((v) => !v.skipped && v.body.trim().length > 0);
