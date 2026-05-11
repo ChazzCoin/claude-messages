@@ -20,7 +20,7 @@
 //     `limit` arg the model can override.
 
 import type { ToolDefinition } from './client.js';
-import { getUpcomingEvents } from '../integrations/calendar.js';
+import { listEventsInWindow } from '../integrations/calendar-db.js';
 import { listRecentCalls } from '../integrations/call-history.js';
 import {
   appleDateToUnixMs,
@@ -65,20 +65,14 @@ const list_calendar_events: ToolDefinition = {
   async execute(args) {
     const hoursAhead = typeof args.hours_ahead === 'number' ? args.hours_ahead : 24 * 7;
     const hoursBack  = typeof args.hours_back  === 'number' ? args.hours_back  : 0;
-    const events = await getUpcomingEvents({ hoursAhead, hoursBack });
+    // Read from Calendar.app's local sqlite cache. Bypasses
+    // AppleEvents which silently stall in a LaunchAgent context on
+    // macOS 14+.
+    const events = listEventsInWindow({ hoursAhead, hoursBack });
     return {
       window: { hours_back: hoursBack, hours_ahead: hoursAhead },
       count: events.length,
-      events: events.map((e) => ({
-        uid: e.uid,
-        title: e.title,
-        start_iso: e.start_iso,
-        end_iso: e.end_iso,
-        location: e.location,
-        notes: e.notes,
-        calendar: e.calendar,
-        all_day: e.all_day,
-      })),
+      events,
     };
   },
 };
