@@ -348,6 +348,59 @@ function migrate(db: DB) {
     );
     CREATE INDEX IF NOT EXISTS idx_gchat_messages_space ON gchat_messages(space_name, create_time);
 
+    -- Repo monitor: registered repos (claude-kit enabled codebases).
+    CREATE TABLE IF NOT EXISTS repos (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      name            TEXT NOT NULL,
+      local_path      TEXT NOT NULL UNIQUE,
+      repo_url        TEXT,
+      company         TEXT,
+      platform        TEXT,
+      description     TEXT,
+      active          INTEGER DEFAULT 1,
+      last_polled_at  INTEGER,
+      last_commit_sha TEXT,
+      added_at        INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS repo_phases (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      repo_id     INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+      phase_num   INTEGER NOT NULL,
+      name        TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'unknown',
+      scope       TEXT,
+      task_ids    TEXT,
+      updated_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+      UNIQUE(repo_id, phase_num)
+    );
+
+    CREATE TABLE IF NOT EXISTS repo_tasks (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      repo_id     INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+      task_id     TEXT NOT NULL,
+      title       TEXT,
+      state       TEXT NOT NULL DEFAULT 'backlog',
+      phase_num   INTEGER,
+      is_stub     INTEGER DEFAULT 0,
+      body        TEXT,
+      file_path   TEXT,
+      mtime       INTEGER,
+      updated_at  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+      UNIQUE(repo_id, task_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_repo_tasks_state ON repo_tasks(repo_id, state);
+
+    CREATE TABLE IF NOT EXISTS repo_audit_entries (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      repo_id     INTEGER NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+      entry_date  TEXT NOT NULL,
+      emoji       TEXT,
+      text        TEXT,
+      seen_at     INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_repo_audit_date ON repo_audit_entries(repo_id, entry_date DESC);
+
     CREATE TABLE IF NOT EXISTS state (
       key          TEXT PRIMARY KEY,
       value        TEXT NOT NULL
@@ -2567,4 +2620,228 @@ export function searchGChatMessages(query: string, spaceName?: string): GChatMes
   return db
     .prepare('SELECT * FROM gchat_messages WHERE text LIKE ? ORDER BY create_time DESC LIMIT 50')
     .all(like) as GChatMessageRow[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Repo monitor                                                        */
+/* ------------------------------------------------------------------ */
+
+export interface RepoRow {
+  id: number;
+  name: string;
+  local_path: string;
+  repo_url: string | null;
+  company: string | null;
+  platform: string | null;
+  description: string | null;
+  active: number;
+  last_polled_at: number | null;
+  last_commit_sha: string | null;
+  added_at: number;
+}
+
+export interface RepoPhaseRow {
+  id: number;
+  repo_id: number;
+  phase_num: number;
+  name: string;
+  status: string;
+  scope: string | null;
+  task_ids: string | null;   // JSON array
+  updated_at: number;
+}
+
+export interface RepoTaskRow {
+  id: number;
+  repo_id: number;
+  task_id: string;
+  title: string | null;
+  state: string;
+  phase_num: number | null;
+  is_stub: number;
+  body: string | null;
+  file_path: string | null;
+  mtime: number | null;
+  updated_at: number;
+}
+
+export interface RepoAuditEntryRow {
+  id: number;
+  repo_id: number;
+  entry_date: string;
+  emoji: string | null;
+  text: string | null;
+  seen_at: number;
+}
+
+export function registerRepo(input: {
+  name: string;
+  local_path: string;
+  company?: string | null;
+  repo_url?: string | null;
+  platform?: string | null;
+  description?: string | null;
+}): RepoRow {
+  const db = getAppDb();
+  db.prepare(`
+    INSERT INTO repos (name, local_path, company, repo_url, platform, description)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(local_path) DO UPDATE SET
+      name        = excluded.name,
+      company     = excluded.company,
+      repo_url    = excluded.repo_url,
+      platform    = excluded.platform,
+      description = excluded.description,
+      active      = 1
+  `).run(
+    input.name, input.local_path,
+    input.company ?? null, input.repo_url ?? null,
+    input.platform ?? null, input.description ?? null,
+  );
+  return db.prepare('SELECT * FROM repos WHERE local_path = ?').get(input.local_path) as RepoRow;
+}
+
+export function listRepos(opts: { activeOnly?: boolean } = {}): RepoRow[] {
+  const db = getAppDb();
+  if (opts.activeOnly) {
+    return db.prepare('SELECT * FROM repos WHERE active = 1 ORDER BY company, name').all() as RepoRow[];
+  }
+  return db.prepare('SELECT * FROM repos ORDER BY company, name').all() as RepoRow[];
+}
+
+export function getRepo(id: number): RepoRow | null {
+  return getAppDb().prepare('SELECT * FROM repos WHERE id = ?').get(id) as RepoRow | null;
+}
+
+export function setRepoActive(id: number, active: boolean): boolean {
+  const info = getAppDb().prepare('UPDATE repos SET active = ? WHERE id = ?').run(active ? 1 : 0, id);
+  return info.changes > 0;
+}
+
+export function getRepoLastPollSha(id: number): string | null {
+  const row = getAppDb()
+    .prepare('SELECT last_commit_sha FROM repos WHERE id = ?')
+    .get(id) as { last_commit_sha: string | null } | undefined;
+  return row?.last_commit_sha ?? null;
+}
+
+/** Persist a fresh snapshot into the DB. Pass snapshot=null to just update the poll timestamp. */
+export function upsertRepoSnapshot(
+  repoId: number,
+  snapshot: import('../integrations/repo-monitor.js').RepoSnapshot | null,
+  commitSha: string | null,
+): void {
+  const db = getAppDb();
+  const now = Date.now();
+
+  db.prepare(
+    'UPDATE repos SET last_polled_at = ?, last_commit_sha = ? WHERE id = ?',
+  ).run(now, commitSha, repoId);
+
+  if (!snapshot) return;
+
+  // Update repo metadata from snapshot.
+  db.prepare(`
+    UPDATE repos SET
+      repo_url    = COALESCE(?, repo_url),
+      platform    = COALESCE(?, platform),
+      description = COALESCE(?, description)
+    WHERE id = ?
+  `).run(
+    snapshot.meta.repo_url, snapshot.meta.platform,
+    snapshot.meta.description, repoId,
+  );
+
+  // Upsert phases.
+  const upsertPhase = db.prepare(`
+    INSERT INTO repo_phases (repo_id, phase_num, name, status, scope, task_ids, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(repo_id, phase_num) DO UPDATE SET
+      name = excluded.name, status = excluded.status,
+      scope = excluded.scope, task_ids = excluded.task_ids,
+      updated_at = excluded.updated_at
+  `);
+  for (const p of snapshot.phases) {
+    upsertPhase.run(
+      repoId, p.phase_num, p.name, p.status,
+      p.scope, JSON.stringify(p.task_ids), now,
+    );
+  }
+
+  // Upsert tasks.
+  const upsertTask = db.prepare(`
+    INSERT INTO repo_tasks (repo_id, task_id, title, state, phase_num, is_stub, body, file_path, mtime, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(repo_id, task_id) DO UPDATE SET
+      title = excluded.title, state = excluded.state,
+      phase_num = excluded.phase_num, is_stub = excluded.is_stub,
+      body = excluded.body, file_path = excluded.file_path,
+      mtime = excluded.mtime, updated_at = excluded.updated_at
+  `);
+  for (const t of snapshot.tasks) {
+    upsertTask.run(
+      repoId, t.task_id, t.title, t.state,
+      t.phase_num, t.is_stub ? 1 : 0,
+      t.body, t.file_path, t.mtime, now,
+    );
+  }
+
+  // Audit entries — insert new ones only (append-only log).
+  const insertAudit = db.prepare(`
+    INSERT OR IGNORE INTO repo_audit_entries (repo_id, entry_date, emoji, text)
+    VALUES (?, ?, ?, ?)
+  `);
+  for (const e of snapshot.audit_entries) {
+    insertAudit.run(repoId, e.entry_date, e.emoji, e.text);
+  }
+}
+
+export function listRepoPhases(repoId: number): RepoPhaseRow[] {
+  return getAppDb()
+    .prepare('SELECT * FROM repo_phases WHERE repo_id = ? ORDER BY phase_num ASC')
+    .all(repoId) as RepoPhaseRow[];
+}
+
+export function listRepoTasks(repoId: number, opts: { state?: string } = {}): RepoTaskRow[] {
+  const db = getAppDb();
+  if (opts.state) {
+    return db
+      .prepare('SELECT * FROM repo_tasks WHERE repo_id = ? AND state = ? ORDER BY task_id ASC')
+      .all(repoId, opts.state) as RepoTaskRow[];
+  }
+  return db
+    .prepare('SELECT * FROM repo_tasks WHERE repo_id = ? ORDER BY state ASC, task_id ASC')
+    .all(repoId) as RepoTaskRow[];
+}
+
+export function listAllActiveTasks(): Array<RepoTaskRow & { repo_name: string; company: string | null }> {
+  return getAppDb().prepare(`
+    SELECT rt.*, r.name as repo_name, r.company
+    FROM repo_tasks rt
+    JOIN repos r ON r.id = rt.repo_id
+    WHERE rt.state = 'active' AND r.active = 1
+    ORDER BY rt.mtime ASC
+  `).all() as Array<RepoTaskRow & { repo_name: string; company: string | null }>;
+}
+
+export function searchRepoTasks(query: string, opts: { state?: string; repoId?: number } = {}): RepoTaskRow[] {
+  const db = getAppDb();
+  const like = `%${query}%`;
+  let sql = `
+    SELECT rt.*, r.name as repo_name, r.company
+    FROM repo_tasks rt
+    JOIN repos r ON r.id = rt.repo_id
+    WHERE r.active = 1 AND (rt.title LIKE ? OR rt.task_id LIKE ? OR rt.body LIKE ?)
+  `;
+  const params: unknown[] = [like, like, like];
+  if (opts.state) { sql += ' AND rt.state = ?'; params.push(opts.state); }
+  if (opts.repoId) { sql += ' AND rt.repo_id = ?'; params.push(opts.repoId); }
+  sql += ' ORDER BY rt.state ASC, rt.task_id ASC LIMIT 50';
+  return db.prepare(sql).all(...params) as RepoTaskRow[];
+}
+
+export function listRepoAuditEntries(repoId: number, limit = 20): RepoAuditEntryRow[] {
+  return getAppDb()
+    .prepare('SELECT * FROM repo_audit_entries WHERE repo_id = ? ORDER BY entry_date DESC, id DESC LIMIT ?')
+    .all(repoId, limit) as RepoAuditEntryRow[];
 }

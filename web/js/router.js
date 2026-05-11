@@ -35,6 +35,7 @@ import { renderAutoNotesView } from './views/auto-notes.js';
 import { renderGaltView } from './views/galt.js';
 import { renderGaltChatView, stopGaltChatPolling } from './views/galt-chat.js';
 import { renderGChatView, stopGChatPolling } from './views/gchat.js';
+import { renderReposView, stopReposPolling } from './views/repos.js';
 import { setInboxTab } from './state.js';
 
 /**
@@ -51,6 +52,8 @@ export async function setView(view, arg = null) {
   if (view !== 'galt-chat') stopGaltChatPolling();
   // Cancel gchat polling whenever we leave that view.
   if (view !== 'gchat') stopGChatPolling();
+  // Cancel repos polling whenever we leave that view.
+  if (view !== 'repos') stopReposPolling();
 
   // Sidebar highlight mapping. Thread inherits from inbox; radar-detail
   // from radar. Legacy routes (search → home, drafts → inbox, summon →
@@ -64,6 +67,7 @@ export async function setView(view, arg = null) {
     : view === 'summon' ? 'galt'
     : view === 'galt-chat' ? 'galt-chat'
     : view === 'gchat' ? 'gchat'
+    : view === 'repos' ? 'repos'
     : (view === 'queue' || view === 'flags' || view === 'calendar' || view === 'scheduled') ? 'inbox'
     : view;
   setActiveNav(navKey);
@@ -86,6 +90,7 @@ export async function setView(view, arg = null) {
     case 'galt':          await renderGaltView(); break;
     case 'galt-chat':     await renderGaltChatView(); break;
     case 'gchat':         await renderGChatView(); break;
+    case 'repos':         await renderReposView(); break;
     case 'prompts':       await renderGaltView(); break;          // legacy alias
     // Legacy routes folded into surfaces above. They keep working but
     // route through the new surface and (where applicable) pre-select

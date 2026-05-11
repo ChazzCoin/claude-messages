@@ -133,6 +133,18 @@ import {
   listGChatMessages,
   searchGChatMessages,
   type GChatSpaceRow,
+  // repo monitor
+  registerRepo,
+  listRepos,
+  getRepo,
+  setRepoActive,
+  upsertRepoSnapshot,
+  listRepoPhases,
+  listRepoTasks,
+  listAllActiveTasks,
+  searchRepoTasks,
+  listRepoAuditEntries,
+  type RepoRow,
 } from './db/app.js';
 import { sendMessageViaAppleScript, sendToChat } from './send.js';
 import { Context, type ContextInput } from './ai/context.js';
@@ -141,6 +153,8 @@ import { summonMode } from './ai/modes/summon.js';
 import type { ChatTarget } from './db/messages.js';
 import { messageWatcher } from './watcher.js';
 import { googleChatWatcher } from './google-chat-watcher.js';
+import { repoWatcher, classifyActiveTasks, STALE_DAYS } from './repo-watcher.js';
+import { extractRepo, isClaudeKitRepo } from './integrations/repo-monitor.js';
 import { googleChat } from './integrations/google-chat.js';
 import { mirrorAutoNote, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
@@ -1851,6 +1865,124 @@ app.get('/api/gchat/search', (req, res) => {
   res.json({ messages: searchGChatMessages(q, space) });
 });
 
+/* ---------- repo monitor routes ---------- */
+
+/** List registered repos. */
+app.get('/api/repos', (_req, res) => {
+  res.json({ repos: listRepos({ activeOnly: false }) });
+});
+
+/** Register a new repo by local path. */
+app.post('/api/repos', async (req, res) => {
+  const { local_path, company } = req.body as { local_path?: string; company?: string };
+  if (!local_path) return res.status(400).json({ error: 'local_path is required' });
+
+  if (!isClaudeKitRepo(local_path)) {
+    return res.status(400).json({
+      error: 'Not a claude-kit repo — missing .claude/foundation.json or tasks/ROADMAP.md',
+    });
+  }
+
+  // Run initial extract so the repo has data immediately.
+  let snapshot;
+  try {
+    snapshot = await extractRepo(local_path);
+  } catch (err) {
+    return res.status(500).json({ error: `Extract failed: ${(err as Error).message}` });
+  }
+
+  const row = registerRepo({
+    local_path,
+    name: snapshot.meta.name,
+    repo_url: snapshot.meta.repo_url,
+    company: company ?? null,
+    platform: snapshot.meta.platform,
+    description: snapshot.meta.description,
+  });
+  upsertRepoSnapshot(row.id, snapshot, snapshot.latest_commit_sha);
+
+  // Start the watcher if this is the first registered repo.
+  if (!repoWatcher.isRunning()) repoWatcher.start();
+
+  res.json({ repo: row });
+});
+
+/** Get one repo's full snapshot. */
+app.get('/api/repos/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const repo = getRepo(id);
+  if (!repo) return res.status(404).json({ error: 'not found' });
+  const phases = listRepoPhases(id);
+  const tasks = listRepoTasks(id);
+  const audit = listRepoAuditEntries(id, 20);
+  res.json({ repo, phases, tasks, audit });
+});
+
+/** Toggle a repo active/inactive. */
+app.patch('/api/repos/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const { active } = req.body as { active?: boolean };
+  if (typeof active !== 'boolean') return res.status(400).json({ error: 'active (boolean) required' });
+  setRepoActive(id, active);
+  res.json({ ok: true });
+});
+
+/** Force an immediate re-extract of one repo. */
+app.post('/api/repos/:id/refresh', async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const repo = getRepo(id);
+  if (!repo) return res.status(404).json({ error: 'not found' });
+  try {
+    const snapshot = await extractRepo(repo.local_path);
+    upsertRepoSnapshot(id, snapshot, snapshot.latest_commit_sha);
+    res.json({ ok: true, snapshot_at: snapshot.snapshot_at });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/** All active tasks across all repos. */
+app.get('/api/repos/tasks/active', (_req, res) => {
+  res.json({ tasks: listAllActiveTasks() });
+});
+
+/** Search tasks across repos. */
+app.get('/api/repos/tasks/search', (req, res) => {
+  const q = String(req.query.q ?? '').trim();
+  if (!q) return res.status(400).json({ error: 'q is required' });
+  const state = typeof req.query.state === 'string' ? req.query.state : undefined;
+  const repoId = req.query.repo_id ? parseInt(req.query.repo_id as string) : undefined;
+  res.json({ tasks: searchRepoTasks(q, { state, repoId }) });
+});
+
+/* ---------- repo-watcher → auto-notes (stale + audit) ---------- */
+
+repoWatcher.onSnapshot((snapshot, repo) => {
+  // Fire auto-note for stale active tasks (>10 days without update).
+  const { stale } = classifyActiveTasks(snapshot.tasks);
+  for (const task of stale) {
+    const noteKey = `repo-stale:${repo.id}:${task.task_id}`;
+    if (autoNoteAlreadyExists(noteKey)) continue;
+    const days = Math.floor((Date.now() - task.mtime) / 86400000);
+    const text = `⚠️ ${repo.name} / ${task.task_id} has been active for ${days} days without an update: "${task.title}"`;
+    insertAutoNote({
+      session_id: null,
+      handle: `repo:${repo.id}`,
+      message_guid: noteKey,
+      message_rowid: null,
+      message_text: null,
+      summary: text,
+      category: 'business',
+      reasoning: `Task in active/ dir for ${days} days — stale threshold is ${STALE_DAYS} days`,
+      source: 'imessage',
+      source_meta: JSON.stringify({ type: 'stale_task', repo_id: repo.id, task_id: task.task_id }),
+    });
+  }
+});
+
 /* ---------- watcher → away-mode auto-responder ---------- */
 
 /**
@@ -2997,6 +3129,19 @@ const server = app.listen(config.port, config.host, () => {
   } catch (err) {
     console.warn(`  gchat-watcher: ${(err as Error).message}`);
   }
+  // Start repo watcher — polls registered claude-kit repos every 5 min.
+  // Fires auto-notes for stale tasks and new audit entries.
+  try {
+    const activeRepos = listRepos({ activeOnly: true });
+    if (activeRepos.length > 0) {
+      repoWatcher.start();
+      console.log(`  repo-watcher: started (${activeRepos.length} repo(s))`);
+    } else {
+      console.log('  repo-watcher: standby (no repos registered yet)');
+    }
+  } catch (err) {
+    console.warn(`  repo-watcher: ${(err as Error).message}`);
+  }
   // Push initial state snapshot so the remote console reflects the live
   // server immediately on boot, not only after the first user mutation.
   void pushStateSnapshotNow();
@@ -3011,6 +3156,7 @@ function shutdown(signal: string) {
   stopCommandListener();
   messageWatcher.stop();
   googleChatWatcher.stop();
+  repoWatcher.stop();
   for (const c of sseClients) {
     try {
       c.end();

@@ -44,6 +44,12 @@ import {
   listGChatSpaces,
   listGChatMessages,
   searchGChatMessages,
+  listRepos,
+  listRepoPhases,
+  listRepoTasks,
+  listAllActiveTasks,
+  searchRepoTasks,
+  listRepoAuditEntries,
 } from '../db/app.js';
 import { googleChat } from '../integrations/google-chat.js';
 
@@ -768,6 +774,126 @@ const claude_list_sessions: ToolDefinition = {
 };
 
 /* ============================================================
+   Repo monitor tools
+   ============================================================ */
+
+const list_repos: ToolDefinition = {
+  name: 'list_repos',
+  description: 'List all registered claude-kit repos (codebases). Shows name, company, platform, active status, and last-poll time. Use this to discover which repos are tracked before drilling in.',
+  parameters: {
+    type: 'object',
+    properties: {
+      active_only: { type: 'boolean', description: 'Only show active (monitored) repos. Default true.' },
+    },
+  },
+  execute: async (args) => {
+    const repos = listRepos({ activeOnly: (args.active_only as boolean) ?? true });
+    return repos.map((r) => ({
+      id: r.id,
+      name: r.name,
+      company: r.company,
+      platform: r.platform,
+      local_path: r.local_path,
+      active: !!r.active,
+      last_polled_at: r.last_polled_at,
+      description: r.description,
+    }));
+  },
+};
+
+const repo_status: ToolDefinition = {
+  name: 'repo_status',
+  description: 'Get full status for one repo: phases, active tasks, recent audit entries. Use repo id from list_repos.',
+  parameters: {
+    type: 'object',
+    properties: {
+      repo_id: { type: 'number', description: 'The repo id from list_repos.' },
+    },
+    required: ['repo_id'],
+  },
+  execute: async (args) => {
+    const repoId = args.repo_id as number;
+    const phases = listRepoPhases(repoId);
+    const activeTasks = listRepoTasks(repoId, { state: 'active' });
+    const backlogTasks = listRepoTasks(repoId, { state: 'backlog' });
+    const recentAudit = listRepoAuditEntries(repoId, 10);
+    return {
+      phases: phases.map((p) => ({
+        phase_num: p.phase_num,
+        name: p.name,
+        status: p.status,
+        scope: p.scope,
+        task_count: p.task_ids ? JSON.parse(p.task_ids).length : 0,
+      })),
+      active_tasks: activeTasks.map((t) => ({
+        task_id: t.task_id,
+        title: t.title,
+        phase_num: t.phase_num,
+        is_stub: !!t.is_stub,
+        days_since_update: t.mtime != null ? Math.floor((Date.now() - t.mtime) / 86400000) : null,
+      })),
+      backlog_count: backlogTasks.length,
+      recent_audit: recentAudit.map((e) => ({ date: e.entry_date, emoji: e.emoji, text: e.text })),
+    };
+  },
+};
+
+const search_tasks: ToolDefinition = {
+  name: 'search_tasks',
+  description: 'Search tasks across all repos by keyword. Returns matching tasks with repo name, state, and phase.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Search term — matches task ID, title, or body.' },
+      state: { type: 'string', enum: ['active', 'backlog', 'done'], description: 'Filter by state. Omit for all states.' },
+      repo_id: { type: 'number', description: 'Limit to a specific repo. Omit for all repos.' },
+    },
+    required: ['query'],
+  },
+  execute: async (args) => {
+    const results = searchRepoTasks(
+      args.query as string,
+      {
+        state: args.state as string | undefined,
+        repoId: args.repo_id as number | undefined,
+      },
+    );
+    type TaskWithRepo = typeof results[number] & { repo_name?: string; company?: string | null };
+    return (results as TaskWithRepo[]).map((t) => ({
+      task_id: t.task_id,
+      title: t.title,
+      state: t.state,
+      repo_name: t.repo_name,
+      company: t.company,
+      phase_num: t.phase_num,
+      is_stub: !!t.is_stub,
+      days_since_update: t.mtime != null ? Math.floor((Date.now() - t.mtime) / 86400000) : null,
+    }));
+  },
+};
+
+const active_tasks_all: ToolDefinition = {
+  name: 'active_tasks_all',
+  description: 'Get every active task across all repos, sorted by oldest-updated first. Great for a cross-company status report.',
+  parameters: {
+    type: 'object',
+    properties: {},
+  },
+  execute: async () => {
+    const tasks = listAllActiveTasks();
+    return tasks.map((t) => ({
+      task_id: t.task_id,
+      title: t.title,
+      repo_name: t.repo_name,
+      company: t.company,
+      phase_num: t.phase_num,
+      is_stub: !!t.is_stub,
+      days_since_update: t.mtime != null ? Math.floor((Date.now() - t.mtime) / 86400000) : null,
+    }));
+  },
+};
+
+/* ============================================================
    Public registry
    ============================================================ */
 
@@ -792,6 +918,10 @@ export function buildChatTools(galtMessageId: string): ToolDefinition[] {
     list_gchat_messages,
     send_gchat_message,
     search_gchat_messages,
+    list_repos,
+    repo_status,
+    search_tasks,
+    active_tasks_all,
   ];
 }
 
@@ -812,4 +942,8 @@ export const CHAT_TOOLS: ToolDefinition[] = [
   list_gchat_messages,
   send_gchat_message,
   search_gchat_messages,
+  list_repos,
+  repo_status,
+  search_tasks,
+  active_tasks_all,
 ];
