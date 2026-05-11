@@ -157,34 +157,83 @@ function renderStage(stage) {
 
 function renderModeContent(modeEntry) {
   const meta = MODE_META[modeEntry.name] || { label: modeEntry.name, tagline: '', blurb: '', accent: 'amber' };
-  const editable = modeEntry.stages.filter((s) => s.settingsKey);
-  const overridden = editable.filter((s) => {
+  const allEditable = [
+    ...(modeEntry.greeting ? [modeEntry.greeting] : []),
+    ...modeEntry.stages.filter((s) => s.settingsKey),
+  ].filter((s) => s.settingsKey);
+  const overridden = allEditable.filter((s) => {
     const v = settingsCache[s.settingsKey] ?? '';
     return v && String(v).trim() !== '' && s.defaultText !== v;
   });
-  const stagesList = modeEntry.stages.map(renderStage).join('');
+
+  // Numbered, sequential stages — each is one step in the system-prompt
+  // assembly. Arrows between them make the order obvious.
+  const numberedStages = modeEntry.stages.map((stage, i) => `
+    <div class="galt-flow-step">
+      <div class="galt-flow-step-num">${i + 1}</div>
+      <div class="galt-flow-step-card">${renderStage(stage)}</div>
+    </div>
+  `).join('<div class="galt-flow-arrow"></div>');
+
+  // Pre-AI greeting (separate from the pipeline because it's literal,
+  // not injected). Renders as one card above the pipeline.
+  const greetingBlock = modeEntry.greeting ? `
+    <div class="galt-flow-section">
+      <div class="galt-flow-section-tag">PRE-AI · LITERAL SEND</div>
+      <div class="galt-flow-step">
+        <div class="galt-flow-step-num greeting">★</div>
+        <div class="galt-flow-step-card">${renderStage(modeEntry.greeting)}</div>
+      </div>
+    </div>
+    <div class="galt-flow-divider">
+      <span class="galt-flow-divider-label">subsequent turns enter the AI pipeline · greeting appears in thread context naturally</span>
+    </div>
+  ` : '';
+
   const previewBlock = previewState && previewState.mode === modeEntry.name
     ? renderPreview(previewState)
     : '';
+
   return `
     <div class="galt-mode-pane" data-mode="${escapeHtml(modeEntry.name)}" data-accent="${escapeHtml(meta.accent)}">
       <div class="galt-mode-intro">
         <div class="galt-mode-tagline">${escapeHtml(meta.tagline)}</div>
         <div class="galt-mode-blurb">${escapeHtml(meta.blurb)}</div>
         <div class="galt-mode-stats">
-          <span><span class="num amber">${overridden.length}</span> of ${editable.length} customizable sections overridden</span>
+          <span><span class="num amber">${overridden.length}</span> of ${allEditable.length} customizable sections overridden</span>
           <span class="sep">·</span>
-          <span>${modeEntry.stages.length} total stages</span>
+          <span>${modeEntry.stages.length} system-prompt stages${modeEntry.greeting ? ' + 1 pre-AI greeting' : ''}</span>
         </div>
       </div>
 
-      <div class="galt-stages">${stagesList}</div>
+      ${greetingBlock}
+
+      <div class="galt-flow-section">
+        <div class="galt-flow-section-tag">AI PIPELINE · SYSTEM ROLE</div>
+        <div class="galt-flow-stages">${numberedStages}</div>
+      </div>
+
+      <div class="galt-flow-arrow"></div>
+
+      <div class="galt-flow-section">
+        <div class="galt-flow-section-tag user-role">AI PIPELINE · USER ROLE</div>
+        <div class="galt-flow-userrole">
+          <div class="galt-flow-userrole-title">Formatted thread</div>
+          <div class="galt-flow-userrole-desc">
+            Recent messages, oldest → newest. Framework-enforced: the most recent message is ALWAYS the last line of the user role, so the model's recency-bias attention focuses on what was just said. Modes cannot override this.
+          </div>
+        </div>
+      </div>
+
+      <div class="galt-flow-arrow"></div>
+
+      <div class="galt-flow-terminal">→ OpenAI · ${escapeHtml(modeEntry.name)}</div>
 
       <div class="galt-preview-bar">
         <button type="button" class="v9-btn primary" data-action="galt-preview" data-mode="${escapeHtml(modeEntry.name)}">
           Preview assembled prompt
         </button>
-        <span class="galt-preview-hint">shows the actual SYSTEM + USER payload that would go to OpenAI</span>
+        <span class="galt-preview-hint">render the actual SYSTEM + USER payload for this mode</span>
       </div>
 
       ${previewBlock}

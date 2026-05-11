@@ -205,24 +205,28 @@ export class AwayMode extends PromptMode<AwayInput> {
     });
   }
 
-  /** Pipeline view for the UI. Mirrors buildSystemPrompt order; the
-   *  greeting is included as the first stage even though it's pre-AI
-   *  (the UI shows the full mode flow, not just the AI assembly). */
-  stages(): ModeStage[] {
+  /** Pre-AI greeting — sent verbatim on first contact, then appears
+   *  in the thread context on subsequent turns. Editable via settings. */
+  greetingStage(): ModeStage {
     const s = getSettings();
-    const out: ModeStage[] = [];
-
-    // 0. Greeting (pre-AI literal send)
-    out.push({
+    return {
       id: 'greeting',
       label: 'Greeting',
-      description: 'Canned message sent verbatim on first contact in an away period. Bypasses the AI.',
+      description: "Canned message sent verbatim on first contact during an away period. Bypasses the AI entirely. The model sees it on subsequent turns through the thread context (as a 'me: Galt: ...' line) — no separate injection needed.",
       fires: 'first contact in an away period',
       settingsKey: 'away_message',
       defaultText: SETTING_DEFAULTS.away_message,
       text: s.away_message || SETTING_DEFAULTS.away_message,
       rows: 4,
-    });
+    };
+  }
+
+  /** Pipeline view for the UI — SYSTEM-PROMPT assembly only. Mirrors
+   *  buildSystemPrompt order. Greeting is NOT here (it's pre-AI; see
+   *  greetingStage() above). */
+  stages(): ModeStage[] {
+    const s = getSettings();
+    const out: ModeStage[] = [];
 
     // 1. Identity
     out.push({

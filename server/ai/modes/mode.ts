@@ -77,11 +77,24 @@ export abstract class PromptMode<TInput = void> {
    *  thread is the user role, sent latest-last. */
   abstract buildSystemPrompt(ctx: Context, input: TInput): string;
 
-  /** Ordered descriptor of the mode's stages — what could be injected,
-   *  in what order, which pieces the user can edit. The UI renders
-   *  this; the runtime ignores it (buildSystemPrompt is authoritative).
-   *  Mode authors must keep this in sync with buildSystemPrompt order. */
+  /** Ordered descriptor of the mode's SYSTEM-PROMPT stages — what
+   *  could be injected, in what order, which pieces the user can edit.
+   *  The UI renders this as the per-turn pipeline; the runtime ignores
+   *  it (buildSystemPrompt is authoritative). Mode authors must keep
+   *  this in sync with buildSystemPrompt order.
+   *
+   *  IMPORTANT: greeting is NOT a stage. The greeting is a pre-AI
+   *  literal send, not part of the system-prompt assembly. Modes
+   *  expose it separately via greetingStage(). */
   abstract stages(): ModeStage[];
+
+  /** Optional pre-AI greeting descriptor for the UI. Modes that don't
+   *  greet return null. Modes that do return a single ModeStage shape
+   *  (re-uses the same descriptor type so the UI renders it with the
+   *  same card chrome — but it lives OUTSIDE the system-prompt
+   *  pipeline. The greeting bypasses the model entirely and just
+   *  appears in the thread context on subsequent turns). */
+  greetingStage(): ModeStage | null { return null; }
 
   /** Per-call temperature. Override for hotter/cooler modes. */
   protected temperature(): number { return 0.7; }

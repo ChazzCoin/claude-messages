@@ -4247,12 +4247,139 @@ body::after {
 .galt-mode-stats .num.amber { color: var(--accent); }
 .galt-mode-stats .sep       { color: var(--text-mute); }
 
-/* Stages list */
-.galt-stages {
+/* Pipeline flow — numbered steps with arrows between them. The
+   visualization shape is FIXED (top-down vertical sequence), but
+   which stages populate it comes from each mode's stages() method. */
+.galt-flow-section {
+  margin-bottom: 4px;
+}
+.galt-flow-section-tag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--text-faint);
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+.galt-flow-section-tag.user-role { color: var(--cyan); }
+
+.galt-flow-stages {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 18px;
+  gap: 0;
+}
+
+/* One step = number badge + card. The arrow between steps is rendered
+   as a sibling element (.galt-flow-arrow) so spacing is consistent. */
+.galt-flow-step {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.galt-flow-step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-card-2);
+  border: 1px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-top: 6px;
+}
+.galt-flow-step-num.greeting {
+  background: rgba(245, 166, 35, 0.12);
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.galt-mode-pane[data-accent="red"] .galt-flow-step-num {
+  /* leave neutral; only the highlighted .greeting + active states use accent */
+}
+.galt-flow-step-card {
+  min-width: 0;  /* let card shrink inside grid */
+}
+.galt-flow-step-card .galt-flow-card { margin: 0; }
+
+/* Vertical connector line between steps */
+.galt-flow-arrow {
+  width: 2px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 auto 0 14px;
+  border-radius: 2px;
+}
+
+/* Divider between pre-AI greeting and the AI pipeline — visually
+   different from the inter-step connectors so the boundary reads. */
+.galt-flow-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+.galt-flow-divider::before,
+.galt-flow-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.galt-flow-divider-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 0.4px;
+  text-transform: lowercase;
+}
+
+/* User-role placeholder card — distinct from system-role stages.
+   Cyan accent (matches the bubble cyan) so it reads as "this is
+   what the model receives last". */
+.galt-flow-userrole {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--cyan);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-left: 44px;  /* align under stage cards (past the number column) */
+}
+.galt-flow-userrole-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.galt-flow-userrole-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+/* Terminal marker — the "→ OpenAI" pill at the very end of the flow */
+.galt-flow-terminal {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: center;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, transparent, var(--accent-soft), transparent);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+.galt-mode-pane[data-accent="red"] .galt-flow-terminal {
+  color: var(--red);
+  background: linear-gradient(90deg, transparent, rgba(255, 107, 94, 0.12), transparent);
 }
 
 /* The "fires when" badge in each card summary */

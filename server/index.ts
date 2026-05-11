@@ -1633,11 +1633,14 @@ async function buildPreviewContext(chatId: number | null): Promise<Context> {
   });
 }
 
-/** List both modes with their stages — feeds the Galt page. */
+/** List both modes with their stages and greeting metadata — feeds
+ *  the Galt page. Greeting is split out from stages because it's
+ *  pre-AI (literal send, not part of the system-prompt assembly). */
 app.get('/api/modes', (_req, res) => {
   res.json({
     modes: (Object.keys(MODES_BY_NAME) as ModeName[]).map((name) => ({
       name,
+      greeting: MODES_BY_NAME[name].greetingStage(),
       stages: MODES_BY_NAME[name].stages(),
     })),
   });

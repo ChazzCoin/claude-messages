@@ -219,24 +219,29 @@ export class SummonMode extends PromptMode<SummonInput> {
     return sections.join('\n\n');
   }
 
-  /** Pipeline view for the UI. Mirrors buildSystemPrompt order; the
-   *  greeting is included as the first stage even though it's pre-AI
-   *  (the UI shows the full mode flow, not just the AI assembly). */
-  stages(): ModeStage[] {
+  /** Pre-AI acknowledgment — sent verbatim when the user opens a
+   *  session with a bare trigger ("GALT!!" alone). Bypasses the AI.
+   *  Ask-summons skip the greeting and go straight to the AI. */
+  greetingStage(): ModeStage {
     const s = getSettings();
-    const out: ModeStage[] = [];
-
-    // 0. Greeting (pre-AI literal send for bare summons)
-    out.push({
+    return {
       id: 'greeting',
       label: 'Acknowledgment',
-      description: 'Short literal send when the user fires the trigger with no actual ask. Bypasses the AI. (Ask-summons skip this and go straight to the AI.)',
+      description: "Short literal send when the user fires the trigger with no actual ask attached. Bypasses the AI. Ask-summons (trigger + ask in the same message) skip this and go straight to the AI. The model sees this on subsequent turns through the thread context — no separate injection needed.",
       fires: 'on bare-summon activation only',
       settingsKey: 'summon_acknowledgment',
       defaultText: SETTING_DEFAULTS.summon_acknowledgment,
       text: s.summon_acknowledgment || SETTING_DEFAULTS.summon_acknowledgment,
       rows: 2,
-    });
+    };
+  }
+
+  /** Pipeline view for the UI — SYSTEM-PROMPT assembly only. Mirrors
+   *  buildSystemPrompt order. Greeting is NOT here (it's pre-AI; see
+   *  greetingStage() above). */
+  stages(): ModeStage[] {
+    const s = getSettings();
+    const out: ModeStage[] = [];
 
     // 1. Identity
     out.push({
