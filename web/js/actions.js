@@ -628,6 +628,36 @@ async function onClick(e) {
     return;
   }
 
+  if (action === 'push-test-web') {
+    // Fire a test push at every registered companion device. The
+    // backend reads /devices from RTDB and fans out via FCM. Useful
+    // for verifying push reaches the iPhone PWA without needing to
+    // touch the companion at all.
+    const statusEl = document.querySelector('[data-id="push-test-status"]');
+    const setStatus = (msg, tone = '') => {
+      if (!statusEl) return;
+      statusEl.className = `settings-status${tone ? ' ' + tone : ''}`;
+      statusEl.textContent = msg;
+    };
+    setStatus('sending…');
+    try {
+      const r = await api('/api/push/test', {
+        method: 'POST',
+        body: { body: `Test push from Mac dashboard · ${new Date().toLocaleTimeString()}` },
+      });
+      if (r.sent > 0) {
+        setStatus(`✓ sent to ${r.sent} device${r.sent === 1 ? '' : 's'}${r.pruned > 0 ? ` · pruned ${r.pruned} dead` : ''}`, 'ok');
+      } else {
+        setStatus(`✗ no devices reached (failed ${r.failed}, pruned ${r.pruned})`, 'warn');
+      }
+      // Clear the status after a few seconds so the section doesn't stay loud.
+      setTimeout(() => { if (statusEl) { statusEl.textContent = ''; statusEl.className = 'settings-status'; } }, 6000);
+    } catch (err) {
+      setStatus(`✗ ${err.message}`, 'warn');
+    }
+    return;
+  }
+
   /* ---------- Thread notes ---------- */
   if (action === 'remove-note') {
     const id = parseInt(btn.dataset.id, 10);

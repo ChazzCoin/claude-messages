@@ -157,6 +157,21 @@ export async function renderSettingsView() {
       </div>
     </form>
 
+    <div style="${SECTION_HEADER_STYLE}">Notifications</div>
+    <div class="settings-section">
+      <h3>Push to companion devices</h3>
+      <div class="settings-row">
+        <label class="field-label">
+          Test push
+          <span class="desc">Fires a push notification at every device that has the companion PWA registered (Settings → Notifications → Enable, on the device). Use this to confirm the pipeline before wiring push into auto-notes / replies / flags.</span>
+        </label>
+        <div class="settings-actions" style="margin-top: 0;">
+          <button type="button" class="btn primary" data-action="push-test-web">Send test push</button>
+          <span class="settings-status" data-id="push-test-status"></span>
+        </div>
+      </div>
+    </div>
+
     <div style="${SECTION_HEADER_STYLE}">System</div>
     <div class="settings-section">
       <h3>Status</h3>

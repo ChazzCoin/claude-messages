@@ -132,6 +132,7 @@ import { messageWatcher } from './watcher.js';
 import { mirrorAutoNote, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
 import { startCommandListener, stopCommandListener } from './firebase-commands.js';
+import { sendPushToAll } from './firebase-push.js';
 import {
   listAllContacts,
   listContactsWithHandles,
@@ -1697,6 +1698,27 @@ app.get(
         ? awayMode.greeting(ctx, { persona: getSettings().away_persona || '' })
         : summonMode.greeting(ctx, { triggerFromUser: true, isActivation: true, isBareSummon: true }),
     });
+  }),
+);
+
+/* ---------- routes: push notifications (test endpoint) ---------- */
+
+// Test trigger from the local web dashboard — the companion has a
+// matching `send_test_push` command on the RTDB bus, but we expose
+// this HTTP route too so the Mac dashboard can fire a push at the
+// iPhone PWA without round-tripping through Firebase. Same backend
+// `sendPushToAll()` either way.
+app.post(
+  '/api/push/test',
+  asyncHandler(async (req, res) => {
+    const title = (typeof req.body?.title === 'string' && req.body.title.trim()) || 'Galt test';
+    const body  = (typeof req.body?.body === 'string'  && req.body.body.trim())  || 'Test push fired from the Mac dashboard.';
+    const result = await sendPushToAll({
+      title,
+      body,
+      click_url: 'https://galt-messages.web.app',
+    });
+    res.json(result);
   }),
 );
 
