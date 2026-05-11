@@ -165,8 +165,12 @@ export interface CalendarListEntry {
   /** Hex color in #RRGGBB or #RRGGBBAA form (Apple sometimes appends
    *  an alpha byte). Useful for color-coding the picker. */
   color: string | null;
-  /** Best-effort writability hint. true when sharing_status is 0
-   *  (user-owned) or 2 (subscribed/shared — most are writable). */
+  /** True when sharing_status = 0 (user-owned). sharing_status = 2
+   *  is a subscribed / shared calendar which Calendar.app typically
+   *  rejects writes to. We used to include status=2 here too;
+   *  observed live failure: "Holidays in United States" looked
+   *  writable but Calendar.app rejected the create with "The
+   *  calendar is read only." */
   writable: boolean;
 }
 
@@ -216,7 +220,7 @@ export function listLocalCalendars(): CalendarListEntry[] {
       uuid: r.uuid,
       title: r.title,
       color: r.color ? r.color.slice(0, 7) : null,  // strip alpha byte if present
-      writable: r.sharing_status === 0 || r.sharing_status === 2,
+      writable: r.sharing_status === 0,
     });
   }
   return out;

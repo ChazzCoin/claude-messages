@@ -54,11 +54,21 @@ interface FetchOptions {
   hoursAhead?: number;
 }
 
+// NOTE on argv indexing in these JXA scripts: when osascript is
+// invoked with `-l JavaScript -e <script-source>`, the NSProcessInfo
+// argv layout is:
+//   0=/usr/bin/osascript  1=-l  2=JavaScript  3=-e  4=<script-source>
+//   5=user-arg-0  6=user-arg-1  ...
+// (Verified empirically — load the script from a file and the
+//  indexing shifts to 4=user-arg-0. We use -e so user args land at 5+.)
+// Historical bug: an earlier version of these scripts read user args
+// from index 4, which silently returned the script source. Defaults
+// like `|| 0` masked it; create/update/delete were quietly broken.
 const JXA_SCRIPT = `
 function run() {
   const args = $.NSProcessInfo.processInfo.arguments;
-  const hoursBack  = parseFloat(ObjC.unwrap(args.objectAtIndex(4))) || 0;
-  const hoursAhead = parseFloat(ObjC.unwrap(args.objectAtIndex(5))) || 24;
+  const hoursBack  = parseFloat(ObjC.unwrap(args.objectAtIndex(5))) || 0;
+  const hoursAhead = parseFloat(ObjC.unwrap(args.objectAtIndex(6))) || 24;
 
   const Cal = Application('Calendar');
   Cal.includeStandardAdditions = false;
@@ -203,7 +213,7 @@ function run() {
 const JXA_CREATE_EVENT = `
 function run() {
   const args = $.NSProcessInfo.processInfo.arguments;
-  const payload = JSON.parse(ObjC.unwrap(args.objectAtIndex(4)));
+  const payload = JSON.parse(ObjC.unwrap(args.objectAtIndex(5)));
   const Cal = Application('Calendar');
   Cal.includeStandardAdditions = false;
 
@@ -251,8 +261,8 @@ function run() {
 const JXA_UPDATE_EVENT = `
 function run() {
   const args = $.NSProcessInfo.processInfo.arguments;
-  const targetUid = ObjC.unwrap(args.objectAtIndex(4));
-  const patch = JSON.parse(ObjC.unwrap(args.objectAtIndex(5)));
+  const targetUid = ObjC.unwrap(args.objectAtIndex(5));
+  const patch = JSON.parse(ObjC.unwrap(args.objectAtIndex(6)));
   const Cal = Application('Calendar');
   Cal.includeStandardAdditions = false;
 
@@ -286,7 +296,7 @@ function run() {
 const JXA_DELETE_EVENT = `
 function run() {
   const args = $.NSProcessInfo.processInfo.arguments;
-  const targetUid = ObjC.unwrap(args.objectAtIndex(4));
+  const targetUid = ObjC.unwrap(args.objectAtIndex(5));
   const Cal = Application('Calendar');
   Cal.includeStandardAdditions = false;
 
