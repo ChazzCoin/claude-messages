@@ -158,3 +158,66 @@ export function isCalendarDbReadable(): boolean {
     return false;
   }
 }
+
+export interface CalendarListEntry {
+  uuid: string;
+  title: string;
+  /** Hex color in #RRGGBB or #RRGGBBAA form (Apple sometimes appends
+   *  an alpha byte). Useful for color-coding the picker. */
+  color: string | null;
+  /** Best-effort writability hint. true when sharing_status is 0
+   *  (user-owned) or 2 (subscribed/shared — most are writable). */
+  writable: boolean;
+}
+
+/** Enumerate calendars Calendar.app knows about. Used for the
+ *  per-proposal "Add to:" dropdown on the chat approval card.
+ *
+ *  Filters out:
+ *  - The literal "Default" placeholder row
+ *  - Calendars with null sharing_status (system ones like Birthdays,
+ *    Facebook Birthdays, Found in Mail — all read-only)
+ *
+ *  Duplicates by title can happen when the same calendar syncs from
+ *  multiple accounts (e.g. a "Work" calendar via both iCloud and a
+ *  CalDAV account). We keep both because they're genuinely different
+ *  destinations from Calendar.app's POV. The UI can render the
+ *  account name as a subtitle if it helps disambiguate. */
+export function listLocalCalendars(): CalendarListEntry[] {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT
+      UUID            AS uuid,
+      title           AS title,
+      color           AS color,
+      sharing_status  AS sharing_status
+    FROM Calendar
+    WHERE title IS NOT NULL
+      AND title <> 'Default'
+      AND sharing_status IS NOT NULL
+    ORDER BY display_order ASC, title ASC
+  `).all() as Array<{
+    uuid: string | null;
+    title: string | null;
+    color: string | null;
+    sharing_status: number | null;
+  }>;
+  // Dedup exact title+uuid pairs — defensive in case the same row
+  // is sourced twice from a join we didn't write. Title alone is NOT
+  // a dedup key (see header comment about same-name accounts).
+  const seen = new Set<string>();
+  const out: CalendarListEntry[] = [];
+  for (const r of rows) {
+    if (!r.uuid || !r.title) continue;
+    const key = `${r.uuid}::${r.title}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      uuid: r.uuid,
+      title: r.title,
+      color: r.color ? r.color.slice(0, 7) : null,  // strip alpha byte if present
+      writable: r.sharing_status === 0 || r.sharing_status === 2,
+    });
+  }
+  return out;
+}

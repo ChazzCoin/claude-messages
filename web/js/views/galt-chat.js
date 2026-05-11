@@ -15,6 +15,7 @@ import { escapeHtml, relTime } from '../utils.js';
 
 let _pollTimer = null;
 let _lastTs = 0;
+let _calendars = [];  // cached list for the proposal-card dropdown
 
 /* ---------- top-level render ---------- */
 
@@ -67,6 +68,11 @@ export async function renderGaltChatView() {
     </details>
   `;
 
+  // Fetch the calendar list once on mount — used by the proposal-
+  // card "Add to:" dropdown. Rarely changes, so no need to refresh
+  // per render.
+  await loadCalendars();
+
   await loadAndRender();
   wireInput();
   wireClear();
@@ -97,6 +103,15 @@ async function loadAndRender() {
     if (root) {
       root.innerHTML = `<div class="empty"><div class="empty-title">couldn't load history</div><div class="empty-sub">${escapeHtml(err.message || 'unknown error')}</div></div>`;
     }
+  }
+}
+
+async function loadCalendars() {
+  try {
+    const r = await api('/api/calendar/calendars');
+    _calendars = Array.isArray(r.calendars) ? r.calendars : [];
+  } catch {
+    _calendars = [];  // dropdown just won't render
   }
 }
 
@@ -205,11 +220,28 @@ function renderCalendarProposalCard(tc) {
       ${r.location ? `<div class="galt-chat-proposal-meta">📍 ${escapeHtml(r.location)}</div>` : ''}
       ${r.participants ? `<div class="galt-chat-proposal-meta">👥 ${escapeHtml(r.participants)}</div>` : ''}
       ${r.notes ? `<div class="galt-chat-proposal-notes">${escapeHtml(r.notes)}</div>` : ''}
+      ${renderCalendarPicker(id)}
       <div class="galt-chat-proposal-actions">
         <button class="galt-chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escapeHtml(id)}">Deny</button>
         <button class="galt-chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escapeHtml(id)}">Approve &amp; add to Calendar</button>
       </div>
     </div>
+  `;
+}
+
+function renderCalendarPicker(proposalId) {
+  if (!Array.isArray(_calendars) || _calendars.length === 0) return '';
+  const opts = _calendars.map((c) => `
+    <option value="${escapeHtml(c.title || '')}" data-uuid="${escapeHtml(c.uuid || '')}">${escapeHtml(c.title || '(untitled)')}</option>
+  `).join('');
+  return `
+    <label class="galt-chat-proposal-picker">
+      <span class="galt-chat-proposal-picker-label">Add to</span>
+      <select data-action="proposal-set-calendar" data-proposal-id="${escapeHtml(proposalId)}">
+        <option value="">— Calendar.app default —</option>
+        ${opts}
+      </select>
+    </label>
   `;
 }
 
@@ -308,13 +340,14 @@ function wireClear() {
  *                                 /api/calendar/proposals/:id/export
  *                                 or /dismiss)
  *   - .galt-chat-approval       → request_user_approval (sends the
- *                                 chosen label back as a chat turn) */
+ *                                 chosen label back as a chat turn)
+ *  Plus a `change` handler for the calendar picker dropdown. */
 function wireProposalActions() {
   const scroll = document.getElementById('galt-chat-scroll');
   if (!scroll) return;
   scroll.addEventListener('click', async (e) => {
     const btn = e.target.closest?.('[data-action]');
-    if (!btn) return;
+    if (!btn || btn.tagName === 'SELECT') return;
     const action = btn.dataset.action;
 
     if (action === 'proposal-approve' || action === 'proposal-dismiss') {
@@ -324,6 +357,22 @@ function wireProposalActions() {
     if (action === 'approval-approve' || action === 'approval-deny') {
       await handleApprovalClick(btn, action);
       return;
+    }
+  });
+
+  scroll.addEventListener('change', async (e) => {
+    const sel = e.target.closest?.('select[data-action="proposal-set-calendar"]');
+    if (!sel) return;
+    const id = parseInt(sel.dataset.proposalId, 10);
+    if (!Number.isFinite(id)) return;
+    const targetCalendar = sel.value || null;
+    try {
+      await api(`/api/calendar/proposals/${id}`, {
+        method: 'PATCH',
+        body: { target_calendar: targetCalendar },
+      });
+    } catch (err) {
+      alert('couldn\'t set calendar: ' + (err.message || 'unknown'));
     }
   });
 }

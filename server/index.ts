@@ -73,6 +73,7 @@ import {
   calendarProposalAlreadyExists,
   insertCalendarProposal,
   updateCalendarProposalStatus,
+  setCalendarProposalTarget,
   removeCalendarProposal,
   countPendingCalendarProposals,
   // away mode
@@ -148,11 +149,11 @@ import {
   getUpcomingEvents,
   formatAvailabilityContext,
   clearCalendarCache,
-  listCalendars,
   createEvent,
   updateEvent,
   deleteEvent,
 } from './integrations/calendar.js';
+import { listLocalCalendars } from './integrations/calendar-db.js';
 import type { Draft } from './db/app.js';
 
 type EnrichedDraft = Draft & { contact_name: string | null };
@@ -668,17 +669,19 @@ app.post('/api/calendar/cache/clear', (_req, res) => {
 // List calendars Calendar.app knows about. Each entry tells you whether it's
 // writable so the UI can disable read-only sources (e.g. holidays, birthdays)
 // in the "create event" picker.
-app.get(
-  '/api/calendar/calendars',
-  asyncHandler(async (_req, res) => {
-    try {
-      const calendars = await listCalendars();
-      return res.json({ count: calendars.length, calendars });
-    } catch (err) {
-      return res.status(503).json({ error: 'list calendars failed', detail: (err as Error).message });
-    }
-  }),
-);
+//
+// Was JXA-based via listCalendars(); switched to a direct sqlite read of
+// Calendar.app's local cache because macOS 14+ stalls Calendar AppleEvents
+// from a LaunchAgent context (same issue that broke calendar event reads,
+// see calendar-db.ts).
+app.get('/api/calendar/calendars', (_req, res) => {
+  try {
+    const calendars = listLocalCalendars();
+    return res.json({ count: calendars.length, calendars });
+  } catch (err) {
+    return res.status(503).json({ error: 'list calendars failed', detail: (err as Error).message });
+  }
+});
 
 // Create an event. Body: { title, start_iso, end_iso, location?, notes?,
 // calendar?, all_day? }. When calendar is omitted, uses Calendar.app's
@@ -1275,6 +1278,26 @@ app.get('/api/calendar/proposals', (req, res) => {
     : undefined;
   const proposals = listCalendarProposals({ status: filter, limit: 200 }).map(enrichProposal);
   res.json({ proposals, pending: countPendingCalendarProposals() });
+});
+
+/** Patch a single field on a proposal. Currently only target_calendar
+ *  (the calendar the .ics export will pre-select). Easy to extend
+ *  with title / start_iso / end_iso edits later. */
+app.patch('/api/calendar/proposals/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  const body = req.body ?? {};
+  if (Object.prototype.hasOwnProperty.call(body, 'target_calendar')) {
+    const tc = body.target_calendar;
+    const value: string | null =
+      tc === null ? null
+      : typeof tc === 'string' && tc.trim() ? tc.trim()
+      : null;
+    const updated = setCalendarProposalTarget(id, value);
+    if (!updated) return res.status(404).json({ error: 'not found' });
+    return res.json({ proposal: enrichProposal(updated) });
+  }
+  return res.status(400).json({ error: 'no supported field in patch' });
 });
 
 app.post('/api/calendar/proposals/:id/dismiss', (req, res) => {

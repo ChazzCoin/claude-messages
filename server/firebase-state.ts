@@ -19,6 +19,7 @@ import { config } from './config.js';
 import { isAIConfigured, effectiveModel } from './ai.js';
 import { getChatDb } from './db/messages.js';
 import { messageWatcher } from './watcher.js';
+import { listLocalCalendars, type CalendarListEntry } from './integrations/calendar-db.js';
 
 const SERVER_VERSION = '0.1.0';
 const STARTED_AT = Date.now();
@@ -70,6 +71,11 @@ interface StateSnapshot {
     last_30d: AiUsageBucket;
     all_time: AiUsageBucket;
   };
+  /** Macros for the proposal card "Add to:" picker on the companion.
+   *  Rarely changes, so pushing it on every state tick is cheap.
+   *  Failure to read is non-fatal — empty list just means the picker
+   *  hides until the next push succeeds. */
+  calendars: CalendarListEntry[];
 }
 
 function buildSnapshot(): StateSnapshot {
@@ -125,7 +131,17 @@ function buildSnapshot(): StateSnapshot {
       last_30d: usage.last_30d,
       all_time: usage.all_time,
     },
+    calendars: safeListCalendars(),
   };
+}
+
+function safeListCalendars(): CalendarListEntry[] {
+  try {
+    return listLocalCalendars();
+  } catch (err) {
+    console.warn('[firebase-state] calendar list failed:', (err as Error).message);
+    return [];
+  }
 }
 
 /** Build a fresh snapshot and push to /state. Fire-and-forget. Errors

@@ -24,6 +24,7 @@ import {
   removeAutoNote,
   getAutoNote,
   listAutoNotes,
+  setCalendarProposalTarget,
 } from './db/app.js';
 import { exportCalendarProposal, dismissCalendarProposal } from './calendar-export.js';
 import { getContactNameForHandle, normalizeHandle } from './db/contacts.js';
@@ -304,6 +305,23 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       if (!Number.isFinite(id)) throw new Error('id required');
       const proposal = dismissCalendarProposal(id);
       return { proposal };
+    }
+
+    case 'set_proposal_calendar': {
+      // Companion changes the destination calendar dropdown on a
+      // proposal card. Stored on the row; consumed by the .ics
+      // export step which stamps it as X-WR-CALNAME so Calendar.app
+      // pre-selects it in the import dialog.
+      const id = typeof p.id === 'number' ? p.id : NaN;
+      if (!Number.isFinite(id)) throw new Error('id required');
+      const calRaw = p.calendar;
+      const calendar: string | null =
+        calRaw === null ? null
+        : typeof calRaw === 'string' && calRaw.trim() ? calRaw.trim()
+        : null;
+      const updated = setCalendarProposalTarget(id, calendar);
+      if (!updated) throw new Error('proposal not found');
+      return { id, target_calendar: updated.target_calendar };
     }
 
     case 'send_test_push': {

@@ -63,6 +63,20 @@ const HANDLERS = {
     }
   },
 
+  /* Calendar picker on the proposal card. Change event fires when
+     user picks a different calendar; the choice gets stored on the
+     proposal row and the .ics export stamps X-WR-CALNAME. */
+  'proposal-set-calendar': async (target) => {
+    const id = parseInt(target.dataset.proposalId, 10);
+    if (!Number.isFinite(id)) return;
+    const calendar = target.value || null;
+    try {
+      await sendCommand('set_proposal_calendar', { id, calendar });
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  },
+
   /* request_user_approval — generic Approve/Deny inline prompt.
      Click sends the chosen label as a new chat turn so Galt sees
      the decision on the next round. No backend command needed —
@@ -258,6 +272,9 @@ export function wireEventDelegation() {
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-action], [data-toggle], [data-close]');
     if (!t) return;
+    // <select> change events handled below — clicking the select to
+    // open it shouldn't trigger the action handler.
+    if (t.tagName === 'SELECT') return;
 
     if (t.dataset.toggle) { handleToggle(t); return; }
     if (t.dataset.close)  { closeSheet(t.dataset.close); return; }
@@ -268,6 +285,15 @@ export function wireEventDelegation() {
       console.warn('[actions] no handler for', action);
       return;
     }
+    Promise.resolve(fn(t)).catch((err) => showToast(err.message, 'error'));
+  });
+
+  // <select> change events for actions on dropdowns (calendar picker).
+  document.addEventListener('change', (e) => {
+    const t = e.target.closest('select[data-action]');
+    if (!t) return;
+    const fn = HANDLERS[t.dataset.action];
+    if (!fn) return;
     Promise.resolve(fn(t)).catch((err) => showToast(err.message, 'error'));
   });
 

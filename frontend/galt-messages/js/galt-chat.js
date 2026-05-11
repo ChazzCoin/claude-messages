@@ -16,7 +16,7 @@
 // chat sends 'galt_chat_clear' which wipes the RTDB node.
 
 import { db, ref, onValue, off } from './firebase.js';
-import { sendCommand } from './state.js';
+import { sendCommand, getStore } from './state.js';
 import { showToast } from './render.js';
 
 let _unsub = null;
@@ -218,6 +218,9 @@ function renderCalendarProposalCard(tc) {
   const end = r.end_iso ? formatProposalTime(r.end_iso) : null;
   const when = end ? `${start} → ${end.split(' · ')[1] || end}` : start;
 
+  const calendars = (getStore().state && getStore().state.calendars) || [];
+  const calendarPicker = renderCalendarPicker(r.proposal_id, calendars);
+
   return `
     <div class="chat-proposal-card" data-proposal-id="${escape(r.proposal_id)}">
       <div class="chat-proposal-head">
@@ -229,11 +232,39 @@ function renderCalendarProposalCard(tc) {
       ${r.location ? `<div class="chat-proposal-meta">📍 ${escape(r.location)}</div>` : ''}
       ${r.participants ? `<div class="chat-proposal-meta">👥 ${escape(r.participants)}</div>` : ''}
       ${r.notes ? `<div class="chat-proposal-notes">${escape(r.notes)}</div>` : ''}
+      ${calendarPicker}
       <div class="chat-proposal-actions">
         <button class="chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escape(r.proposal_id)}">Deny</button>
         <button class="chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escape(r.proposal_id)}">Approve & add to Calendar</button>
       </div>
     </div>
+  `;
+}
+
+/** "Add to: [Personal ▼]" dropdown. Empty option = use Calendar.app
+ *  default (no X-WR-CALNAME stamped). Selecting a calendar fires
+ *  data-action="proposal-set-calendar" which patches the proposal
+ *  row via an RTDB command. */
+function renderCalendarPicker(proposalId, calendars) {
+  if (!Array.isArray(calendars) || calendars.length === 0) {
+    // No calendar list yet (haven't seen a /state push with it, or
+    // backend couldn't read the db). Render nothing — Calendar.app's
+    // import dialog will still let the user pick at approve time.
+    return '';
+  }
+  // Stable-uuid keyed options so duplicate titles (Work synced from
+  // two accounts) don't collide.
+  const options = calendars.map((c) => `
+    <option value="${escape(c.title || '')}" data-uuid="${escape(c.uuid || '')}">${escape(c.title || '(untitled)')}</option>
+  `).join('');
+  return `
+    <label class="chat-proposal-picker">
+      <span class="chat-proposal-picker-label">Add to</span>
+      <select data-action="proposal-set-calendar" data-proposal-id="${escape(proposalId)}">
+        <option value="">— Calendar.app default —</option>
+        ${options}
+      </select>
+    </label>
   `;
 }
 

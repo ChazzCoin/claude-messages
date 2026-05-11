@@ -324,6 +324,15 @@ function migrate(db: DB) {
   // Index on kind has to come AFTER the ALTER above.
   db.exec('CREATE INDEX IF NOT EXISTS idx_monitor_rules_kind ON monitor_rules(kind)');
 
+  // calendar_proposals.target_calendar — destination calendar in
+  // Calendar.app that the user picked on the approval card. Null
+  // means "use Calendar.app's default" (the importer dialog will
+  // fall back to its system default selection).
+  const calPropCols = db.prepare('PRAGMA table_info(calendar_proposals)').all() as Array<{ name: string }>;
+  if (!calPropCols.some((c) => c.name === 'target_calendar')) {
+    db.exec('ALTER TABLE calendar_proposals ADD COLUMN target_calendar TEXT');
+  }
+
   // Migrate legacy away_notes category set: meet/discuss/request/urgent/other → urgent/business/personal.
   // Detect via the CHECK clause in sqlite_master; idempotent (no-op on fresh
   // install or after migration). Runs BEFORE the rename-to-auto_notes step
@@ -1464,10 +1473,14 @@ export interface CalendarProposal {
   source_rule_id: number | null;
   created_at: number;
   decided_at: number | null;
+  /** Calendar name the user picked on the approval card. Null = use
+   *  Calendar.app's default. Stamped into the .ics as X-WR-CALNAME
+   *  on export. */
+  target_calendar: string | null;
 }
 
 const CAL_COLS =
-  'id, source_msg_guid, message_rowid, chat_id, handle, title, start_ms, end_ms, location, participants, notes, confidence, reasoning, status, source_rule_id, created_at, decided_at';
+  'id, source_msg_guid, message_rowid, chat_id, handle, title, start_ms, end_ms, location, participants, notes, confidence, reasoning, status, source_rule_id, created_at, decided_at, target_calendar';
 
 export function listCalendarProposals(opts: { status?: CalendarProposalStatus; limit?: number } = {}): CalendarProposal[] {
   const db = getAppDb();
@@ -1562,6 +1575,19 @@ export function countPendingCalendarProposals(): number {
     | { n: number }
     | undefined;
   return row?.n ?? 0;
+}
+
+/** Update which calendar the proposal targets. Null clears it so
+ *  the .ics is exported without an X-WR-CALNAME hint (Calendar.app
+ *  uses its system default). */
+export function setCalendarProposalTarget(
+  id: number,
+  targetCalendar: string | null,
+): CalendarProposal | null {
+  const db = getAppDb();
+  db.prepare('UPDATE calendar_proposals SET target_calendar = ? WHERE id = ?')
+    .run(targetCalendar, id);
+  return getCalendarProposal(id);
 }
 
 /** Insert a chat-sourced calendar proposal. Sentinel values are used

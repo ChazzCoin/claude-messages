@@ -812,6 +812,49 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   gap: 8px;
   margin-top: 8px;
 }
+
+/* "Add to: [Calendar ▼]" dropdown that sits above the action row.
+   Styled to feel native to the warm-dark palette — same border /
+   bg as the bubble, slim chevron via background-image so we don't
+   need a separate icon. */
+.chat-proposal-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11.5px;
+}
+.chat-proposal-picker-label {
+  color: var(--text-faint);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.chat-proposal-picker select {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  color: var(--text);
+  padding: 6px 26px 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  /* SVG chevron — inline so no extra asset. */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23b8a99a' stroke-width='2.5'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+}
+.chat-proposal-picker select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
 .chat-proposal-btn {
   flex: 1;
   padding: 8px 10px;

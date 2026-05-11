@@ -38,6 +38,11 @@ interface BuildIcsInput {
   endMs: number;
   location: string | null;
   description: string;
+  /** Optional: name of the destination calendar in Calendar.app.
+   *  Stamped as X-WR-CALNAME at the VCALENDAR level — Calendar.app's
+   *  import dialog uses this as a hint for the "Calendar:" dropdown.
+   *  When null, no hint; Calendar.app uses its own default. */
+  calendarName?: string | null;
 }
 
 export function buildIcs(input: BuildIcsInput): string {
@@ -57,13 +62,18 @@ export function buildIcs(input: BuildIcsInput): string {
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//galt//EN',
+  ];
+  if (input.calendarName) {
+    lines.push(`X-WR-CALNAME:${escape(input.calendarName)}`);
+  }
+  lines.push(
     'BEGIN:VEVENT',
     `UID:${input.uid}`,
     `DTSTAMP:${fmt(Date.now())}`,
     `DTSTART:${fmt(input.startMs)}`,
     `DTEND:${fmt(input.endMs)}`,
     `SUMMARY:${escape(input.title)}`,
-  ];
+  );
   if (input.location) lines.push(`LOCATION:${escape(input.location)}`);
   if (input.description) lines.push(`DESCRIPTION:${escape(input.description)}`);
   lines.push('END:VEVENT', 'END:VCALENDAR');
@@ -97,6 +107,7 @@ export async function exportCalendarProposal(id: number): Promise<ExportProposal
     description: [p.notes, p.participants ? `Participants: ${p.participants}` : null]
       .filter(Boolean)
       .join('\n\n'),
+    calendarName: p.target_calendar,
   });
   const tmpPath = path.join(os.tmpdir(), `galt-event-${id}.ics`);
   fs.writeFileSync(tmpPath, ics, 'utf8');
