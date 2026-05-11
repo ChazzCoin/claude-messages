@@ -14,6 +14,7 @@
 import { sendCommand, getStore } from './state.js';
 import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
+import { startChatSubscription, sendChatTurn, clearChat, focusChatInput } from './galt-chat.js';
 
 /* ---------- the registry ---------- */
 
@@ -22,6 +23,15 @@ const HANDLERS = {
   'open-settings': () => openSheet('settings'),
   'open-status':   () => openSheet('status'),
   'edit-away':     () => openSheet('away'),
+  'open-chat':     () => {
+    // Ensure subscription is alive before the user starts typing.
+    // Idempotent — startChatSubscription bails if already subscribed.
+    startChatSubscription();
+    openSheet('chat');
+    focusChatInput();
+  },
+  'chat-send':     () => { void sendChatTurn(); },
+  'chat-clear':    () => { void clearChat(); },
   'refresh':       async () => {
     try {
       await sendCommand('refresh_state');

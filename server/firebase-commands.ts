@@ -29,6 +29,7 @@ import { getContactNameForHandle, normalizeHandle } from './db/contacts.js';
 import { getMirrorDb, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
 import { saveDeviceToken, removeDevice, sendPushToAll } from './firebase-push.js';
+import { chatTurn, type ChatTurnMessage } from './ai/galt-chat.js';
 
 interface CommandResult {
   ok: boolean;
@@ -265,6 +266,69 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       if (!deviceId) throw new Error('device_id required');
       await removeDevice(deviceId);
       return { removed_id: deviceId };
+    }
+
+    case 'galt_chat': {
+      // Direct chat between the user and Galt (Phase 1: no tools).
+      // Flow:
+      //   1. Append the incoming user message to /galt_chat/messages.
+      //   2. Pull the last N messages (including the one we just
+      //      appended) for context.
+      //   3. Call chatTurn() — OpenAI generates Galt's reply.
+      //   4. Append Galt's reply to /galt_chat/messages.
+      //   5. Return both message ids so the companion can correlate.
+      const text = typeof p.text === 'string' ? p.text.trim() : '';
+      if (!text) throw new Error('text required');
+
+      const db = getMirrorDb();
+      if (!db) throw new Error('mirror disabled — chat unavailable');
+
+      const messagesRef = db.ref('/galt_chat/messages');
+      const userMsgRef = messagesRef.push();
+      await userMsgRef.set({
+        role: 'user',
+        text,
+        ts: Date.now(),
+      });
+
+      // Pull the most recent N messages as context. RTDB
+      // limitToLast() works because keys are timestamp-ordered.
+      const HISTORY_LIMIT = 30;
+      const snap = await messagesRef.limitToLast(HISTORY_LIMIT).once('value');
+      const history: ChatTurnMessage[] = [];
+      snap.forEach((child) => {
+        const v = child.val();
+        if (v && typeof v.text === 'string' && (v.role === 'user' || v.role === 'galt')) {
+          history.push({ role: v.role, text: v.text });
+        }
+        return false;
+      });
+
+      const result = await chatTurn(history);
+
+      const galtMsgRef = messagesRef.push();
+      await galtMsgRef.set({
+        role: 'galt',
+        text: result.reply,
+        ts: Date.now(),
+        model: result.model,
+        usage: result.usage ?? null,
+      });
+
+      return {
+        user_message_id: userMsgRef.key,
+        galt_message_id: galtMsgRef.key,
+        reply: result.reply,
+      };
+    }
+
+    case 'galt_chat_clear': {
+      // Wipe the entire chat history. Useful when the user wants to
+      // start fresh. No backup; this is a destructive intent.
+      const db = getMirrorDb();
+      if (!db) throw new Error('mirror disabled');
+      await db.ref('/galt_chat/messages').remove();
+      return { cleared: true };
     }
 
     case 'send_test_push': {

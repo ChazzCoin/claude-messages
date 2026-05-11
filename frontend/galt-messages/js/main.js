@@ -3,9 +3,11 @@
 import { startSubscriptions, subscribe } from './state.js';
 import { renderAll, hideBoot } from './render.js';
 import { wireEventDelegation } from './actions.js';
+import { wireChatInput } from './galt-chat.js';
 
 function boot() {
   wireEventDelegation();
+  wireChatInput();
   startSubscriptions();
   subscribe(renderAll);
 
