@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import readline from 'node:readline';
 
@@ -388,6 +388,221 @@ export class ClaudeCli {
       });
     });
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* streaming runner                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Caller-visible streaming event. Distilled from Claude's stream-json
+ *  into a smaller, UI-friendlier shape. */
+export type ClaudeStreamEvent =
+  | { kind: 'init';        sessionId: string; model: string; tools: string[]; }
+  | { kind: 'text';        text: string; }   // assistant natural-language part
+  | { kind: 'tool_use';    tool: string; input: unknown; toolUseId: string; }
+  | { kind: 'tool_result'; toolUseId: string; preview: string; isError: boolean; }
+  | { kind: 'usage';       inputTokens: number; outputTokens: number; cacheRead: number; cacheCreate: number; }
+  | { kind: 'result';      isError: boolean; result: string; durationMs: number; numTurns: number; totalCostUsd: number; sessionId: string; }
+  | { kind: 'stderr';      line: string; };
+
+export interface ChatStreamHandle {
+  /** Cancel the underlying claude subprocess (SIGTERM, then SIGKILL after 2s). */
+  cancel: () => void;
+  /** Async iterator over parsed events. Resolves when claude exits. */
+  events: AsyncIterable<ClaudeStreamEvent>;
+  /** Underlying subprocess (don't hold; use cancel()). */
+  process: ChildProcess;
+}
+
+declare module './claude-cli.js' {}
+
+export class StreamingClaudeCli {
+  // Composition over inheritance — wraps the same binary resolver.
+  constructor(private readonly binary: () => string) {}
+
+  start(opts: ChatTurnOpts): ChatStreamHandle {
+    const args = ['-p', opts.prompt, '--output-format', 'stream-json', '--verbose'];
+    if (opts.sessionId)            args.push('--session-id', opts.sessionId);
+    if (opts.appendSystemPrompt)   args.push('--append-system-prompt', opts.appendSystemPrompt);
+    if (opts.maxTurns != null)     args.push('--max-turns', String(opts.maxTurns));
+    if (opts.maxBudgetUsd != null) args.push('--max-budget-usd', String(opts.maxBudgetUsd));
+    if (opts.model)                args.push('--model', opts.model);
+    if (opts.effort)               args.push('--effort', opts.effort);
+    if (opts.allowedTools && opts.allowedTools.length > 0) {
+      args.push('--allowedTools', opts.allowedTools.join(' '));
+    }
+    if (opts.disallowedTools && opts.disallowedTools.length > 0) {
+      args.push('--disallowedTools', opts.disallowedTools.join(' '));
+    }
+
+    const cwd = opts.workingDir ?? process.cwd();
+    const child = spawn(this.binary(), args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+
+    // Backpressure-friendly queue. Producer (stdout reader, exit
+    // handler) push events; consumer (async iterator) pulls. Same
+    // pattern as a simple Node async queue.
+    const queue: ClaudeStreamEvent[] = [];
+    const waiters: Array<(ev: IteratorResult<ClaudeStreamEvent>) => void> = [];
+    let done = false;
+
+    function emit(ev: ClaudeStreamEvent): void {
+      if (done) return;
+      if (waiters.length > 0) {
+        const w = waiters.shift()!;
+        w({ value: ev, done: false });
+      } else {
+        queue.push(ev);
+      }
+    }
+    function close(): void {
+      done = true;
+      while (waiters.length > 0) {
+        const w = waiters.shift()!;
+        w({ value: undefined as never, done: true });
+      }
+    }
+
+    const rl = readline.createInterface({ input: child.stdout!, crlfDelay: Infinity });
+    rl.on('line', (line) => {
+      const parsed = parseStreamJsonLine(line);
+      if (parsed) emit(parsed);
+    });
+    child.stderr!.on('data', (chunk) => {
+      const text = String(chunk).trim();
+      if (text) emit({ kind: 'stderr', line: text });
+    });
+    child.on('error', (err) => {
+      emit({ kind: 'stderr', line: `spawn error: ${err.message}` });
+      close();
+    });
+    child.on('close', () => { close(); });
+
+    const events: AsyncIterable<ClaudeStreamEvent> = {
+      [Symbol.asyncIterator]: () => ({
+        next(): Promise<IteratorResult<ClaudeStreamEvent>> {
+          if (queue.length > 0) {
+            return Promise.resolve({ value: queue.shift()!, done: false });
+          }
+          if (done) return Promise.resolve({ value: undefined as never, done: true });
+          return new Promise((resolve) => { waiters.push(resolve); });
+        },
+      }),
+    };
+
+    const cancel = (): void => {
+      try { child.kill('SIGTERM'); } catch { /* ignore */ }
+      setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* ignore */ } }, 2_000).unref();
+    };
+
+    return { cancel, events, process: child };
+  }
+}
+
+/** Singleton streamer — shares the binary resolver with ClaudeCli. */
+export const claudeCliStreamer = new StreamingClaudeCli(() => resolveClaudeBinary());
+
+/** Parse one stream-json line into a ClaudeStreamEvent. Returns null
+ *  for events we don't surface (system events other than init,
+ *  partial chunks we'd duplicate from the result, etc.). */
+function parseStreamJsonLine(line: string): ClaudeStreamEvent | null {
+  if (!line.trim()) return null;
+  let ev: Record<string, unknown>;
+  try { ev = JSON.parse(line); } catch { return null; }
+  const type = ev.type;
+
+  if (type === 'system' && ev.subtype === 'init') {
+    return {
+      kind: 'init',
+      sessionId: String(ev.session_id ?? ''),
+      model: String(ev.model ?? ''),
+      tools: Array.isArray(ev.tools) ? ev.tools.map(String) : [],
+    };
+  }
+
+  if (type === 'assistant') {
+    const message = ev.message as Record<string, unknown> | undefined;
+    if (!message) return null;
+    const content = message.content;
+    // Take the FIRST emittable part. If a message has both text and
+    // tool_use, we'll see them on separate assistant events anyway.
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (typeof part !== 'object' || part === null) continue;
+        const p = part as Record<string, unknown>;
+        if (p.type === 'text' && typeof p.text === 'string' && p.text.trim()) {
+          return { kind: 'text', text: p.text };
+        }
+        if (p.type === 'tool_use') {
+          return {
+            kind: 'tool_use',
+            tool: String(p.name ?? ''),
+            input: p.input ?? null,
+            toolUseId: String(p.id ?? ''),
+          };
+        }
+      }
+    }
+    // Surface usage when present as its own event.
+    const usage = message.usage as Record<string, number> | undefined;
+    if (usage) {
+      return {
+        kind: 'usage',
+        inputTokens: usage.input_tokens ?? 0,
+        outputTokens: usage.output_tokens ?? 0,
+        cacheRead: usage.cache_read_input_tokens ?? 0,
+        cacheCreate: usage.cache_creation_input_tokens ?? 0,
+      };
+    }
+    return null;
+  }
+
+  if (type === 'user') {
+    // tool_result wrapped in a user message
+    const message = ev.message as Record<string, unknown> | undefined;
+    const content = message?.content;
+    if (Array.isArray(content)) {
+      for (const part of content) {
+        if (typeof part !== 'object' || part === null) continue;
+        const p = part as Record<string, unknown>;
+        if (p.type === 'tool_result') {
+          const raw = p.content;
+          let preview: string;
+          if (typeof raw === 'string') preview = raw;
+          else if (Array.isArray(raw)) {
+            preview = raw
+              .map((r) => {
+                if (typeof r === 'object' && r !== null && (r as Record<string, unknown>).type === 'text') {
+                  return String((r as Record<string, unknown>).text ?? '');
+                }
+                return JSON.stringify(r);
+              })
+              .join('\n');
+          } else preview = JSON.stringify(raw ?? null);
+          return {
+            kind: 'tool_result',
+            toolUseId: String(p.tool_use_id ?? ''),
+            preview: preview.length > 600 ? preview.slice(0, 600) + '…' : preview,
+            isError: !!p.is_error,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  if (type === 'result') {
+    return {
+      kind: 'result',
+      isError: !!ev.is_error,
+      result: typeof ev.result === 'string' ? ev.result : '',
+      durationMs: typeof ev.duration_ms === 'number' ? ev.duration_ms : 0,
+      numTurns: typeof ev.num_turns === 'number' ? ev.num_turns : 0,
+      totalCostUsd: typeof ev.total_cost_usd === 'number' ? ev.total_cost_usd : 0,
+      sessionId: String(ev.session_id ?? ''),
+    };
+  }
+
+  return null;
 }
 
 /* ------------------------------------------------------------------ */

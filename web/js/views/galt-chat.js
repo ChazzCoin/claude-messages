@@ -16,6 +16,7 @@ import { escapeHtml, relTime } from '../utils.js';
 let _pollTimer = null;
 let _lastTs = 0;
 let _calendars = [];  // cached list for the proposal-card dropdown
+const _taskPolls = new Map();  // task_id → { intervalId, eventsSinceId }
 
 /* ---------- top-level render ---------- */
 
@@ -129,7 +130,125 @@ function renderMessages(messages) {
     root.innerHTML = messages.map(renderBubble).join('');
     _lastTs = messages[messages.length - 1].ts || 0;
   }
+  ensureTaskPolls();
   scrollToBottom();
+}
+
+/** Walk all .galt-chat-task elements; start a polling loop for any
+ *  not already being polled. Each loop hits /api/tasks/:id every
+ *  2s, fetches the row + new events (since_id cursor), updates DOM.
+ *  Idempotent. Polls stop once the task hits a terminal state. */
+function ensureTaskPolls() {
+  const cards = document.querySelectorAll('.galt-chat-task[data-task-id]');
+  for (const card of cards) {
+    const id = card.dataset.taskId;
+    if (!id || _taskPolls.has(id)) continue;
+    startTaskPoll(id);
+  }
+}
+
+function startTaskPoll(taskId) {
+  let sinceId = 0;
+  let lastStatus = '';
+  const tick = async () => {
+    try {
+      const { task, events } = await api(`/api/tasks/${taskId}?since_id=${sinceId}`);
+      if (!task) return;
+      updateTaskCard(taskId, task);
+      for (const ev of (events || [])) {
+        appendTaskEventLine(taskId, ev);
+        if (ev.id > sinceId) sinceId = ev.id;
+      }
+      lastStatus = task.status;
+      if (lastStatus === 'succeeded' || lastStatus === 'failed' || lastStatus === 'cancelled') {
+        const entry = _taskPolls.get(taskId);
+        if (entry) { clearInterval(entry.intervalId); _taskPolls.delete(taskId); }
+      }
+    } catch {
+      // 404 → task gone, just stop polling. Network blip → wait for
+      // the next tick.
+    }
+  };
+  // Fire once immediately, then every 2s.
+  void tick();
+  const intervalId = setInterval(tick, 2_000);
+  _taskPolls.set(taskId, { intervalId, eventsSinceId: 0 });
+}
+
+function updateTaskCard(taskId, task) {
+  const card = document.querySelector(`.galt-chat-task[data-task-id="${cssEsc(taskId)}"]`);
+  if (!card) return;
+  card.dataset.status = task.status || 'queued';
+  const statusEl = card.querySelector(`[data-id="galt-task-status-${cssEsc(taskId)}"]`);
+  if (statusEl) statusEl.textContent = task.status;
+  const msgEl = card.querySelector(`[data-id="galt-task-message-${cssEsc(taskId)}"]`);
+  if (msgEl) {
+    if (task.status === 'succeeded' && task.result) msgEl.textContent = task.result;
+    else if (task.status === 'failed') msgEl.textContent = task.error || task.result || 'failed';
+    else if (task.status === 'cancelled') msgEl.textContent = 'cancelled';
+    else msgEl.textContent = '';
+  }
+  const metaEl = card.querySelector(`[data-id="galt-task-meta-${cssEsc(taskId)}"]`);
+  if (metaEl) {
+    const parts = [];
+    if (task.model)          parts.push(escapeHtml(task.model));
+    if (task.num_turns != null) parts.push(`${task.num_turns} round${task.num_turns === 1 ? '' : 's'}`);
+    if (task.total_cost_usd != null && task.total_cost_usd > 0) parts.push(`$${task.total_cost_usd.toFixed(3)}`);
+    if (task.started_at && task.finished_at) {
+      parts.push(`${Math.round((task.finished_at - task.started_at) / 1000)}s`);
+    }
+    metaEl.innerHTML = parts.join(' · ');
+  }
+  const cancelBtn = card.querySelector('.galt-chat-task-cancel');
+  if (cancelBtn) {
+    const terminal = ['succeeded','failed','cancelled'].includes(task.status);
+    if (terminal) cancelBtn.style.display = 'none';
+  }
+}
+
+function appendTaskEventLine(taskId, ev) {
+  const root = document.querySelector(`[data-id="galt-task-events-${cssEsc(taskId)}"]`);
+  if (!root) return;
+  const html = renderTaskEventLine(ev);
+  if (html) root.insertAdjacentHTML('beforeend', html);
+}
+
+function renderTaskEventLine(ev) {
+  if (!ev || !ev.kind) return '';
+  const data = ev.data || {};
+  if (ev.kind === 'tool_use') {
+    return `
+      <div class="galt-chat-task-event">
+        <span class="galt-chat-task-event-icon">⏵</span>
+        <span class="galt-chat-task-event-tool">${escapeHtml(data.tool || '?')}</span>
+        ${data.input_preview ? `<span class="galt-chat-task-event-arg">${escapeHtml(data.input_preview)}</span>` : ''}
+      </div>`;
+  }
+  if (ev.kind === 'tool_result') {
+    if (!data.preview) return '';
+    const errCls = data.is_error ? ' err' : '';
+    const head = (data.preview || '').split('\n')[0].slice(0, 80);
+    return `
+      <details class="galt-chat-task-event tool-result${errCls}">
+        <summary>
+          <span class="galt-chat-task-event-icon">↵</span>
+          <span class="galt-chat-task-event-arg">${escapeHtml(head)}</span>
+        </summary>
+        <pre class="galt-chat-task-event-body">${escapeHtml(data.preview || '')}</pre>
+      </details>`;
+  }
+  if (ev.kind === 'message') {
+    if (!data.text) return '';
+    return `<div class="galt-chat-task-event message">${escapeHtml(data.text)}</div>`;
+  }
+  if (ev.kind === 'init') {
+    return `<div class="galt-chat-task-event init">started ${data.model ? '(' + escapeHtml(data.model) + ')' : ''}</div>`;
+  }
+  return '';
+}
+
+function cssEsc(s) {
+  return String(s).replace(/[^a-zA-Z0-9_-]/g, (c) => '\\' + c);
 }
 
 function renderBubble(m) {
@@ -137,17 +256,17 @@ function renderBubble(m) {
   const meta = m.role === 'galt' && m.model
     ? `<div class="galt-chat-bubble-meta">${escapeHtml(m.model)}${m.ts ? ' · ' + escapeHtml(relTime(m.ts)) : ''}${m.rounds ? ' · ' + m.rounds + ' round' + (m.rounds === 1 ? '' : 's') : ''}</div>`
     : '';
-  // Split tool calls: propose_* → calendar proposal cards;
-  // request_user_approval → inline Y/N prompt; list_calendar_events
-  // → read-only event cards; everything else → compact chip strip.
+  // Five flavors of tool-call rendering, see companion for details.
   const proposals = renderProposalCards(m.tool_calls);
   const approvals = renderApprovalCards(m.tool_calls);
   const events = renderEventListCards(m.tool_calls);
+  const tasks = renderTaskCards(m.tool_calls);
   const readCalls = Array.isArray(m.tool_calls)
     ? m.tool_calls.filter((tc) =>
         !tc.name?.startsWith('propose_') &&
         tc.name !== 'request_user_approval' &&
-        tc.name !== 'list_calendar_events')
+        tc.name !== 'list_calendar_events' &&
+        tc.name !== 'claude_ask')
     : [];
   const tools = readCalls.length > 0 ? renderToolStrip(readCalls) : '';
   return `
@@ -156,8 +275,38 @@ function renderBubble(m) {
       ${events}
       ${proposals}
       ${approvals}
+      ${tasks}
       <div class="galt-chat-bubble">${escapeHtml(m.text)}</div>
       ${meta}
+    </div>
+  `;
+}
+
+function renderTaskCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .filter((tc) => tc.name === 'claude_ask')
+    .map(renderTaskCardShell)
+    .filter(Boolean)
+    .join('');
+}
+
+function renderTaskCardShell(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || !r.task_id) return '';
+  return `
+    <div class="galt-chat-task" data-task-id="${escapeHtml(r.task_id)}" data-status="queued">
+      <div class="galt-chat-task-head">
+        <span class="galt-chat-task-kind">⚡ Claude</span>
+        <span class="galt-chat-task-status" data-id="galt-task-status-${escapeHtml(r.task_id)}">queued</span>
+      </div>
+      <div class="galt-chat-task-events" data-id="galt-task-events-${escapeHtml(r.task_id)}"></div>
+      <div class="galt-chat-task-message" data-id="galt-task-message-${escapeHtml(r.task_id)}"></div>
+      <div class="galt-chat-task-foot">
+        <div class="galt-chat-task-meta" data-id="galt-task-meta-${escapeHtml(r.task_id)}"></div>
+        <button class="galt-chat-proposal-btn dismiss galt-chat-task-cancel" data-action="task-cancel" data-task-id="${escapeHtml(r.task_id)}">Cancel</button>
+      </div>
     </div>
   `;
 }
@@ -453,6 +602,20 @@ function wireProposalActions() {
     }
     if (action === 'approval-approve' || action === 'approval-deny') {
       await handleApprovalClick(btn, action);
+      return;
+    }
+    if (action === 'task-cancel') {
+      const taskId = btn.dataset.taskId;
+      if (!taskId) return;
+      btn.setAttribute('disabled', 'true');
+      btn.textContent = 'Cancelling…';
+      try {
+        await api(`/api/tasks/${taskId}/cancel`, { method: 'POST', body: {} });
+      } catch (err) {
+        btn.removeAttribute('disabled');
+        btn.textContent = 'Cancel';
+        alert('cancel failed: ' + (err.message || 'unknown'));
+      }
       return;
     }
   });

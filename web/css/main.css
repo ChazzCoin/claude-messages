@@ -4790,6 +4790,91 @@ body::after {
   letter-spacing: 0;
   text-transform: none;
 }
+
+/* Live task card — Claude CLI delegation. Polls /api/tasks/:id every
+   2s for the row + new events. */
+.galt-chat-task {
+  max-width: 76%;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+.galt-chat-task[data-status="running"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+.galt-chat-task[data-status="succeeded"] { border-color: var(--green); }
+.galt-chat-task[data-status="failed"]    { border-color: var(--red); }
+.galt-chat-task[data-status="cancelled"] {
+  border-color: var(--border);
+  opacity: 0.65;
+}
+.galt-chat-task-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase;
+}
+.galt-chat-task-kind { color: var(--accent); }
+.galt-chat-task-status { color: var(--text-faint); font-family: var(--mono); }
+.galt-chat-task[data-status="succeeded"] .galt-chat-task-status { color: var(--green); }
+.galt-chat-task[data-status="failed"]    .galt-chat-task-status { color: var(--red); }
+.galt-chat-task-events {
+  display: flex; flex-direction: column; gap: 3px;
+  max-height: 280px; overflow-y: auto;
+}
+.galt-chat-task-event {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 11.5px; color: var(--text-faint);
+  padding: 2px 4px; border-radius: 6px;
+  word-wrap: break-word; overflow-wrap: anywhere; min-width: 0;
+}
+.galt-chat-task-event.message {
+  color: var(--text); font-style: italic;
+  padding: 4px 6px; background: var(--bg-card-2);
+}
+.galt-chat-task-event.init { color: var(--text-faint); font-size: 10.5px; }
+.galt-chat-task-event-icon { color: var(--text-faint); flex-shrink: 0; }
+.galt-chat-task-event-tool {
+  font-family: var(--mono); color: var(--accent); font-weight: 600; flex-shrink: 0;
+}
+.galt-chat-task-event-arg {
+  color: var(--text-faint); font-family: var(--mono); font-size: 10.5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+details.galt-chat-task-event.tool-result > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: baseline; gap: 6px;
+}
+details.galt-chat-task-event.tool-result > summary::-webkit-details-marker { display: none; }
+.galt-chat-task-event.err .galt-chat-task-event-icon,
+.galt-chat-task-event.err .galt-chat-task-event-tool { color: var(--red); }
+.galt-chat-task-event-body {
+  margin: 4px 0 0; padding: 6px 8px;
+  font-family: var(--mono); font-size: 10.5px; line-height: 1.45;
+  color: var(--text); background: var(--bg);
+  border-radius: 6px; white-space: pre-wrap;
+  word-wrap: break-word; overflow-wrap: anywhere;
+  max-height: 220px; overflow-y: auto;
+}
+.galt-chat-task-message {
+  font-size: 12.5px; line-height: 1.45;
+  color: var(--text); white-space: pre-wrap;
+  word-wrap: break-word; overflow-wrap: anywhere;
+}
+.galt-chat-task-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.galt-chat-task-meta {
+  color: var(--text-faint); font-family: var(--mono); font-size: 10.5px;
+}
+.galt-chat-task-cancel {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 11px;
+}
 .galt-chat-proposal-btn {
   flex: 1;
   padding: 7px 9px;

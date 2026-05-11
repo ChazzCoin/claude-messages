@@ -889,6 +889,169 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   letter-spacing: 0;
   text-transform: none;
 }
+
+/* ============================================================
+   Live task card — surfaces a Claude CLI delegation in progress.
+   ============================================================
+   Subscribes to /tasks/<id> + /tasks/<id>/events in RTDB; updates
+   as events stream in. Status flips drive the data-status variant. */
+.chat-task-card {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.chat-task-card[data-status="running"] {
+  border-color: var(--accent);
+  /* subtle pulse for in-flight tasks */
+  box-shadow: 0 0 0 1px var(--accent-glow);
+}
+.chat-task-card[data-status="succeeded"] {
+  border-color: var(--green);
+}
+.chat-task-card[data-status="failed"] {
+  border-color: var(--red);
+}
+.chat-task-card[data-status="cancelled"] {
+  border-color: var(--border-2);
+  opacity: 0.65;
+}
+.chat-task-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.chat-task-kind {
+  color: var(--accent);
+}
+.chat-task-status {
+  color: var(--text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.chat-task-card[data-status="succeeded"] .chat-task-status { color: var(--green); }
+.chat-task-card[data-status="failed"] .chat-task-status { color: var(--red); }
+.chat-task-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-task-events {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.chat-task-event {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  padding: 2px 4px;
+  border-radius: 6px;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.chat-task-event.message {
+  color: var(--text);
+  font-style: italic;
+  padding: 4px 6px;
+  background: var(--bg-3);
+}
+.chat-task-event.init {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+.chat-task-event-icon {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.chat-task-event-tool {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--accent);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.chat-task-event-arg {
+  color: var(--text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+details.chat-task-event.tool-result { display: block; }
+details.chat-task-event.tool-result > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+details.chat-task-event.tool-result > summary::-webkit-details-marker { display: none; }
+details.chat-task-event.tool-result .chat-task-event-tool {
+  color: var(--text-dim);
+  font-weight: 400;
+  font-style: normal;
+}
+.chat-task-event.chat-task-event-err .chat-task-event-icon,
+.chat-task-event.chat-task-event-err .chat-task-event-tool { color: var(--red); }
+.chat-task-event-body {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  background: var(--bg);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.chat-task-message {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.chat-task-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+.chat-task-meta {
+  color: var(--text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+}
+.chat-task-cancel {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 11px;
+}
 .chat-proposal-btn {
   flex: 1;
   padding: 8px 10px;

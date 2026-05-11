@@ -15,7 +15,7 @@
 // One conversation, no session ids. Single-user app. Clearing the
 // chat sends 'galt_chat_clear' which wipes the RTDB node.
 
-import { db, ref, onValue, off } from './firebase.js';
+import { db, ref, onValue, off, onChildAdded } from './firebase.js';
 import { sendCommand, getStore } from './state.js';
 import { showToast } from './render.js';
 
@@ -122,6 +122,10 @@ function renderMessages(messages) {
     return;
   }
   root.innerHTML = messages.map(bubble).join('');
+  // Re-attach live subscriptions for any task cards that just (re-)
+  // rendered. ensureTaskSubscriptions() is idempotent — a task
+  // already subscribed gets skipped.
+  ensureTaskSubscriptions();
   // Auto-scroll to the bottom on new content.
   const scroll = document.querySelector('[data-id="chat-scroll"]');
   if (scroll) {
@@ -130,21 +134,175 @@ function renderMessages(messages) {
   }
 }
 
+/* ============================================================
+   Live task-card subscriptions
+   ============================================================
+   Each .chat-task-card[data-task-id="..."] in the DOM gets a live
+   feed from RTDB:
+     - /tasks/<id>        → task row updates (status, result, model, …)
+     - /tasks/<id>/events → streamed events (tool_use, tool_result, …)
+   Subscriptions are idempotent (we skip re-subscribing) and persist
+   across re-renders. When a task hits a terminal state, we keep the
+   subscription alive briefly to ensure final-state writes land, then
+   it's effectively dormant. */
+
+const _taskSubs = new Map(); // task_id → { unsubRow, unsubEvents, terminal: bool }
+
+function ensureTaskSubscriptions() {
+  const cards = document.querySelectorAll('.chat-task-card[data-task-id]');
+  for (const card of cards) {
+    const id = card.dataset.taskId;
+    if (!id || _taskSubs.has(id)) continue;
+    subscribeToTask(id);
+  }
+}
+
+function subscribeToTask(taskId) {
+  const rowRef = ref(db, `/tasks/${taskId}`);
+  const eventsRef = ref(db, `/tasks/${taskId}/events`);
+
+  const rowCb = (snap) => {
+    const task = snap.val();
+    if (!task) return;
+    updateTaskCardRow(taskId, task);
+  };
+  onValue(rowRef, rowCb);
+
+  // onChildAdded fires for existing children too, so we get backfill
+  // for free when the user first opens the chat on a task that's
+  // already running.
+  const eventCb = (snap) => {
+    const ev = snap.val();
+    if (!ev) return;
+    appendTaskCardEvent(taskId, ev);
+  };
+  onChildAdded(eventsRef, eventCb);
+
+  _taskSubs.set(taskId, {
+    unsubRow: () => off(rowRef, 'value', rowCb),
+    unsubEvents: () => off(eventsRef, 'child_added', eventCb),
+    terminal: false,
+  });
+}
+
+function updateTaskCardRow(taskId, task) {
+  const card = document.querySelector(`.chat-task-card[data-task-id="${cssEsc(taskId)}"]`);
+  if (!card) return;
+  const status = task.status || 'queued';
+  card.dataset.status = status;
+  const statusEl = card.querySelector(`[data-id="task-status-${cssEsc(taskId)}"]`);
+  if (statusEl) statusEl.textContent = status;
+  const msgEl = card.querySelector(`[data-id="task-message-${cssEsc(taskId)}"]`);
+  if (msgEl) {
+    if (status === 'succeeded' && task.result) {
+      msgEl.textContent = task.result;
+    } else if (status === 'failed') {
+      msgEl.textContent = task.error || task.result || 'failed';
+    } else if (status === 'cancelled') {
+      msgEl.textContent = 'cancelled';
+    } else {
+      msgEl.textContent = '';
+    }
+  }
+  const metaEl = card.querySelector(`[data-id="task-meta-${cssEsc(taskId)}"]`);
+  if (metaEl) {
+    const parts = [];
+    if (task.model)          parts.push(escape(task.model));
+    if (task.num_turns != null) parts.push(`${task.num_turns} round${task.num_turns === 1 ? '' : 's'}`);
+    if (task.total_cost_usd != null && task.total_cost_usd > 0) {
+      parts.push(`$${task.total_cost_usd.toFixed(3)}`);
+    }
+    if (task.started_at && task.finished_at) {
+      const seconds = Math.round((task.finished_at - task.started_at) / 1000);
+      parts.push(`${seconds}s`);
+    }
+    metaEl.innerHTML = parts.join(' · ');
+  }
+  // Hide cancel once terminal.
+  const cancelBtn = card.querySelector('.chat-task-cancel');
+  if (cancelBtn) {
+    const terminal = status === 'succeeded' || status === 'failed' || status === 'cancelled';
+    if (terminal) cancelBtn.style.display = 'none';
+  }
+}
+
+function appendTaskCardEvent(taskId, ev) {
+  const root = document.querySelector(`[data-id="task-events-${cssEsc(taskId)}"]`);
+  if (!root) return;
+  const html = renderTaskEventLine(ev);
+  if (!html) return;
+  root.insertAdjacentHTML('beforeend', html);
+  // Auto-scroll if the event lives near the bottom of the chat.
+  const scroll = document.querySelector('[data-id="chat-scroll"]');
+  if (scroll) requestAnimationFrame(() => { scroll.scrollTop = scroll.scrollHeight; });
+}
+
+function renderTaskEventLine(ev) {
+  if (!ev || !ev.kind) return '';
+  const kind = ev.kind;
+  const data = ev.data || {};
+  if (kind === 'tool_use') {
+    return `
+      <div class="chat-task-event">
+        <span class="chat-task-event-icon">⏵</span>
+        <span class="chat-task-event-tool">${escape(data.tool || '?')}</span>
+        ${data.input_preview ? `<span class="chat-task-event-arg">${escape(data.input_preview)}</span>` : ''}
+      </div>`;
+  }
+  if (kind === 'tool_result') {
+    const errCls = data.is_error ? ' chat-task-event-err' : '';
+    const preview = (data.preview || '').slice(0, 200);
+    if (!preview) return '';
+    return `
+      <details class="chat-task-event tool-result${errCls}">
+        <summary>
+          <span class="chat-task-event-icon">↵</span>
+          <span class="chat-task-event-tool">${escape(preview.split('\n')[0] || '').slice(0, 80)}</span>
+        </summary>
+        <pre class="chat-task-event-body">${escape(data.preview || '')}</pre>
+      </details>`;
+  }
+  if (kind === 'message') {
+    if (!data.text) return '';
+    return `<div class="chat-task-event message">${escape(data.text)}</div>`;
+  }
+  if (kind === 'init') {
+    return `
+      <div class="chat-task-event init">
+        <span class="chat-task-event-icon">⏵</span>
+        <span class="chat-task-event-arg">started ${data.model ? '(' + escape(data.model) + ')' : ''}</span>
+      </div>`;
+  }
+  if (kind === 'stderr') {
+    return '';  // stderr is noisy; skip for now
+  }
+  return '';
+}
+
+/** Escape a string for use as a CSS attribute selector value
+ *  (CSS.escape is widely supported but a tiny shim is safer). */
+function cssEsc(s) {
+  return String(s).replace(/[^a-zA-Z0-9_-]/g, (c) => '\\' + c);
+}
+
 function bubble(m) {
   const cls = m.role === 'user' ? 'me' : 'galt';
-  // Tool calls render in four flavors:
+  // Tool calls render in five flavors:
   //   - "propose_*"             → structured proposal cards (side effect on approve)
   //   - "request_user_approval" → inline approve/deny prompt (decision flows back as next turn)
   //   - "list_calendar_events"  → read-only event cards (display only, no actions)
+  //   - "claude_ask"            → live task card subscribed to /tasks/<id>
   //   - everything else         → compact <details> chip strip
   const proposalCards = renderProposalCards(m.tool_calls);
   const approvalCards = renderApprovalCards(m.tool_calls);
   const eventCards = renderEventListCards(m.tool_calls);
+  const taskCards = renderTaskCards(m.tool_calls);
   const otherCalls = Array.isArray(m.tool_calls)
     ? m.tool_calls.filter((tc) =>
         !tc.name.startsWith('propose_') &&
         tc.name !== 'request_user_approval' &&
-        tc.name !== 'list_calendar_events')
+        tc.name !== 'list_calendar_events' &&
+        tc.name !== 'claude_ask')
     : [];
   const tools = otherCalls.length > 0 ? renderToolCalls(otherCalls) : '';
   return `
@@ -154,7 +312,44 @@ function bubble(m) {
         ${eventCards}
         ${proposalCards}
         ${approvalCards}
+        ${taskCards}
         <div class="chat-bubble">${escape(m.text)}</div>
+      </div>
+    </div>
+  `;
+}
+
+/** Render live task cards for any claude_ask tool calls on this turn.
+ *  Each card subscribes to /tasks/<id> via RTDB and re-renders as
+ *  events stream in. */
+function renderTaskCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .filter((tc) => tc.name === 'claude_ask')
+    .map(renderTaskCardShell)
+    .filter(Boolean)
+    .join('');
+}
+
+function renderTaskCardShell(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || !r.task_id) return '';
+  // Empty shell — the live subscription wires up after the DOM exists
+  // and fills the body. data-task-id is the anchor.
+  return `
+    <div class="chat-task-card" data-task-id="${escape(r.task_id)}" data-status="queued">
+      <div class="chat-task-head">
+        <div class="chat-task-kind">⚡ Claude</div>
+        <div class="chat-task-status" data-id="task-status-${escape(r.task_id)}">queued</div>
+      </div>
+      <div class="chat-task-body" data-id="task-body-${escape(r.task_id)}">
+        <div class="chat-task-events" data-id="task-events-${escape(r.task_id)}"></div>
+        <div class="chat-task-message" data-id="task-message-${escape(r.task_id)}"></div>
+      </div>
+      <div class="chat-task-foot">
+        <div class="chat-task-meta" data-id="task-meta-${escape(r.task_id)}"></div>
+        <button class="chat-proposal-btn dismiss chat-task-cancel" data-action="task-cancel" data-task-id="${escape(r.task_id)}">Cancel</button>
       </div>
     </div>
   `;

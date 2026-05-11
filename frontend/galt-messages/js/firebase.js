@@ -13,7 +13,7 @@
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js';
 import {
-  getDatabase, ref, onValue, off, push, set, update, remove, get, child,
+  getDatabase, ref, onValue, off, onChildAdded, push, set, update, remove, get, child,
 } from 'https://www.gstatic.com/firebasejs/12.12.1/firebase-database.js';
 
 const firebaseConfig = {
@@ -28,7 +28,7 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
-export { ref, onValue, off, push, set, update, remove, get, child };
+export { ref, onValue, off, onChildAdded, push, set, update, remove, get, child };
 
 /* ============================================================
    Web Push (FCM) — public VAPID key

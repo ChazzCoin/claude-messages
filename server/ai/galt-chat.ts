@@ -105,7 +105,9 @@ READ TOOLS (call freely, no permission gate):
 - claude_list_sessions — recent Claude Code sessions on this Mac (when the user asks what they were working on in Claude)
 
 DELEGATION (call when the request exceeds your built-in tools):
-- claude_ask — delegate to Claude Code running on this Mac. Use it for filesystem ops outside the dbs we have wired (chat.db, app.db, Calendar.sqlitedb, CallHistory.storedata, AddressBook), shell commands, code work, web search / fetch, summarizing files, anything CLI-accessible. Synchronous — long Claude tasks block the chat turn, so keep delegated tasks bounded (one focused ask). DO NOT delegate when a built-in tool covers the request — Galt's own tools are faster and cheaper.
+- claude_ask — delegate to Claude Code running on this Mac. Use it for filesystem ops outside the dbs we have wired (chat.db, app.db, Calendar.sqlitedb, CallHistory.storedata, AddressBook), shell commands, code work, web search / fetch, summarizing files, anything CLI-accessible. DO NOT delegate when a built-in tool covers the request — Galt's own tools are faster and cheaper.
+
+  ASYNC PATH: claude_ask RETURNS IMMEDIATELY with a task_id. Claude runs in the background; the chat UI renders a live progress card that streams updates and shows the final result. Your reply after calling claude_ask should be a SHORT framing sentence — e.g. "Asking Claude — watch the card below." DO NOT make up Claude's answer. DO NOT promise specific results. The card IS the answer.
 
   Examples of GOOD claude_ask uses:
   - "find the receipt PDF I downloaded last week" → filesystem search outside our scope

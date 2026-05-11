@@ -287,6 +287,43 @@ function migrate(db: DB) {
 
     CREATE INDEX IF NOT EXISTS idx_ai_usage_called_at ON ai_usage_log(called_at);
 
+    -- Long-running tasks (Claude CLI delegations, future heavy
+    -- operations). Decouples slow ops from the chat-turn request /
+    -- response cycle. Events stream into task_events; the row here
+    -- is the canonical task state, mirrored to RTDB so both clients
+    -- can subscribe to live updates and act (cancel) on it.
+    CREATE TABLE IF NOT EXISTS tasks (
+      id                  TEXT PRIMARY KEY,                                -- uuid
+      type                TEXT NOT NULL,                                   -- 'claude_delegate' | future kinds
+      status              TEXT NOT NULL DEFAULT 'queued'
+                           CHECK (status IN ('queued','running','succeeded','failed','cancelled')),
+      input               TEXT NOT NULL,                                   -- JSON
+      source_chat_msg_id  TEXT,                                            -- the galt_chat message this task is attached to
+      created_at          INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+      started_at          INTEGER,
+      finished_at         INTEGER,
+      result              TEXT,                                            -- final reply or short summary
+      error               TEXT,
+      -- Claude-specific summary fields (null for other task types):
+      session_id          TEXT,
+      model               TEXT,
+      total_cost_usd      REAL,
+      num_turns           INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
+    CREATE INDEX IF NOT EXISTS idx_tasks_source_msg ON tasks(source_chat_msg_id);
+
+    CREATE TABLE IF NOT EXISTS task_events (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id   TEXT NOT NULL,
+      kind      TEXT NOT NULL,                                             -- 'tool_use' | 'tool_result' | 'message' | 'system' | 'error'
+      data      TEXT,                                                      -- JSON
+      ts        INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_events_task_ts ON task_events(task_id, ts);
+
     CREATE TABLE IF NOT EXISTS state (
       key          TEXT PRIMARY KEY,
       value        TEXT NOT NULL
@@ -2188,4 +2225,179 @@ export function getAiUsageStats(): {
     last_30d: aggregateSince(thirtyDaysAgo),
     all_time: aggregateSince(null),
   };
+}
+
+/* ============================================================
+   Tasks — long-running ops (Claude CLI delegations etc.)
+   ============================================================ */
+
+export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type TaskType = 'claude_delegate';  // future kinds appended here
+
+export interface TaskRow {
+  id: string;
+  type: TaskType;
+  status: TaskStatus;
+  input: Record<string, unknown>;
+  source_chat_msg_id: string | null;
+  created_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  result: string | null;
+  error: string | null;
+  session_id: string | null;
+  model: string | null;
+  total_cost_usd: number | null;
+  num_turns: number | null;
+}
+
+export interface TaskEventRow {
+  id: number;
+  task_id: string;
+  kind: string;
+  data: unknown;
+  ts: number;
+}
+
+const TASK_COLS =
+  'id, type, status, input, source_chat_msg_id, created_at, started_at, finished_at, ' +
+  'result, error, session_id, model, total_cost_usd, num_turns';
+
+function rowToTask(raw: Record<string, unknown>): TaskRow {
+  let input: Record<string, unknown> = {};
+  try { input = JSON.parse(String(raw.input ?? '{}')); } catch { input = {}; }
+  return {
+    id: String(raw.id),
+    type: raw.type as TaskType,
+    status: raw.status as TaskStatus,
+    input,
+    source_chat_msg_id: (raw.source_chat_msg_id as string | null) ?? null,
+    created_at: Number(raw.created_at ?? 0),
+    started_at: raw.started_at == null ? null : Number(raw.started_at),
+    finished_at: raw.finished_at == null ? null : Number(raw.finished_at),
+    result: (raw.result as string | null) ?? null,
+    error: (raw.error as string | null) ?? null,
+    session_id: (raw.session_id as string | null) ?? null,
+    model: (raw.model as string | null) ?? null,
+    total_cost_usd: raw.total_cost_usd == null ? null : Number(raw.total_cost_usd),
+    num_turns: raw.num_turns == null ? null : Number(raw.num_turns),
+  };
+}
+
+export function createTask(input: {
+  id: string;
+  type: TaskType;
+  input: Record<string, unknown>;
+  source_chat_msg_id?: string | null;
+}): TaskRow {
+  const db = getAppDb();
+  db.prepare(
+    `INSERT INTO tasks (id, type, status, input, source_chat_msg_id)
+     VALUES (?, ?, 'queued', ?, ?)`,
+  ).run(input.id, input.type, JSON.stringify(input.input), input.source_chat_msg_id ?? null);
+  return getTask(input.id)!;
+}
+
+export function getTask(id: string): TaskRow | null {
+  const db = getAppDb();
+  const row = db.prepare(`SELECT ${TASK_COLS} FROM tasks WHERE id = ?`).get(id) as Record<string, unknown> | undefined;
+  return row ? rowToTask(row) : null;
+}
+
+export function listTasks(opts: { status?: TaskStatus; limit?: number } = {}): TaskRow[] {
+  const db = getAppDb();
+  const limit = Math.max(1, Math.min(500, opts.limit ?? 100));
+  const rows = opts.status
+    ? (db.prepare(`SELECT ${TASK_COLS} FROM tasks WHERE status = ? ORDER BY created_at DESC LIMIT ?`)
+        .all(opts.status, limit) as Array<Record<string, unknown>>)
+    : (db.prepare(`SELECT ${TASK_COLS} FROM tasks ORDER BY created_at DESC LIMIT ?`)
+        .all(limit) as Array<Record<string, unknown>>);
+  return rows.map(rowToTask);
+}
+
+/** Patch fields on a task. Pass the new status to trigger started_at /
+ *  finished_at stamping; the function decides whether to stamp based
+ *  on the transition. */
+export function updateTask(
+  id: string,
+  patch: Partial<Pick<TaskRow, 'status' | 'result' | 'error' | 'session_id' | 'model' | 'total_cost_usd' | 'num_turns'>>,
+): TaskRow | null {
+  const db = getAppDb();
+  const existing = getTask(id);
+  if (!existing) return null;
+  const now = Date.now();
+  const sets: string[] = [];
+  const vals: Array<string | number | null> = [];
+  if (patch.status !== undefined) {
+    sets.push('status = ?');
+    vals.push(patch.status);
+    // Stamp started_at on first transition into 'running'.
+    if (patch.status === 'running' && existing.started_at == null) {
+      sets.push('started_at = ?');
+      vals.push(now);
+    }
+    // Stamp finished_at on first transition to a terminal state.
+    if (
+      (patch.status === 'succeeded' || patch.status === 'failed' || patch.status === 'cancelled') &&
+      existing.finished_at == null
+    ) {
+      sets.push('finished_at = ?');
+      vals.push(now);
+    }
+  }
+  if (patch.result !== undefined)         { sets.push('result = ?');         vals.push(patch.result); }
+  if (patch.error !== undefined)          { sets.push('error = ?');          vals.push(patch.error); }
+  if (patch.session_id !== undefined)     { sets.push('session_id = ?');     vals.push(patch.session_id); }
+  if (patch.model !== undefined)          { sets.push('model = ?');          vals.push(patch.model); }
+  if (patch.total_cost_usd !== undefined) { sets.push('total_cost_usd = ?'); vals.push(patch.total_cost_usd); }
+  if (patch.num_turns !== undefined)      { sets.push('num_turns = ?');      vals.push(patch.num_turns); }
+  if (sets.length === 0) return existing;
+  vals.push(id);
+  db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  return getTask(id);
+}
+
+export function appendTaskEvent(taskId: string, kind: string, data: unknown): TaskEventRow {
+  const db = getAppDb();
+  const info = db
+    .prepare('INSERT INTO task_events (task_id, kind, data) VALUES (?, ?, ?)')
+    .run(taskId, kind, data == null ? null : JSON.stringify(data));
+  const row = db
+    .prepare('SELECT id, task_id, kind, data, ts FROM task_events WHERE id = ?')
+    .get(info.lastInsertRowid) as Record<string, unknown>;
+  let parsed: unknown = null;
+  if (row.data) {
+    try { parsed = JSON.parse(String(row.data)); } catch { parsed = row.data; }
+  }
+  return {
+    id: Number(row.id),
+    task_id: String(row.task_id),
+    kind: String(row.kind),
+    data: parsed,
+    ts: Number(row.ts),
+  };
+}
+
+export function listTaskEvents(taskId: string, opts: { sinceId?: number; limit?: number } = {}): TaskEventRow[] {
+  const db = getAppDb();
+  const limit = Math.max(1, Math.min(1000, opts.limit ?? 500));
+  const sinceId = opts.sinceId ?? 0;
+  const rows = db
+    .prepare(
+      'SELECT id, task_id, kind, data, ts FROM task_events WHERE task_id = ? AND id > ? ORDER BY id ASC LIMIT ?',
+    )
+    .all(taskId, sinceId, limit) as Array<Record<string, unknown>>;
+  return rows.map((row) => {
+    let parsed: unknown = null;
+    if (row.data) {
+      try { parsed = JSON.parse(String(row.data)); } catch { parsed = row.data; }
+    }
+    return {
+      id: Number(row.id),
+      task_id: String(row.task_id),
+      kind: String(row.kind),
+      data: parsed,
+      ts: Number(row.ts),
+    };
+  });
 }

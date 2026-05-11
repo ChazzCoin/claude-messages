@@ -135,6 +135,8 @@ import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
 import { startCommandListener, stopCommandListener } from './firebase-commands.js';
 import { sendPushToAll } from './firebase-push.js';
 import { sendChatTurn, listChatHistory, clearChatHistory } from './ai/galt-chat.js';
+import { cancelTask } from './task-runner.js';
+import { getTask, listTasks, listTaskEvents, type TaskStatus } from './db/app.js';
 import {
   listAllContacts,
   listContactsWithHandles,
@@ -1713,6 +1715,35 @@ app.post(
     res.json({ cleared: true });
   }),
 );
+
+/* ---------- routes: tasks (long-running ops) ----------
+   Galt's chat layer creates tasks (via claude_ask + future runners);
+   tasks stream events into RTDB so both clients can render a live
+   progress card. Web pulls over HTTP as a fallback when the RTDB
+   subscription isn't wired. */
+
+app.get('/api/tasks', (req, res) => {
+  const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+  const allowed: TaskStatus[] = ['queued', 'running', 'succeeded', 'failed', 'cancelled'];
+  const filter = (allowed as readonly string[]).includes(status ?? '') ? (status as TaskStatus) : undefined;
+  const limit = Math.max(1, Math.min(500, parseInt(String(req.query.limit ?? '50'), 10) || 50));
+  res.json({ tasks: listTasks({ status: filter, limit }) });
+});
+
+app.get('/api/tasks/:id', (req, res) => {
+  const task = getTask(req.params.id);
+  if (!task) return res.status(404).json({ error: 'not found' });
+  const sinceId = parseInt(String(req.query.since_id ?? '0'), 10) || 0;
+  const events = listTaskEvents(task.id, { sinceId, limit: 500 });
+  return res.json({ task, events });
+});
+
+app.post('/api/tasks/:id/cancel', (req, res) => {
+  const ok = cancelTask(req.params.id);
+  if (!ok) return res.status(404).json({ error: 'task not running' });
+  const task = getTask(req.params.id);
+  return res.json({ ok: true, task });
+});
 
 /* ---------- watcher → away-mode auto-responder ---------- */
 

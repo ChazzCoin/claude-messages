@@ -24,6 +24,7 @@ import { listEventsInWindow } from '../integrations/calendar-db.js';
 import { listRecentCalls } from '../integrations/call-history.js';
 import { insertChatCalendarProposal } from '../db/app.js';
 import { claudeCli } from '../integrations/claude-cli.js';
+import { startClaudeTask } from '../task-runner.js';
 import {
   appleDateToUnixMs,
   getChatDb,
@@ -569,75 +570,66 @@ const request_user_approval: ToolDefinition = {
    accessible on the Mac. Synchronous in Phase 1 (Galt waits for
    Claude to finish); a streaming task layer is Phase 2/3. */
 
-const claude_ask: ToolDefinition = {
-  name: 'claude_ask',
-  description:
-    "Delegate a task to Claude Code (running on this Mac) when the request needs filesystem access, shell commands, code work, web search/fetch, or anything outside your built-in read/write tools. Examples: 'find the receipt PDF in ~/Downloads', 'why is the watcher dropping reactions', 'summarize these 5 markdown files', 'what's the latest OpenAI model'. Claude can read/write files, run commands, and search the web. AVOID for things your built-in tools cover (calendar, messages, contacts, call history, auto-notes). Synchronous — long tasks block the chat turn; keep tasks bounded (one focused ask, not multi-step projects).",
-  parameters: {
-    type: 'object',
-    required: ['task'],
-    properties: {
-      task: {
-        type: 'string',
-        description: 'The specific task for Claude. Write it like a one-paragraph brief: what to do, where, what to return. Be concrete.',
+/** Build the claude_ask tool for a specific Galt chat turn. The
+ *  message id stamps the resulting task row so the chat UI can
+ *  render a live task card tied to this exact Galt turn. */
+function buildClaudeAskTool(galtMessageId: string): ToolDefinition {
+  return {
+    name: 'claude_ask',
+    description:
+      "Delegate a task to Claude Code (running on this Mac) when the request needs filesystem access, shell commands, code work, web search/fetch, or anything outside your built-in read/write tools. Examples: 'find the receipt PDF in ~/Downloads', 'why is the watcher dropping reactions', 'summarize these 5 markdown files', 'what's the latest OpenAI model'. Claude can read/write files, run commands, and search the web. AVOID for things your built-in tools cover (calendar, messages, contacts, call history, auto-notes).\n\nIMPORTANT: this tool RETURNS IMMEDIATELY with a task_id — Claude runs in the background. The chat UI renders a live progress card; you do NOT see Claude's reply in your tool result. Your follow-up reply should be brief — confirm you delegated the task and let the user know to watch the card below your message. Do NOT pretend to have an answer; the card IS the answer.",
+    parameters: {
+      type: 'object',
+      required: ['task'],
+      properties: {
+        task: {
+          type: 'string',
+          description: 'The specific task for Claude. Write it like a one-paragraph brief: what to do, where, what to return. Be concrete.',
+        },
+        working_dir: {
+          type: 'string',
+          description: "Optional absolute path to the directory Claude should work in. ONLY pass this if the user explicitly mentioned a specific path or you've previously confirmed it exists via another tool. DO NOT invent paths — if you're unsure, omit this and let it default to the Galt project root.",
+        },
+        allowed_tools: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Restrict Claude\'s tool surface. Examples: ["Read","WebSearch","WebFetch"] for read-only browse, or ["Bash"] for shell-only. Omit to let Claude use its full toolset.',
+        },
+        max_budget_usd: {
+          type: 'number',
+          description: 'Hard cap on dollars spent on this task.',
+        },
       },
-      working_dir: {
-        type: 'string',
-        description: "Absolute path to the directory Claude should work in. Affects which CLAUDE.md it picks up and where it can read/write. Defaults to the Galt project root if unspecified. Use the user's $HOME or a project path when the task is location-specific.",
-      },
-      allowed_tools: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Restrict Claude\'s tool surface. Examples: ["Read","WebSearch","WebFetch"] for read-only browse, or ["Bash"] for shell-only. Omit to let Claude use its full toolset.',
-      },
-      max_budget_usd: {
-        type: 'number',
-        description: 'Hard cap on dollars spent on this task. Defaults to no cap (Claude\'s subscription handles it). Set when you want a guardrail.',
-      },
+      additionalProperties: false,
     },
-    additionalProperties: false,
-  },
-  async execute(args) {
-    const task = typeof args.task === 'string' ? args.task.trim() : '';
-    if (!task) throw new Error('task required');
-    const workingDir = typeof args.working_dir === 'string' && args.working_dir.trim()
-      ? args.working_dir.trim()
-      : undefined;
-    const allowedTools = Array.isArray(args.allowed_tools)
-      ? args.allowed_tools.filter((x): x is string => typeof x === 'string')
-      : undefined;
-    const maxBudgetUsd = typeof args.max_budget_usd === 'number' ? args.max_budget_usd : undefined;
+    async execute(args) {
+      const task = typeof args.task === 'string' ? args.task.trim() : '';
+      if (!task) throw new Error('task required');
+      const workingDir = typeof args.working_dir === 'string' && args.working_dir.trim()
+        ? args.working_dir.trim()
+        : undefined;
+      const allowedTools = Array.isArray(args.allowed_tools)
+        ? args.allowed_tools.filter((x): x is string => typeof x === 'string')
+        : undefined;
+      const maxBudgetUsd = typeof args.max_budget_usd === 'number' ? args.max_budget_usd : undefined;
 
-    const result = await claudeCli.chat({
-      prompt: task,
-      workingDir,
-      allowedTools,
-      maxBudgetUsd,
-      // Reasonable defaults — Phase 1 keeps it sync, so cap the loop
-      // to keep latency bounded. Long ops graduate to the task layer
-      // in Phase 2.
-      maxTurns: 12,
-      timeoutMs: 5 * 60_000,
-    });
-
-    return {
-      ok: !result.is_error,
-      session_id: result.session_id,
-      model: result.model,
-      reply: result.reply,
-      num_turns: result.num_turns,
-      duration_ms: result.duration_ms,
-      total_cost_usd: result.total_cost_usd,
-      // Compact tool-call summary so the model can mention what Claude
-      // did without dumping the full transcript.
-      claude_tools: result.tool_calls.slice(0, 20).map((tc) => ({
-        kind: tc.kind,
-        name: tc.name,
-      })),
-      claude_tool_count: result.tool_calls.length,
-    };
-  },
-};
+      const row = startClaudeTask({
+        task,
+        working_dir: workingDir,
+        allowed_tools: allowedTools,
+        max_budget_usd: maxBudgetUsd,
+        source_chat_msg_id: galtMessageId,
+      });
+      return {
+        ok: true,
+        async: true,
+        task_id: row.id,
+        status: row.status,
+        next_step: 'A live task card now renders below your bubble. Your reply should be brief — confirm you delegated the work; the card streams progress and the final answer. Do not pretend to have results.',
+      };
+    },
+  };
+}
 
 const claude_list_sessions: ToolDefinition = {
   name: 'claude_list_sessions',
@@ -700,7 +692,7 @@ export function buildChatTools(galtMessageId: string): ToolDefinition[] {
     get_call_history,
     buildProposeCalendarEventTool(galtMessageId),
     request_user_approval,
-    claude_ask,
+    buildClaudeAskTool(galtMessageId),
     claude_list_sessions,
   ];
 }
@@ -717,6 +709,5 @@ export const CHAT_TOOLS: ToolDefinition[] = [
   list_contact_notes,
   get_call_history,
   request_user_approval,
-  claude_ask,
   claude_list_sessions,
 ];

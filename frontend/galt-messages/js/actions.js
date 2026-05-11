@@ -77,6 +77,24 @@ const HANDLERS = {
     }
   },
 
+  /* task-cancel — cancel a running Claude task. Fires
+     cancel_task RTDB command; the backend kills the subprocess
+     and flips status. The card's RTDB subscription picks up the
+     status change and updates the UI. */
+  'task-cancel': async (target) => {
+    const taskId = target.dataset.taskId;
+    if (!taskId) return;
+    target.setAttribute('disabled', 'true');
+    target.textContent = 'Cancelling…';
+    try {
+      await sendCommand('cancel_task', { task_id: taskId });
+    } catch (err) {
+      target.removeAttribute('disabled');
+      target.textContent = 'Cancel';
+      showToast(err.message, 'error');
+    }
+  },
+
   /* request_user_approval — generic Approve/Deny inline prompt.
      Click sends the chosen label as a new chat turn so Galt sees
      the decision on the next round. No backend command needed —

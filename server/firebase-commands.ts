@@ -27,6 +27,7 @@ import {
   setCalendarProposalTarget,
 } from './db/app.js';
 import { exportCalendarProposal, dismissCalendarProposal } from './calendar-export.js';
+import { cancelTask } from './task-runner.js';
 import { getContactNameForHandle, normalizeHandle } from './db/contacts.js';
 import { getMirrorDb, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
@@ -305,6 +306,15 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       if (!Number.isFinite(id)) throw new Error('id required');
       const proposal = dismissCalendarProposal(id);
       return { proposal };
+    }
+
+    case 'cancel_task': {
+      // Companion taps "Cancel" on a live task card. Backend kills
+      // the subprocess (SIGTERM → SIGKILL) and flips status.
+      const id = typeof p.task_id === 'string' ? p.task_id.trim() : '';
+      if (!id) throw new Error('task_id required');
+      const ok = cancelTask(id);
+      return { ok, task_id: id };
     }
 
     case 'set_proposal_calendar': {
