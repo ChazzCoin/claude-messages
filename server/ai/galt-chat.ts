@@ -159,6 +159,48 @@ function toOpenAIMessages(history: ChatTurnMessage[]): Array<{ role: 'user' | 'a
   }));
 }
 
+/** Regex pre-classifier for the user's latest message. If it matches
+ *  a clear "schedule something" pattern, we force the model to call
+ *  propose_calendar_event on the first round (bypassing gpt-4o-mini's
+ *  flaky default of replying "I've drafted!" in prose without
+ *  actually calling the tool).
+ *
+ *  False negatives are recoverable (the system prompt still nudges
+ *  the model toward the tool). False positives are bad — they'd
+ *  force a calendar proposal on a question like "what's on my
+ *  calendar?". Patterns are tight on purpose:
+ *    - require an action verb (add/schedule/book/create/etc.)
+ *    - require an event-noun (meeting/event/appointment/...) OR a
+ *      concrete time/date phrase
+ *
+ *  Read tools like list_calendar_events still fire normally on
+ *  read-style questions because the model picks them under 'auto'. */
+function shouldForceCalendarPropose(latestUserText: string): boolean {
+  const text = latestUserText.toLowerCase();
+  if (!text) return false;
+
+  // Read-style queries that overlap with scheduling keywords —
+  // hard-block to avoid forcing a proposal on a question.
+  if (/\b(what|when|show|list|any)\b.*(calendar|schedule|events?|appointments?)/i.test(text)) {
+    return false;
+  }
+  if (/\b(do i have|is there|what's on)\b/i.test(text)) {
+    return false;
+  }
+
+  const hasActionVerb =
+    /\b(add|schedule|book|create|make|set\s+up|put|plan|throw\s+on|tee\s+up|block(?:\s+off|\s+out)?)\b/i.test(text);
+  if (!hasActionVerb) return false;
+
+  const hasEventNoun =
+    /\b(meeting|event|appointment|appt|call|lunch|dinner|breakfast|coffee|chat|sync|standup|review|hangout|catch[-\s]?up|interview|session|reminder)\b/i.test(text);
+  const hasCalendarRef = /\b(calendar|on (my|the) (cal|calendar))\b/i.test(text);
+  const hasTimePhrase =
+    /\b(at\s+\d|today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week|this week|next month|in an? hour|in\s+\d+\s+(min|minutes|hours))\b/i.test(text);
+
+  return hasEventNoun || hasCalendarRef || hasTimePhrase;
+}
+
 /** Run one chat turn. `history` should already include the latest
  *  user message at the end. `galtMessageId` is the RTDB key under
  *  which Galt's reply will be persisted — it's pre-computed in
@@ -186,6 +228,14 @@ export async function chatTurn(
     `When you write start_iso / end_iso for propose_calendar_event, use local time in YYYY-MM-DDTHH:MM format (no timezone suffix).`;
   const fullSystem = `${systemPrompt}\n\n${nowSystem}`;
 
+  // Pre-classify the user's latest message. If it's clearly a
+  // scheduling request, force propose_calendar_event so gpt-4o-mini
+  // can't skip the tool in favor of prose-only acknowledgment.
+  const latestUser = [...history].reverse().find((m) => m.role === 'user');
+  const forceTool = latestUser && shouldForceCalendarPropose(latestUser.text)
+    ? 'propose_calendar_event'
+    : undefined;
+
   const result = await chatWithTools({
     systemPrompt: fullSystem,
     messages,
@@ -194,6 +244,7 @@ export async function chatTurn(
     temperature: 0.7,
     maxTokens: 800,
     maxRounds: 6,
+    forceTool,
   });
 
   // The model might end with an empty reply if it ONLY called tools

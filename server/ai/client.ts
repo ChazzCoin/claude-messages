@@ -242,6 +242,14 @@ export interface ChatWithToolsOpts {
    *  through tokens / API calls. Defaults to 6 — typically the model
    *  needs 1-3 rounds, but multi-step questions can chain more. */
   maxRounds?: number;
+  /** Force the model to call this specific tool on the FIRST round.
+   *  Subsequent rounds revert to 'auto' so the model can synthesize
+   *  its natural-language reply normally. Used by upstream callers
+   *  (e.g. galt-chat) when a pre-classifier is confident the user
+   *  wants this specific action — bypasses the model's flaky default
+   *  behavior of replying in prose without actually calling the
+   *  tool. Set to the tool's `name`. */
+  forceTool?: string;
 }
 
 export interface ChatWithToolsResult {
@@ -298,11 +306,18 @@ export async function chatWithTools(opts: ChatWithToolsOpts): Promise<ChatWithTo
 
   for (let i = 0; i < maxRounds; i++) {
     rounds = i + 1;
+    // Only force the tool on the FIRST round. After it fires, the
+    // model needs to be back on 'auto' so it can read the tool's
+    // result and produce a natural-language reply.
+    const toolChoice: 'auto' | { type: 'function'; function: { name: string } } =
+      i === 0 && opts.forceTool && sdkTools.some((t) => t.function.name === opts.forceTool)
+        ? { type: 'function', function: { name: opts.forceTool } }
+        : 'auto';
     const resp = await client.chat.completions.create({
       model,
       messages: running,
       tools: sdkTools.length > 0 ? sdkTools : undefined,
-      tool_choice: sdkTools.length > 0 ? 'auto' : undefined,
+      tool_choice: sdkTools.length > 0 ? toolChoice : undefined,
       max_tokens: opts.maxTokens ?? 800,
       temperature: opts.temperature ?? 0.7,
     });
