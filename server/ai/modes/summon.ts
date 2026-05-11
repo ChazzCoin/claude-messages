@@ -341,15 +341,28 @@ export class SummonMode extends PromptMode<SummonInput> {
       text: KEEP_IT_SHORT,
     });
 
-    // 10. SKIP policy — depends on whether this is the activation turn
+    // 10. SKIP policy — runtime picks ONE of two snippets based on
+    //     whether this is the activation turn. Both are listed here
+    //     so the UI shows the literal text that would be sent for
+    //     each branch (instead of a synthetic combined preview).
+    //     buildSystemPrompt pushes only one at a time.
     out.push({
-      id: 'skip_policy',
-      label: 'SKIP policy',
-      description: 'Activation turns force a non-SKIP reply (NO_SKIP_THIS_TURN). Continuation turns allow SKIP (silence is OK if Galt has nothing useful).',
-      fires: 'NO_SKIP_THIS_TURN on activation; SKIP_OPT_OUT on continuation',
+      id: 'no_skip_this_turn',
+      label: 'No SKIP (activation turn)',
+      description: "Forces a non-SKIP reply when the user just fired the trigger — silence would feel like Galt ignoring them.",
+      fires: 'only on activation turns (when user just typed the trigger phrase)',
       settingsKey: null,
-      defaultText: `${NO_SKIP_THIS_TURN}\n\n— OR —\n\n${SKIP_OPT_OUT}`,
-      text: `${NO_SKIP_THIS_TURN}\n\n— OR —\n\n${SKIP_OPT_OUT}`,
+      defaultText: NO_SKIP_THIS_TURN,
+      text: NO_SKIP_THIS_TURN,
+    });
+    out.push({
+      id: 'skip_opt_out',
+      label: 'SKIP allowed (continuation turn)',
+      description: 'Lets the model bow out with literal SKIP when no good reply exists. Silence is OK on follow-up turns once a session is open.',
+      fires: 'only on continuation turns (session already open, no new trigger this turn)',
+      settingsKey: null,
+      defaultText: SKIP_OPT_OUT,
+      text: SKIP_OPT_OUT,
     });
 
     // 11. Vary phrasing
