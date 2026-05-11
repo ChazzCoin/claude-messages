@@ -496,6 +496,71 @@ function buildProposeCalendarEventTool(galtMessageId: string): ToolDefinition {
 }
 
 /* ============================================================
+   Generic user-approval request
+   ============================================================
+   Galt calls this when it wants an explicit yes/no from the user
+   *before* doing something. The tool itself has no side effect —
+   it just stamps the question + labels on the current turn's
+   tool_calls record. The companion + web chat surfaces render
+   that record as a card with Approve / Deny buttons. The user's
+   click sends the chosen label as a normal user chat turn so
+   Galt sees the decision on the next round and acts on it.
+
+   When to use:
+   - About to do something irreversible / hard to undo
+   - User's ask is ambiguous between two paths
+   - Galt wants to confirm a non-obvious assumption before
+     proceeding (e.g. "I'll use Sarah's work email — that ok?")
+
+   When NOT to use:
+   - The user is asking a question and just wants an answer
+   - Galt has enough information to just proceed
+   - The action is already gated by another proposal card
+     (e.g. propose_calendar_event already has its own Approve
+     button — don't double-gate). */
+
+const request_user_approval: ToolDefinition = {
+  name: 'request_user_approval',
+  description:
+    "Ask the user for an explicit yes/no decision before taking an action. The chat UI renders inline Approve / Deny buttons; the user's click flows back as their next message so you see the decision on the next round. Use sparingly — only when you genuinely need a Y/N from the user before continuing. After calling, your natural-language reply should be brief: state what you're asking about and tell the user to tap one of the buttons.",
+  parameters: {
+    type: 'object',
+    required: ['question'],
+    properties: {
+      question: {
+        type: 'string',
+        description: 'Short, direct question for the user. Phrase it so Approve = "yes, go ahead" and Deny = "no, do not". Examples: "Send this draft now?", "Delete the note about Sarah?", "Use the work email instead of personal?".',
+      },
+      context: {
+        type: 'string',
+        description: 'Optional one-sentence context shown below the question. Use when the question alone is ambiguous. Keep it short — full reasoning goes in your natural-language reply, not here.',
+      },
+      approve_label: {
+        type: 'string',
+        description: 'Optional label for the Approve button. Default "Approve". Use specific verbs for non-Y/N choices, e.g. "Use work email" vs "Use personal email".',
+      },
+      deny_label: {
+        type: 'string',
+        description: 'Optional label for the Deny button. Default "Deny". Pair with approve_label for non-Y/N choices.',
+      },
+    },
+    additionalProperties: false,
+  },
+  async execute(args) {
+    const question = typeof args.question === 'string' ? args.question.trim() : '';
+    if (!question) throw new Error('question required');
+    return {
+      ok: true,
+      question,
+      context: typeof args.context === 'string' && args.context.trim() ? args.context.trim() : null,
+      approve_label: typeof args.approve_label === 'string' && args.approve_label.trim() ? args.approve_label.trim() : 'Approve',
+      deny_label: typeof args.deny_label === 'string' && args.deny_label.trim() ? args.deny_label.trim() : 'Deny',
+      next_step: "Tell the user briefly what you're asking and that they need to tap Approve or Deny. Wait for their response in the next turn before acting.",
+    };
+  },
+};
+
+/* ============================================================
    Public registry
    ============================================================ */
 
@@ -513,6 +578,7 @@ export function buildChatTools(galtMessageId: string): ToolDefinition[] {
     list_contact_notes,
     get_call_history,
     buildProposeCalendarEventTool(galtMessageId),
+    request_user_approval,
   ];
 }
 
@@ -527,4 +593,5 @@ export const CHAT_TOOLS: ToolDefinition[] = [
   get_contact,
   list_contact_notes,
   get_call_history,
+  request_user_approval,
 ];

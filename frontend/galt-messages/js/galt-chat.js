@@ -52,13 +52,27 @@ export async function sendChatTurn() {
   if (!input) return;
   const text = input.value.trim();
   if (!text) return;
+  await submitChatTurn(text, { clearInput: true });
+}
+
+/** Send a specific text as a chat turn. Used by the approval-card
+ *  buttons so a click ("Approve" / "Deny") flows back as if the
+ *  user had typed and sent it. */
+export async function sendChatText(text) {
+  await submitChatTurn(text, { clearInput: false });
+}
+
+async function submitChatTurn(text, { clearInput }) {
+  if (!text || !text.trim()) return;
   if (_waitingForGalt) return;  // gate against double-send
 
-  // Optimistically clear the input so the user can type the next
-  // message. The user message will appear in the rendered list
-  // when the subscription ticks (~50ms after backend appends).
-  input.value = '';
-  autosizeInput(input);
+  if (clearInput) {
+    const input = document.querySelector('[data-id="chat-input"]');
+    if (input) {
+      input.value = '';
+      autosizeInput(input);
+    }
+  }
   setThinking(true);
 
   try {
@@ -118,18 +132,22 @@ function renderMessages(messages) {
 
 function bubble(m) {
   const cls = m.role === 'user' ? 'me' : 'galt';
-  // Tool calls render in two flavors:
-  //   - "propose_*" calls become structured approval cards
-  //   - everything else becomes the compact <details> chip strip
+  // Tool calls render in three flavors:
+  //   - "propose_*"           → structured proposal cards (perform side effect on approve)
+  //   - "request_user_approval" → inline approve/deny prompt (decision flows back as next turn)
+  //   - everything else        → compact <details> chip strip
   const proposalCards = renderProposalCards(m.tool_calls);
-  const tools = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
-    ? renderToolCalls(m.tool_calls.filter((tc) => !tc.name.startsWith('propose_')))
-    : '';
+  const approvalCards = renderApprovalCards(m.tool_calls);
+  const otherCalls = Array.isArray(m.tool_calls)
+    ? m.tool_calls.filter((tc) => !tc.name.startsWith('propose_') && tc.name !== 'request_user_approval')
+    : [];
+  const tools = otherCalls.length > 0 ? renderToolCalls(otherCalls) : '';
   return `
     <div class="chat-bubble-row ${cls}">
       <div class="chat-bubble-stack">
         ${tools}
         ${proposalCards}
+        ${approvalCards}
         <div class="chat-bubble">${escape(m.text)}</div>
       </div>
     </div>
@@ -137,7 +155,7 @@ function bubble(m) {
 }
 
 /** Render approval cards for any `propose_*` tool calls on this turn.
- *  Each card shows the structured proposal with [Approve] [Dismiss]
+ *  Each card shows the structured proposal with [Approve] [Deny]
  *  buttons; the chat-action handlers in actions.js call into the
  *  RTDB commands bus. */
 function renderProposalCards(toolCalls) {
@@ -147,6 +165,45 @@ function renderProposalCards(toolCalls) {
     .map(renderCalendarProposalCard)
     .filter(Boolean);
   return cards.join('');
+}
+
+/** Render approve/deny prompts for any `request_user_approval` tool
+ *  calls on this turn. Click sends a chat turn with the chosen
+ *  label so Galt sees the decision on the next round and acts. */
+function renderApprovalCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .filter((tc) => tc.name === 'request_user_approval')
+    .map(renderApprovalRequestCard)
+    .filter(Boolean)
+    .join('');
+}
+
+function renderApprovalRequestCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || r.ok === false || !r.question) return '';
+
+  const approveLabel = r.approve_label || 'Approve';
+  const denyLabel = r.deny_label || 'Deny';
+  // Stable-ish id so the local data-status survives a click. Use
+  // the question's first chars + ts as a soft fingerprint.
+  const fingerprint = encodeURIComponent((r.question.slice(0, 32) + ':' + (tc.ms || 0)));
+
+  return `
+    <div class="chat-approval-card" data-approval-fp="${fingerprint}">
+      <div class="chat-approval-head">
+        <div class="chat-approval-kind">Decision</div>
+        <div class="chat-approval-status" data-id="approval-status-${fingerprint}">awaiting</div>
+      </div>
+      <div class="chat-approval-question">${escape(r.question)}</div>
+      ${r.context ? `<div class="chat-approval-context">${escape(r.context)}</div>` : ''}
+      <div class="chat-approval-actions">
+        <button class="chat-proposal-btn dismiss" data-action="approval-deny" data-label="${escape(denyLabel)}">${escape(denyLabel)}</button>
+        <button class="chat-proposal-btn approve" data-action="approval-approve" data-label="${escape(approveLabel)}">${escape(approveLabel)}</button>
+      </div>
+    </div>
+  `;
 }
 
 function renderCalendarProposalCard(tc) {
@@ -173,7 +230,7 @@ function renderCalendarProposalCard(tc) {
       ${r.participants ? `<div class="chat-proposal-meta">👥 ${escape(r.participants)}</div>` : ''}
       ${r.notes ? `<div class="chat-proposal-notes">${escape(r.notes)}</div>` : ''}
       <div class="chat-proposal-actions">
-        <button class="chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escape(r.proposal_id)}">Dismiss</button>
+        <button class="chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escape(r.proposal_id)}">Deny</button>
         <button class="chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escape(r.proposal_id)}">Approve & add to Calendar</button>
       </div>
     </div>

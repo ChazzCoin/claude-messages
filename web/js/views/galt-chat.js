@@ -122,19 +122,55 @@ function renderBubble(m) {
   const meta = m.role === 'galt' && m.model
     ? `<div class="galt-chat-bubble-meta">${escapeHtml(m.model)}${m.ts ? ' · ' + escapeHtml(relTime(m.ts)) : ''}${m.rounds ? ' · ' + m.rounds + ' round' + (m.rounds === 1 ? '' : 's') : ''}</div>`
     : '';
-  // Split tool calls: propose_* render as approval cards, everything
-  // else as the compact chip strip.
+  // Split tool calls: propose_* → calendar proposal cards;
+  // request_user_approval → inline Y/N prompt; everything else →
+  // compact chip strip.
   const proposals = renderProposalCards(m.tool_calls);
+  const approvals = renderApprovalCards(m.tool_calls);
   const readCalls = Array.isArray(m.tool_calls)
-    ? m.tool_calls.filter((tc) => !tc.name?.startsWith('propose_'))
+    ? m.tool_calls.filter((tc) =>
+        !tc.name?.startsWith('propose_') && tc.name !== 'request_user_approval')
     : [];
   const tools = readCalls.length > 0 ? renderToolStrip(readCalls) : '';
   return `
     <div class="galt-chat-row ${cls}">
       ${tools}
       ${proposals}
+      ${approvals}
       <div class="galt-chat-bubble">${escapeHtml(m.text)}</div>
       ${meta}
+    </div>
+  `;
+}
+
+function renderApprovalCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .filter((tc) => tc.name === 'request_user_approval')
+    .map(renderApprovalRequestCard)
+    .filter(Boolean)
+    .join('');
+}
+
+function renderApprovalRequestCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || r.ok === false || !r.question) return '';
+  const approveLabel = r.approve_label || 'Approve';
+  const denyLabel = r.deny_label || 'Deny';
+  const fingerprint = encodeURIComponent((r.question.slice(0, 32) + ':' + (tc.ms || 0)));
+  return `
+    <div class="galt-chat-approval" data-approval-fp="${fingerprint}">
+      <div class="galt-chat-proposal-head">
+        <span class="galt-chat-proposal-kind">Decision</span>
+        <span class="galt-chat-proposal-status" data-id="galt-approval-status-${fingerprint}">awaiting</span>
+      </div>
+      <div class="galt-chat-approval-question">${escapeHtml(r.question)}</div>
+      ${r.context ? `<div class="galt-chat-approval-context">${escapeHtml(r.context)}</div>` : ''}
+      <div class="galt-chat-proposal-actions">
+        <button class="galt-chat-proposal-btn dismiss" data-action="approval-deny" data-label="${escapeHtml(denyLabel)}">${escapeHtml(denyLabel)}</button>
+        <button class="galt-chat-proposal-btn approve" data-action="approval-approve" data-label="${escapeHtml(approveLabel)}">${escapeHtml(approveLabel)}</button>
+      </div>
     </div>
   `;
 }
@@ -170,7 +206,7 @@ function renderCalendarProposalCard(tc) {
       ${r.participants ? `<div class="galt-chat-proposal-meta">👥 ${escapeHtml(r.participants)}</div>` : ''}
       ${r.notes ? `<div class="galt-chat-proposal-notes">${escapeHtml(r.notes)}</div>` : ''}
       <div class="galt-chat-proposal-actions">
-        <button class="galt-chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escapeHtml(id)}">Dismiss</button>
+        <button class="galt-chat-proposal-btn dismiss" data-action="proposal-dismiss" data-proposal-id="${escapeHtml(id)}">Deny</button>
         <button class="galt-chat-proposal-btn approve" data-action="proposal-approve" data-proposal-id="${escapeHtml(id)}">Approve &amp; add to Calendar</button>
       </div>
     </div>
@@ -266,9 +302,13 @@ function wireClear() {
   });
 }
 
-/** Delegate approve/dismiss clicks for any proposal card in the chat
- *  feed. Same flow as the companion's RTDB command, but local HTTP
- *  here — same shared backend helper either way. */
+/** Delegate clicks for any proposal/approval card in the chat feed.
+ *  Two card kinds:
+ *   - .galt-chat-proposal       → propose_calendar_event (HTTP to
+ *                                 /api/calendar/proposals/:id/export
+ *                                 or /dismiss)
+ *   - .galt-chat-approval       → request_user_approval (sends the
+ *                                 chosen label back as a chat turn) */
 function wireProposalActions() {
   const scroll = document.getElementById('galt-chat-scroll');
   if (!scroll) return;
@@ -276,25 +316,63 @@ function wireProposalActions() {
     const btn = e.target.closest?.('[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
-    if (action !== 'proposal-approve' && action !== 'proposal-dismiss') return;
-    const id = parseInt(btn.dataset.proposalId, 10);
-    if (!Number.isFinite(id)) return;
-    const card = btn.closest('.galt-chat-proposal');
-    if (!card) return;
-    setProposalStatus(card, 'sending');
-    try {
-      if (action === 'proposal-approve') {
-        await api(`/api/calendar/proposals/${id}/export`, { method: 'POST', body: {} });
-        setProposalStatus(card, 'approved');
-      } else {
-        await api(`/api/calendar/proposals/${id}/dismiss`, { method: 'POST', body: {} });
-        setProposalStatus(card, 'dismissed');
-      }
-    } catch (err) {
-      setProposalStatus(card, 'pending');
-      alert((action === 'proposal-approve' ? 'approve' : 'dismiss') + ' failed: ' + (err.message || 'unknown'));
+
+    if (action === 'proposal-approve' || action === 'proposal-dismiss') {
+      await handleProposalClick(btn, action);
+      return;
+    }
+    if (action === 'approval-approve' || action === 'approval-deny') {
+      await handleApprovalClick(btn, action);
+      return;
     }
   });
+}
+
+async function handleProposalClick(btn, action) {
+  const id = parseInt(btn.dataset.proposalId, 10);
+  if (!Number.isFinite(id)) return;
+  const card = btn.closest('.galt-chat-proposal');
+  if (!card) return;
+  setProposalStatus(card, 'sending');
+  try {
+    if (action === 'proposal-approve') {
+      await api(`/api/calendar/proposals/${id}/export`, { method: 'POST', body: {} });
+      setProposalStatus(card, 'approved');
+    } else {
+      await api(`/api/calendar/proposals/${id}/dismiss`, { method: 'POST', body: {} });
+      setProposalStatus(card, 'dismissed');
+    }
+  } catch (err) {
+    setProposalStatus(card, 'pending');
+    alert((action === 'proposal-approve' ? 'approve' : 'dismiss') + ' failed: ' + (err.message || 'unknown'));
+  }
+}
+
+async function handleApprovalClick(btn, action) {
+  const card = btn.closest('.galt-chat-approval');
+  if (!card) return;
+  const label = btn.dataset.label || (action === 'approval-approve' ? 'Approve' : 'Deny');
+  const newStatus = action === 'approval-approve' ? 'approved' : 'denied';
+  // Optimistic flip — buttons disable, status text updates. Failure
+  // of the underlying send is a rare network hiccup; we surface via
+  // alert but don't roll the card back (the user already saw their
+  // intent recorded).
+  setApprovalStatus(card, newStatus);
+  try {
+    // Programmatically fill the input + submit, which routes through
+    // the existing send path. Keep the input filled briefly so the
+    // user can see what was sent.
+    const input = document.getElementById('galt-chat-input');
+    if (input) {
+      input.value = label;
+    }
+    // Reuse the existing sendTurn() — it reads input value + clears it
+    // + sets thinking state + polls for the reply. Same code path
+    // typing manually would hit.
+    await sendTurn();
+  } catch (err) {
+    alert('send failed: ' + (err.message || 'unknown'));
+  }
 }
 
 function setProposalStatus(card, status) {
@@ -305,6 +383,15 @@ function setProposalStatus(card, status) {
     for (const btn of card.querySelectorAll('.galt-chat-proposal-btn')) {
       btn.setAttribute('disabled', 'true');
     }
+  }
+}
+
+function setApprovalStatus(card, status) {
+  card.dataset.status = status;
+  const statusEl = card.querySelector('[data-id^="galt-approval-status-"]');
+  if (statusEl) statusEl.textContent = status;
+  for (const btn of card.querySelectorAll('.galt-chat-proposal-btn')) {
+    btn.setAttribute('disabled', 'true');
   }
 }
 

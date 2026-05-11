@@ -14,7 +14,7 @@
 import { sendCommand, getStore } from './state.js';
 import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
-import { sendChatTurn, clearChat } from './galt-chat.js';
+import { sendChatTurn, sendChatText, clearChat } from './galt-chat.js';
 
 /* ---------- the registry ---------- */
 
@@ -61,6 +61,21 @@ const HANDLERS = {
       markProposalStatus(target, 'pending');
       showToast(err.message, 'error');
     }
+  },
+
+  /* request_user_approval — generic Approve/Deny inline prompt.
+     Click sends the chosen label as a new chat turn so Galt sees
+     the decision on the next round. No backend command needed —
+     the user's response goes through the regular chat flow. */
+  'approval-approve': async (target) => {
+    const label = target.dataset.label || 'Approve';
+    markApprovalStatus(target, 'approved');
+    await sendChatText(label);
+  },
+  'approval-deny': async (target) => {
+    const label = target.dataset.label || 'Deny';
+    markApprovalStatus(target, 'denied');
+    await sendChatText(label);
   },
   'refresh':       async () => {
     try {
@@ -207,6 +222,17 @@ function markProposalStatus(target, status) {
     for (const btn of card.querySelectorAll('.chat-proposal-btn')) {
       btn.setAttribute('disabled', 'true');
     }
+  }
+}
+
+function markApprovalStatus(target, status) {
+  const card = target.closest('.chat-approval-card');
+  if (!card) return;
+  card.dataset.status = status;
+  const statusEl = card.querySelector('[data-id^="approval-status-"]');
+  if (statusEl) statusEl.textContent = status;
+  for (const btn of card.querySelectorAll('.chat-proposal-btn')) {
+    btn.setAttribute('disabled', 'true');
   }
 }
 

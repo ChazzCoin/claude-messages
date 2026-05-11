@@ -4750,6 +4750,43 @@ body::after {
   opacity: 0.4;
 }
 
+/* Generic approval prompt — `request_user_approval` tool. Same shape
+   as a proposal card but slimmer (no metadata rows). */
+.galt-chat-approval {
+  max-width: 76%;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.galt-chat-approval[data-status="approved"] {
+  border-color: var(--green);
+  opacity: 0.75;
+}
+.galt-chat-approval[data-status="denied"] {
+  border-color: var(--border);
+  opacity: 0.55;
+}
+.galt-chat-approval-question {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 2px;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.galt-chat-approval-context {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  line-height: 1.45;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
 .galt-chat-empty {
   margin: auto;
   padding: 40px 24px;
