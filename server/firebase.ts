@@ -37,11 +37,18 @@ function getApp(): App | null {
     return null;
   }
   try {
+    // projectId is required for FCM Messaging — ADC user credentials
+    // (from `gcloud auth application-default login`) don't carry a
+    // project id, only service-account JSONs do. RTDB works without
+    // it because we pass databaseURL explicitly; Messaging has no
+    // equivalent fallback and fails with "Unable to detect a
+    // Project Id" if we don't pin it here.
     _app = initializeApp({
       credential: applicationDefault(),
       databaseURL: config.firebase.databaseUrl,
+      projectId: 'msb-logistics',
     });
-    console.log(`[firebase] init ok dbUrl=${config.firebase.databaseUrl}`);
+    console.log(`[firebase] init ok dbUrl=${config.firebase.databaseUrl} projectId=msb-logistics`);
     return _app;
   } catch (err) {
     _disabled = true;
