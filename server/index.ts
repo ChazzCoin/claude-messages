@@ -133,6 +133,7 @@ import { mirrorAutoNote, mirrorUpdateNote, mirrorDeleteNote } from './firebase.j
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
 import { startCommandListener, stopCommandListener } from './firebase-commands.js';
 import { sendPushToAll } from './firebase-push.js';
+import { sendChatTurn, listChatHistory, clearChatHistory } from './ai/galt-chat.js';
 import {
   listAllContacts,
   listContactsWithHandles,
@@ -1719,6 +1720,37 @@ app.post(
       click_url: 'https://galt-messages.web.app',
     });
     res.json(result);
+  }),
+);
+
+/* ---------- routes: galt direct chat ----------
+   RTDB is the source of truth (the companion subscribes to it). The
+   web dashboard reads + writes over HTTP and the backend bridges to
+   RTDB so both clients see the same conversation. */
+
+app.get(
+  '/api/galt-chat/history',
+  asyncHandler(async (req, res) => {
+    const limit = Math.max(1, Math.min(500, parseInt(String(req.query.limit ?? '100'), 10) || 100));
+    const messages = await listChatHistory(limit);
+    res.json({ messages });
+  }),
+);
+
+app.post(
+  '/api/galt-chat',
+  asyncHandler(async (req, res) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text : '';
+    const out = await sendChatTurn(text);
+    res.json(out);
+  }),
+);
+
+app.post(
+  '/api/galt-chat/clear',
+  asyncHandler(async (_req, res) => {
+    await clearChatHistory();
+    res.json({ cleared: true });
   }),
 );
 

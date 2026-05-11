@@ -118,11 +118,54 @@ function renderMessages(messages) {
 
 function bubble(m) {
   const cls = m.role === 'user' ? 'me' : 'galt';
+  const tools = Array.isArray(m.tool_calls) && m.tool_calls.length > 0
+    ? renderToolCalls(m.tool_calls)
+    : '';
   return `
     <div class="chat-bubble-row ${cls}">
-      <div class="chat-bubble">${escape(m.text)}</div>
+      <div class="chat-bubble-stack">
+        ${tools}
+        <div class="chat-bubble">${escape(m.text)}</div>
+      </div>
     </div>
   `;
+}
+
+/** Render the tool-call strip that sits ABOVE Galt's bubble — shows
+ *  the user that Galt actually went and fetched something. Compact
+ *  by default; <details> expands the args + result preview. */
+function renderToolCalls(calls) {
+  const chips = calls.map((c) => {
+    const argSummary = summarizeArgs(c.arguments);
+    const ms = typeof c.ms === 'number' ? `${c.ms}ms` : '';
+    const errCls = c.error ? ' chat-tool-err' : '';
+    return `
+      <details class="chat-tool${errCls}">
+        <summary>
+          <span class="chat-tool-name">${escape(c.name)}</span>
+          ${argSummary ? `<span class="chat-tool-args">${escape(argSummary)}</span>` : ''}
+          ${ms ? `<span class="chat-tool-ms">${escape(ms)}</span>` : ''}
+        </summary>
+        <pre class="chat-tool-body">${escape(c.error || c.result_preview || '')}</pre>
+      </details>
+    `;
+  }).join('');
+  return `<div class="chat-tool-strip">${chips}</div>`;
+}
+
+function summarizeArgs(args) {
+  if (!args || typeof args !== 'object') return '';
+  const entries = Object.entries(args);
+  if (entries.length === 0) return '';
+  return entries
+    .slice(0, 3)
+    .map(([k, v]) => {
+      const sv = typeof v === 'string'
+        ? `"${v.length > 30 ? v.slice(0, 30) + '…' : v}"`
+        : String(v);
+      return `${k}: ${sv}`;
+    })
+    .join(', ') + (entries.length > 3 ? ', …' : '');
 }
 
 function setThinking(on) {

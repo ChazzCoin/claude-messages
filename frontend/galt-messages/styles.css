@@ -504,27 +504,55 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
     opacity: 1; pointer-events: auto;
   }
   .sheet-handle { display: none; }
-
-  /* Chat sheet on desktop — wider + taller so the conversation has room. */
-  .sheet.chat-sheet {
-    width: min(680px, calc(100% - 80px));
-    max-height: 88vh;
-    height: 88vh;
-  }
 }
 
 /* ============================================================
-   Chat with Galt — Phase 1 (conversation only)
+   Chat with Galt — full page (hash-routed at #/chat)
    ============================================================
-   Sheet structure (top → bottom): header · scroll · input bar.
+   Page structure (top → bottom): header · scroll · input bar.
    Scroll grows to fill remaining space; input bar sticks at the
    bottom; iOS keyboard pushes it up via safe-bottom padding.
+
+   Visibility is driven by `[data-route]` on `.app`:
+     home  → desktop/mobile layouts visible, chat-page hidden
+     chat  → layouts hidden, chat-page full-screen
    ============================================================ */
 
-.chat-sheet { padding-bottom: 0; }
-.chat-sheet .sheet-header {
-  border-bottom: 1px solid var(--border);
+.chat-page {
+  display: none;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
 }
+.app[data-route="chat"] .desktop-layout,
+.app[data-route="chat"] .mobile-layout { display: none; }
+.app[data-route="chat"] .chat-page    { display: flex; }
+
+.chat-page-header {
+  display: grid;
+  grid-template-columns: 40px 1fr 60px;
+  align-items: center;
+  padding: calc(10px + var(--safe-top)) 12px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.chat-back-btn {
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+}
+.chat-back-btn:hover { background: var(--bg-3); color: var(--text); }
+.chat-page-title {
+  font-size: 16px; font-weight: 600; text-align: center;
+}
+.chat-page-action {
+  font-size: 13px;
+  color: var(--accent);
+  padding: 8px 10px;
+  text-align: right;
+}
+.chat-page-action:hover { opacity: 0.7; }
 
 .chat-scroll {
   flex: 1;
@@ -534,6 +562,27 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   flex-direction: column;
   gap: 6px;
   -webkit-overflow-scrolling: touch;
+}
+
+/* On desktop, cap the chat-page content to a readable column. */
+@media (min-width: 901px) {
+  .chat-page-header,
+  .chat-scroll,
+  .chat-input-bar {
+    --chat-max: 760px;
+  }
+  .chat-page-header {
+    padding-left: max(12px, calc((100% - var(--chat-max)) / 2));
+    padding-right: max(12px, calc((100% - var(--chat-max)) / 2));
+  }
+  .chat-scroll {
+    padding-left: max(14px, calc((100% - var(--chat-max)) / 2));
+    padding-right: max(14px, calc((100% - var(--chat-max)) / 2));
+  }
+  .chat-input-bar {
+    padding-left: max(12px, calc((100% - var(--chat-max)) / 2));
+    padding-right: max(12px, calc((100% - var(--chat-max)) / 2));
+  }
 }
 
 /* Empty-state nudge — shown when /galt_chat/messages is empty. */
@@ -594,6 +643,79 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   border: 1px solid var(--border);
   border-bottom-left-radius: 6px;
 }
+
+/* Tool-call chips — small <details> strip ABOVE the galt bubble that
+   shows which tools Galt called this turn. Collapsed by default; tap
+   to expand the raw result. */
+.chat-bubble-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 78%;
+  align-items: flex-start;
+}
+.chat-bubble-row.me .chat-bubble-stack { align-items: flex-end; }
+.chat-bubble-stack > .chat-bubble { max-width: 100%; }
+.chat-tool-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.chat-tool {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+}
+.chat-tool[open] {
+  background: var(--bg-3);
+}
+.chat-tool > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 5px 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-tool > summary::-webkit-details-marker { display: none; }
+.chat-tool-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--accent);
+  font-weight: 600;
+}
+.chat-tool-args {
+  color: var(--text-faint);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-tool-ms {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.chat-tool-body {
+  margin: 0;
+  padding: 6px 9px 9px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  border-top: 1px solid var(--border);
+}
+.chat-tool.chat-tool-err > summary .chat-tool-name { color: var(--red); }
+.chat-tool.chat-tool-err .chat-tool-body { color: var(--red); }
 
 /* "Galt is thinking…" — animated dots in a small galt-bubble shape. */
 .chat-typing {

@@ -33,6 +33,7 @@ import { renderRadarView, renderRadarDetail } from './views/radar.js';
 import { renderAwayView } from './views/away.js';
 import { renderAutoNotesView } from './views/auto-notes.js';
 import { renderGaltView } from './views/galt.js';
+import { renderGaltChatView, stopGaltChatPolling } from './views/galt-chat.js';
 import { setInboxTab } from './state.js';
 
 /**
@@ -45,6 +46,9 @@ export async function setView(view, arg = null) {
   setCurrentChatId(view === 'thread' ? arg : null);
   if (view !== 'radar-detail') setCurrentRadarHandle(null);
 
+  // Cancel galt-chat polling whenever we leave that view.
+  if (view !== 'galt-chat') stopGaltChatPolling();
+
   // Sidebar highlight mapping. Thread inherits from inbox; radar-detail
   // from radar. Legacy routes (search → home, drafts → inbox, summon →
   // galt, calendar/flags/scheduled/queue → inbox) light up the surface
@@ -55,6 +59,7 @@ export async function setView(view, arg = null) {
     : view === 'search' ? 'home'
     : view === 'prompts' ? 'galt'
     : view === 'summon' ? 'galt'
+    : view === 'galt-chat' ? 'galt-chat'
     : (view === 'queue' || view === 'flags' || view === 'calendar' || view === 'scheduled') ? 'inbox'
     : view;
   setActiveNav(navKey);
@@ -75,6 +80,7 @@ export async function setView(view, arg = null) {
     case 'away':          await renderAwayView(); break;
     case 'auto-notes':    await renderAutoNotesView(); break;
     case 'galt':          await renderGaltView(); break;
+    case 'galt-chat':     await renderGaltChatView(); break;
     case 'prompts':       await renderGaltView(); break;          // legacy alias
     // Legacy routes folded into surfaces above. They keep working but
     // route through the new surface and (where applicable) pre-select

@@ -373,7 +373,7 @@ export function closeSheet(name) {
 }
 
 export function closeAllSheets() {
-  for (const name of ['settings', 'away', 'status', 'source', 'chat']) closeSheet(name);
+  for (const name of ['settings', 'away', 'status', 'source']) closeSheet(name);
 }
 
 /* ---------- boot screen ---------- */

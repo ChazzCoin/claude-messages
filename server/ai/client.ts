@@ -200,3 +200,192 @@ export async function chat(opts: ChatCallOpts): Promise<ChatCallResult> {
     : undefined;
   return { variants: dedup.length ? dedup : variants, model, usage };
 }
+
+/* ------------------------------------------------------------------ */
+/* tool-calling: multi-round chat completion with function calls       */
+/* ------------------------------------------------------------------ */
+
+/** OpenAI tool definition. Matches the SDK's `tools` parameter shape
+ *  but expressed here so the tool registry can stay independent of
+ *  the openai SDK types. */
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  /** JSON Schema for arguments. */
+  parameters: Record<string, unknown>;
+  execute(args: Record<string, unknown>): Promise<unknown>;
+}
+
+/** One executed tool call — preserved so the UI can render what the
+ *  model called and what came back. */
+export interface ToolCallRecord {
+  name: string;
+  arguments: Record<string, unknown>;
+  /** Stringified result that the model saw. Truncated on display. */
+  result: string;
+  /** When the tool threw — error message goes back to the model too. */
+  error?: string;
+  ms: number;
+}
+
+export interface ChatWithToolsOpts {
+  systemPrompt: string;
+  /** Conversation messages (role: 'user' | 'assistant'). The system
+   *  prompt is added separately. */
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** Tools available for this turn. The model may ignore them entirely. */
+  tools: ToolDefinition[];
+  purpose: string;
+  temperature?: number;
+  maxTokens?: number;
+  /** Hard cap on tool-call rounds so a misbehaving model can't burn
+   *  through tokens / API calls. Defaults to 6 — typically the model
+   *  needs 1-3 rounds, but multi-step questions can chain more. */
+  maxRounds?: number;
+}
+
+export interface ChatWithToolsResult {
+  /** The model's final natural-language reply. */
+  reply: string;
+  /** Every tool call executed during the turn, in order. Empty if
+   *  the model answered directly. */
+  toolCalls: ToolCallRecord[];
+  model: string;
+  /** Combined usage across all rounds. */
+  usage?: UsageObj;
+  /** Number of rounds actually executed. Useful for diagnostics. */
+  rounds: number;
+}
+
+/** Run a tool-calling chat turn. Loops until the model returns a
+ *  non-tool message or maxRounds is hit. Records usage on every
+ *  round under the same purpose label. */
+export async function chatWithTools(opts: ChatWithToolsOpts): Promise<ChatWithToolsResult> {
+  const client = getOpenAIClient();
+  const maxRounds = Math.max(1, Math.min(20, opts.maxRounds ?? 6));
+  const model = effectiveModel();
+
+  // Build the running message array. We mutate this between rounds —
+  // append the assistant's tool_calls message, then tool result
+  // messages, then go again.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const running: any[] = [
+    { role: 'system', content: opts.systemPrompt },
+    ...opts.messages,
+  ];
+
+  const toolByName = new Map(opts.tools.map((t) => [t.name, t]));
+  const oaTools = opts.tools.map((t) => ({
+    type: 'tool',
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+  }));
+  // The SDK shape for chat.completions tools is wrapped in
+  // { type: 'function', function: { ... } }. Map there.
+  const sdkTools = oaTools.map((t) => ({
+    type: 'function' as const,
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+
+  const toolCalls: ToolCallRecord[] = [];
+  let totalPrompt = 0;
+  let totalCompletion = 0;
+  let totalTokens = 0;
+  let finalModel = model;
+  let finalReply = '';
+  let rounds = 0;
+
+  for (let i = 0; i < maxRounds; i++) {
+    rounds = i + 1;
+    const resp = await client.chat.completions.create({
+      model,
+      messages: running,
+      tools: sdkTools.length > 0 ? sdkTools : undefined,
+      tool_choice: sdkTools.length > 0 ? 'auto' : undefined,
+      max_tokens: opts.maxTokens ?? 800,
+      temperature: opts.temperature ?? 0.7,
+    });
+    finalModel = resp.model || model;
+    if (resp.usage) {
+      totalPrompt     += resp.usage.prompt_tokens     ?? 0;
+      totalCompletion += resp.usage.completion_tokens ?? 0;
+      totalTokens     += resp.usage.total_tokens      ?? 0;
+      recordAiUsage({ purpose: opts.purpose, model: finalModel, usage: resp.usage });
+    }
+
+    const choice = resp.choices?.[0];
+    const msg = choice?.message;
+    if (!msg) {
+      finalReply = '';
+      break;
+    }
+
+    const calls = msg.tool_calls ?? [];
+    if (calls.length === 0) {
+      // No tool calls — the model has finished.
+      finalReply = (msg.content ?? '').trim();
+      break;
+    }
+
+    // Push the assistant turn (with tool_calls) into the running history.
+    running.push({
+      role: 'assistant',
+      content: msg.content ?? null,
+      tool_calls: calls,
+    });
+
+    // Execute each call and append a tool-result message.
+    for (const call of calls) {
+      if (call.type !== 'function') continue;
+      const fn = call.function;
+      const name = fn?.name ?? '';
+      let parsedArgs: Record<string, unknown> = {};
+      try {
+        parsedArgs = fn?.arguments ? JSON.parse(fn.arguments) : {};
+      } catch {
+        parsedArgs = {};
+      }
+      const tool = toolByName.get(name);
+      const t0 = Date.now();
+      let resultStr = '';
+      let errMsg: string | undefined;
+      if (!tool) {
+        errMsg = `unknown tool: ${name}`;
+        resultStr = JSON.stringify({ error: errMsg });
+      } else {
+        try {
+          const out = await tool.execute(parsedArgs);
+          resultStr = typeof out === 'string' ? out : JSON.stringify(out);
+        } catch (err) {
+          errMsg = (err as Error).message;
+          resultStr = JSON.stringify({ error: errMsg });
+        }
+      }
+      toolCalls.push({
+        name,
+        arguments: parsedArgs,
+        result: resultStr,
+        error: errMsg,
+        ms: Date.now() - t0,
+      });
+      running.push({
+        role: 'tool',
+        tool_call_id: call.id,
+        content: resultStr,
+      });
+    }
+    // Loop continues; the model gets to see the tool results and
+    // either keeps calling or returns a natural-language answer.
+  }
+
+  return {
+    reply: finalReply,
+    toolCalls,
+    model: finalModel,
+    usage: totalTokens
+      ? { prompt_tokens: totalPrompt, completion_tokens: totalCompletion, total_tokens: totalTokens }
+      : undefined,
+    rounds,
+  };
+}
