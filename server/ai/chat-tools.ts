@@ -26,6 +26,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import type { ToolDefinition } from './client.js';
 import { listEventsInWindow } from '../integrations/calendar-db.js';
 import { listRecentCalls } from '../integrations/call-history.js';
@@ -783,6 +784,139 @@ const claude_list_sessions: ToolDefinition = {
 };
 
 /* ============================================================
+   claude-life memory tools
+   ============================================================ */
+
+const LIFE_PATH = path.join(os.homedir(), 'claude-life');
+
+function readLifeFileTool(...segments: string[]): string | null {
+  try {
+    const p = path.join(LIFE_PATH, ...segments);
+    const content = fs.readFileSync(p, 'utf8').trim();
+    return content || null;
+  } catch {
+    return null;
+  }
+}
+
+const read_memory: ToolDefinition = {
+  name: 'read_memory',
+  description:
+    "Read a specific memory or context file from claude-life — the user's personal life-management repo. Use this when the conversation references a specific person, event, place, or life-context that might have saved notes. Categories: people (family/friends/business/core/lost), events, places, docs (decisions/notes/retros/regrets/gratitude), timeline, .claude (state/values/vision/life-rules). Returns the file content or a not-found message.",
+  parameters: {
+    type: 'object',
+    required: ['file_path'],
+    properties: {
+      file_path: {
+        type: 'string',
+        description: "Path relative to claude-life root. Examples: 'memories/people/friends/alex.md', 'memories/events/2024-roadtrip.md', '.claude/values.md', 'docs/decisions/2025-01-15-co-founder.md'. Use list_memory to discover files first if unsure of the exact name.",
+      },
+    },
+    additionalProperties: false,
+  },
+  async execute(args) {
+    const filePath = typeof args.file_path === 'string' ? args.file_path.trim() : '';
+    if (!filePath) throw new Error('file_path required');
+    // Safety: prevent traversal outside claude-life.
+    const resolved = path.resolve(LIFE_PATH, filePath);
+    if (!resolved.startsWith(LIFE_PATH)) throw new Error('path outside claude-life not allowed');
+    const content = readLifeFileTool(filePath);
+    if (!content) return { found: false, file_path: filePath, message: 'File not found or empty.' };
+    return { found: true, file_path: filePath, content };
+  },
+};
+
+const list_memory: ToolDefinition = {
+  name: 'list_memory',
+  description:
+    "List files in a claude-life directory to discover what's saved. Use before read_memory when you're not sure of the exact filename. Common dirs to browse: 'memories/people/friends', 'memories/people/family', 'memories/people/business', 'memories/events', 'docs/decisions', 'docs/notes', 'timeline'.",
+  parameters: {
+    type: 'object',
+    properties: {
+      dir: {
+        type: 'string',
+        description: "Directory relative to claude-life root. Defaults to 'memories/people' if omitted.",
+      },
+    },
+    additionalProperties: false,
+  },
+  async execute(args) {
+    const dir = typeof args.dir === 'string' && args.dir.trim() ? args.dir.trim() : 'memories/people';
+    const resolved = path.resolve(LIFE_PATH, dir);
+    if (!resolved.startsWith(LIFE_PATH)) throw new Error('path outside claude-life not allowed');
+    try {
+      const entries = fs.readdirSync(resolved, { withFileTypes: true });
+      const files = entries
+        .filter((e) => e.name !== '.gitkeep' && !e.name.startsWith('.DS_'))
+        .map((e) => ({ name: e.name, type: e.isDirectory() ? 'dir' : 'file', path: path.join(dir, e.name) }));
+      return { dir, count: files.length, entries: files };
+    } catch {
+      return { dir, count: 0, entries: [], message: 'Directory not found or empty.' };
+    }
+  },
+};
+
+const write_memory: ToolDefinition = {
+  name: 'write_memory',
+  description:
+    "Write or append to a claude-life memory file. Use this to save something the user wants remembered — a fact about a person, a decision, an event. Creates the file if it doesn't exist; appends if it does (with a dated section header). Commits the change to git automatically.",
+  parameters: {
+    type: 'object',
+    required: ['file_path', 'content'],
+    properties: {
+      file_path: {
+        type: 'string',
+        description: "Path relative to claude-life root. e.g. 'memories/people/friends/alex.md' or 'docs/notes/2026-05-11-standup-insight.md'.",
+      },
+      content: {
+        type: 'string',
+        description: 'Markdown content to write. For existing files this is appended under a dated section header. For new files this is the entire content.',
+      },
+      commit_message: {
+        type: 'string',
+        description: 'Git commit message. Defaults to "memory: update <file_path>".',
+      },
+    },
+    additionalProperties: false,
+  },
+  async execute(args) {
+    const filePath = typeof args.file_path === 'string' ? args.file_path.trim() : '';
+    const content = typeof args.content === 'string' ? args.content.trim() : '';
+    if (!filePath || !content) throw new Error('file_path and content required');
+    const resolved = path.resolve(LIFE_PATH, filePath);
+    if (!resolved.startsWith(LIFE_PATH)) throw new Error('path outside claude-life not allowed');
+
+    // Ensure directory exists.
+    fs.mkdirSync(path.dirname(resolved), { recursive: true });
+
+    const exists = fs.existsSync(resolved);
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (exists) {
+      const existing = fs.readFileSync(resolved, 'utf8');
+      fs.writeFileSync(resolved, `${existing}\n\n## ${today}\n\n${content}\n`, 'utf8');
+    } else {
+      fs.writeFileSync(resolved, `${content}\n`, 'utf8');
+    }
+
+    // Commit.
+    const commitMsg = typeof args.commit_message === 'string' && args.commit_message.trim()
+      ? args.commit_message.trim()
+      : `memory: update ${filePath}`;
+    try {
+      await execFileP('git', ['-C', LIFE_PATH, 'add', filePath]);
+      await execFileP('git', ['-C', LIFE_PATH, 'commit', '-m', commitMsg]);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes('nothing to commit')) {
+        return { ok: false, file_path: filePath, is_new: !exists, error: msg };
+      }
+    }
+    return { ok: true, file_path: filePath, is_new: !exists, action: exists ? 'appended' : 'created' };
+  },
+};
+
+/* ============================================================
    Repo monitor tools
    ============================================================ */
 
@@ -1216,6 +1350,9 @@ export function buildChatTools(galtMessageId: string): ToolDefinition[] {
     write_task,
     move_task,
     git_commit_push,
+    read_memory,
+    list_memory,
+    write_memory,
   ];
 }
 
@@ -1243,4 +1380,7 @@ export const CHAT_TOOLS: ToolDefinition[] = [
   write_task,
   move_task,
   git_commit_push,
+  read_memory,
+  list_memory,
+  write_memory,
 ];

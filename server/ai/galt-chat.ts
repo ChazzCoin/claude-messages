@@ -17,10 +17,15 @@
 // fed back to the model on subsequent turns (the model re-derives
 // from the user-visible exchange).
 
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { chatWithTools } from './client.js';
 import { buildChatTools } from './chat-tools.js';
 import { getSettings, listRepos, listAllActiveTasks } from '../db/app.js';
 import { getMirrorDb } from '../firebase.js';
+
+const CLAUDE_LIFE_PATH = path.join(os.homedir(), 'claude-life');
 
 /** One message in the running conversation, as the model sees it. */
 export interface ChatTurnMessage {
@@ -192,6 +197,13 @@ REPO TOOLS — read and write tasks across all tracked repos:
 
 IMPORTANT WRITE FLOW: when the user asks to add or update a task, call write_task directly — no approval needed. If they want it committed, call git_commit_push right after. The chat renders a write-receipt card — do NOT narrate the task back in text. One sentence max, e.g. "Done." or "Written and pushed." is plenty.
 
+CLAUDE-LIFE MEMORY — the user's personal life-management repo, cloned at ~/claude-life. State, values, vision, and the people-index are injected into your system prompt above when they have content. For deeper reads or writes:
+- read_memory — read any file by path (e.g. 'memories/people/friends/alex.md', 'docs/decisions/2025-01-15-...')
+- list_memory — browse a directory to discover what's saved (e.g. 'memories/people/friends')
+- write_memory — append or create a memory file, auto-commits to git
+
+When the user mentions a person by name, consider calling list_memory to check if there's a saved memory file before assuming you have no context. When the user says "remember X" or "make a note that", call write_memory directly — no approval needed.
+
 If the user asks for something a tool doesn't cover (Apple Notes, sending an iMessage, propose-reminder, modifying existing calendar events), say so plainly — don't invent a fake tool call. Tool coverage will expand; right now this is what you've got.
 
 If the user just wants to chat, banter, brainstorm, or draft — do that. No tool calls needed.`;
@@ -233,11 +245,62 @@ function buildRepoContext(): string {
   return lines.join('\n');
 }
 
+/** Read a file from claude-life safely — returns null if missing/empty. */
+function readLifeFile(...segments: string[]): string | null {
+  try {
+    const p = path.join(CLAUDE_LIFE_PATH, ...segments);
+    const content = fs.readFileSync(p, 'utf8').trim();
+    return content || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Returns true if file content is still an unfilled template placeholder. */
+function isPlaceholder(content: string): boolean {
+  // Files with ONLY placeholder blocks like {{...}} and no real content.
+  const stripped = content.replace(/\{\{[^}]*\}\}/g, '').replace(/[#\-*>\s]/g, '');
+  return stripped.length < 20;
+}
+
+/** Build the life context block injected into every Galt turn.
+ *  Reads state (always), values + vision (when filled in).
+ *  Reads memory/people index when it has content. */
+function buildLifeContext(): string {
+  const parts: string[] = [];
+
+  const state = readLifeFile('.claude', 'state.md');
+  if (state && !isPlaceholder(state)) {
+    parts.push(`CHAZZ'S CURRENT STATE (from claude-life/.claude/state.md):\n${state}`);
+  }
+
+  const values = readLifeFile('.claude', 'values.md');
+  if (values && !isPlaceholder(values)) {
+    parts.push(`CHAZZ'S VALUES (from claude-life/.claude/values.md):\n${values}`);
+  }
+
+  const vision = readLifeFile('.claude', 'vision.md');
+  if (vision && !isPlaceholder(vision)) {
+    parts.push(`CHAZZ'S VISION (from claude-life/.claude/vision.md):\n${vision}`);
+  }
+
+  const peopleIndex = readLifeFile('memories', 'people', 'INDEX.md');
+  if (peopleIndex && !isPlaceholder(peopleIndex)) {
+    parts.push(`KNOWN PEOPLE INDEX (from claude-life/memories/people/INDEX.md):\n${peopleIndex}`);
+  }
+
+  return parts.join('\n\n');
+}
+
 function buildSystemPrompt(): string {
   const voice = (getSettings().galt_voice_profile || '').trim();
   const repoCtx = buildRepoContext();
+  const lifeCtx = buildLifeContext();
 
   let prompt = SYSTEM_PROMPT_BASE;
+  if (lifeCtx) {
+    prompt += `\n\n${lifeCtx}`;
+  }
   if (repoCtx) {
     prompt += `\n\n${repoCtx}`;
   }
