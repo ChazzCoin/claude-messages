@@ -5164,6 +5164,154 @@ details.galt-chat-task-event.tool-result > summary::-webkit-details-marker { dis
 .repo-git-status.muted { color: var(--text-faint); }
 
 /* =====================================================================
+   Galt Brain shell — read_memory / list_memory / write_memory
+   Parent container for all brain operations. New modules slot
+   inside; the shell identity stays constant.
+   ===================================================================== */
+
+:root {
+  --brain: #8b7cf8;
+  --brain-bg: rgba(139, 124, 248, 0.06);
+  --brain-border: rgba(139, 124, 248, 0.28);
+  --brain-header-bg: rgba(139, 124, 248, 0.10);
+  --brain-header-border: rgba(139, 124, 248, 0.18);
+  --brain-dim: rgba(139, 124, 248, 0.55);
+}
+
+.galt-brain-shell {
+  max-width: 72%;
+  background: var(--brain-bg);
+  border: 1px solid var(--brain-border);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+}
+
+.galt-brain-header {
+  background: var(--brain-header-bg);
+  border-bottom: 1px solid var(--brain-header-border);
+  padding: 5px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.brain-sigil {
+  font-size: 11px;
+  color: var(--brain);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.brain-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brain);
+}
+
+.brain-module-sep {
+  font-size: 9px;
+  color: var(--brain-dim);
+}
+
+.brain-module {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brain-dim);
+}
+
+.brain-body {
+  padding: 9px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Memory path — shows the file path in subdued mono */
+.brain-memory-path {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--brain-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Memory content preview */
+.brain-memory-content {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: hidden;
+}
+
+.brain-memory-more {
+  color: var(--brain-dim);
+  font-style: italic;
+}
+
+.brain-memory-empty {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* Directory listing */
+.brain-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brain-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+}
+
+.brain-entry-icon {
+  font-family: var(--mono);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.brain-entry-dir .brain-entry-icon  { color: var(--brain); }
+.brain-entry-file .brain-entry-icon { color: var(--brain-dim); }
+
+.brain-entry-dir  .brain-entry-name { color: var(--text);     font-weight: 600; }
+.brain-entry-file .brain-entry-name { color: var(--text-dim); }
+
+.brain-entry-count {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-faint);
+  margin-top: 2px;
+}
+
+/* Write receipt */
+.brain-write-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.brain-write-status.ok  { color: var(--brain); }
+.brain-write-status.err { color: var(--red); }
+
+/* =====================================================================
    Auto-notes card — list_auto_notes
    ===================================================================== */
 

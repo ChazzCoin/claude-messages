@@ -256,6 +256,7 @@ const REPO_WRITE_TOOLS  = new Set(['write_task', 'move_task', 'git_commit_push']
 const REPO_READ_TOOLS   = new Set(['list_repos', 'repo_status', 'search_tasks', 'active_tasks_all']);
 const NOTE_TOOLS        = new Set(['list_auto_notes']);
 const CLAUDE_INFO_TOOLS = new Set(['claude_list_sessions']);
+const BRAIN_TOOLS       = new Set(['read_memory', 'list_memory', 'write_memory']);
 
 function renderBubble(m) {
   const cls = m.role === 'user' ? 'me' : 'galt';
@@ -271,6 +272,7 @@ function renderBubble(m) {
   const repoWrites   = renderRepoWriteCards(m.tool_calls);
   const noteCards    = renderNoteCards(m.tool_calls);
   const claudeCards  = renderClaudeInfoCards(m.tool_calls);
+  const brainCards   = renderBrainCards(m.tool_calls);
 
   // Everything else collapses into the generic pill strip.
   const readCalls = Array.isArray(m.tool_calls)
@@ -282,15 +284,14 @@ function renderBubble(m) {
         !REPO_WRITE_TOOLS.has(tc.name) &&
         !REPO_READ_TOOLS.has(tc.name) &&
         !NOTE_TOOLS.has(tc.name) &&
-        !CLAUDE_INFO_TOOLS.has(tc.name))
+        !CLAUDE_INFO_TOOLS.has(tc.name) &&
+        !BRAIN_TOOLS.has(tc.name))
     : [];
   const tools = readCalls.length > 0 ? renderToolStrip(readCalls) : '';
 
-  // Suppress the text bubble whenever data cards are rendered — the card IS
-  // the answer and the text just echoes it. Keep text for conversational
-  // turns: proposals ("should I schedule this?"), approvals, and claude_ask
-  // delegation notes ("kicked it off, watch the card").
-  const hasDataCards = !!(repoReads || repoWrites || noteCards || claudeCards || events);
+  // Suppress the text bubble whenever data/brain cards are rendered.
+  // Keep text for conversational turns: proposals, approvals, claude_ask.
+  const hasDataCards = !!(repoReads || repoWrites || noteCards || claudeCards || events || brainCards);
   const textBubble = m.text && !hasDataCards
     ? `<div class="galt-chat-bubble">${escapeHtml(m.text)}</div>`
     : '';
@@ -298,6 +299,7 @@ function renderBubble(m) {
   return `
     <div class="galt-chat-row ${cls}">
       ${tools}
+      ${brainCards}
       ${repoReads}
       ${repoWrites}
       ${noteCards}
@@ -658,6 +660,105 @@ function renderClaudeSessionsCard(tc) {
       </div>
       ${sessions.length ? `<div class="claude-session-rows">${rows}${more}</div>` : '<div class="repo-task-more">no sessions found</div>'}
     </div>`;
+}
+
+/* ============================================================
+   Galt Brain shell — read_memory / list_memory / write_memory
+   All brain operations share the same outer shell. New modules
+   just add new body renderers; the shell stays identical.
+   ============================================================ */
+
+function brainShell(module, bodyHtml) {
+  return `
+    <div class="galt-brain-shell">
+      <div class="galt-brain-header">
+        <span class="brain-sigil">◈</span>
+        <span class="brain-label">GALT BRAIN</span>
+        <span class="brain-module-sep">·</span>
+        <span class="brain-module">${escapeHtml(module)}</span>
+      </div>
+      <div class="brain-body">${bodyHtml}</div>
+    </div>`;
+}
+
+function renderBrainCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .map((tc) => {
+      if (tc.name === 'read_memory')  return renderMemoryReadCard(tc);
+      if (tc.name === 'list_memory')  return renderMemoryListCard(tc);
+      if (tc.name === 'write_memory') return renderMemoryWriteCard(tc);
+      return '';
+    })
+    .filter(Boolean)
+    .join('');
+}
+
+function renderMemoryReadCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r) return '';
+
+  const filePath = escapeHtml((r.file_path || tc.arguments?.file_path || '').replace(/^memories\//, ''));
+
+  if (!r.found) {
+    return brainShell('MEMORY', `
+      <div class="brain-memory-path">${filePath}</div>
+      <div class="brain-memory-empty">nothing saved yet</div>`);
+  }
+
+  // Trim content for preview — first 300 chars.
+  const preview = escapeHtml((r.content || '').slice(0, 300));
+  const trimmed = (r.content || '').length > 300;
+  return brainShell('MEMORY', `
+    <div class="brain-memory-path">${filePath}</div>
+    <div class="brain-memory-content">${preview}${trimmed ? '<span class="brain-memory-more">…</span>' : ''}</div>`);
+}
+
+function renderMemoryListCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r) return '';
+
+  const dir = escapeHtml((r.dir || '').replace(/^memories\//, ''));
+  const entries = Array.isArray(r.entries) ? r.entries : [];
+
+  if (entries.length === 0) {
+    return brainShell('MEMORY', `
+      <div class="brain-memory-path">${dir}</div>
+      <div class="brain-memory-empty">nothing here yet</div>`);
+  }
+
+  const rows = entries.map((e) => {
+    const icon = e.type === 'dir' ? '▸' : '·';
+    const cls  = e.type === 'dir' ? 'brain-entry-dir' : 'brain-entry-file';
+    return `<div class="brain-entry ${cls}"><span class="brain-entry-icon">${icon}</span><span class="brain-entry-name">${escapeHtml(e.name)}</span></div>`;
+  }).join('');
+
+  return brainShell('MEMORY', `
+    <div class="brain-memory-path">${dir}</div>
+    <div class="brain-entry-list">${rows}</div>
+    <div class="brain-entry-count">${entries.length} item${entries.length !== 1 ? 's' : ''}</div>`);
+}
+
+function renderMemoryWriteCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r) return '';
+
+  const filePath = escapeHtml((r.file_path || tc.arguments?.file_path || '').replace(/^memories\//, ''));
+  const verb = r.is_new ? 'created' : 'appended';
+  const ok = r.ok !== false;
+
+  if (!ok) {
+    return brainShell('MEMORY', `
+      <div class="brain-memory-path">${filePath}</div>
+      <div class="brain-write-status err">✗ ${escapeHtml(r.error || 'write failed')}</div>`);
+  }
+
+  return brainShell('MEMORY', `
+    <div class="brain-memory-path">${filePath}</div>
+    <div class="brain-write-status ok">✓ ${escapeHtml(verb)}</div>`);
 }
 
 function renderTaskCards(toolCalls) {

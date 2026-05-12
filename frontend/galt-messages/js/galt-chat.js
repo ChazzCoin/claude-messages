@@ -290,6 +290,7 @@ const REPO_WRITE_TOOLS  = new Set(['write_task', 'move_task', 'git_commit_push']
 const REPO_READ_TOOLS   = new Set(['list_repos', 'repo_status', 'search_tasks', 'active_tasks_all']);
 const NOTE_TOOLS        = new Set(['list_auto_notes']);
 const CLAUDE_INFO_TOOLS = new Set(['claude_list_sessions']);
+const BRAIN_TOOLS       = new Set(['read_memory', 'list_memory', 'write_memory']);
 
 function relTime(ms) {
   if (!ms) return '';
@@ -310,6 +311,7 @@ function bubble(m) {
   const repoWrites    = renderRepoWriteCards(m.tool_calls);
   const noteCards     = renderNoteCards(m.tool_calls);
   const claudeCards   = renderClaudeInfoCards(m.tool_calls);
+  const brainCards    = renderBrainCards(m.tool_calls);
   const otherCalls = Array.isArray(m.tool_calls)
     ? m.tool_calls.filter((tc) =>
         !tc.name.startsWith('propose_') &&
@@ -319,13 +321,13 @@ function bubble(m) {
         !REPO_WRITE_TOOLS.has(tc.name) &&
         !REPO_READ_TOOLS.has(tc.name) &&
         !NOTE_TOOLS.has(tc.name) &&
-        !CLAUDE_INFO_TOOLS.has(tc.name))
+        !CLAUDE_INFO_TOOLS.has(tc.name) &&
+        !BRAIN_TOOLS.has(tc.name))
     : [];
   const tools = otherCalls.length > 0 ? renderToolCalls(otherCalls) : '';
 
-  // Suppress text when data cards are rendered — cards are the answer.
-  // Keep text for proposals, approvals, and claude_ask (conversational turns).
-  const hasDataCards = !!(repoReads || repoWrites || noteCards || claudeCards || eventCards);
+  // Suppress text when data/brain cards are rendered — cards are the answer.
+  const hasDataCards = !!(repoReads || repoWrites || noteCards || claudeCards || eventCards || brainCards);
   const textBubble = m.text && !hasDataCards
     ? `<div class="chat-bubble">${escape(m.text)}</div>`
     : '';
@@ -334,6 +336,7 @@ function bubble(m) {
     <div class="chat-bubble-row ${cls}">
       <div class="chat-bubble-stack">
         ${tools}
+        ${brainCards}
         ${repoReads}
         ${repoWrites}
         ${noteCards}
@@ -658,6 +661,91 @@ function renderClaudeSessionsCard(tc) {
       </div>
       ${sessions.length ? `<div class="claude-session-rows">${rows}${more}</div>` : '<div class="chat-task-more">no sessions found</div>'}
     </div>`;
+}
+
+/* ============================================================
+   Galt Brain shell — read_memory / list_memory / write_memory
+   ============================================================ */
+
+function brainShell(module, bodyHtml) {
+  return `
+    <div class="chat-brain-shell">
+      <div class="chat-brain-header">
+        <span class="brain-sigil">◈</span>
+        <span class="brain-label">GALT BRAIN</span>
+        <span class="brain-module-sep">·</span>
+        <span class="brain-module">${escape(module)}</span>
+      </div>
+      <div class="brain-body">${bodyHtml}</div>
+    </div>`;
+}
+
+function renderBrainCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .map((tc) => {
+      if (tc.name === 'read_memory')  return renderMemoryReadCard(tc);
+      if (tc.name === 'list_memory')  return renderMemoryListCard(tc);
+      if (tc.name === 'write_memory') return renderMemoryWriteCard(tc);
+      return '';
+    })
+    .filter(Boolean).join('');
+}
+
+function renderMemoryReadCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r) return '';
+  const filePath = escape((r.file_path || tc.arguments?.file_path || '').replace(/^memories\//, ''));
+  if (!r.found) {
+    return brainShell('MEMORY', `
+      <div class="brain-memory-path">${filePath}</div>
+      <div class="brain-memory-empty">nothing saved yet</div>`);
+  }
+  const preview = escape((r.content || '').slice(0, 300));
+  const trimmed = (r.content || '').length > 300;
+  return brainShell('MEMORY', `
+    <div class="brain-memory-path">${filePath}</div>
+    <div class="brain-memory-content">${preview}${trimmed ? '<span class="brain-memory-more">…</span>' : ''}</div>`);
+}
+
+function renderMemoryListCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r) return '';
+  const dir = escape((r.dir || '').replace(/^memories\//, ''));
+  const entries = Array.isArray(r.entries) ? r.entries : [];
+  if (entries.length === 0) {
+    return brainShell('MEMORY', `
+      <div class="brain-memory-path">${dir}</div>
+      <div class="brain-memory-empty">nothing here yet</div>`);
+  }
+  const rows = entries.map((e) => {
+    const icon = e.type === 'dir' ? '▸' : '·';
+    const cls  = e.type === 'dir' ? 'brain-entry-dir' : 'brain-entry-file';
+    return `<div class="brain-entry ${cls}"><span class="brain-entry-icon">${icon}</span><span class="brain-entry-name">${escape(e.name)}</span></div>`;
+  }).join('');
+  return brainShell('MEMORY', `
+    <div class="brain-memory-path">${dir}</div>
+    <div class="brain-entry-list">${rows}</div>
+    <div class="brain-entry-count">${entries.length} item${entries.length !== 1 ? 's' : ''}</div>`);
+}
+
+function renderMemoryWriteCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r) return '';
+  const filePath = escape((r.file_path || tc.arguments?.file_path || '').replace(/^memories\//, ''));
+  const verb = r.is_new ? 'created' : 'appended';
+  const ok = r.ok !== false;
+  if (!ok) {
+    return brainShell('MEMORY', `
+      <div class="brain-memory-path">${filePath}</div>
+      <div class="brain-write-status err">✗ ${escape(r.error || 'write failed')}</div>`);
+  }
+  return brainShell('MEMORY', `
+    <div class="brain-memory-path">${filePath}</div>
+    <div class="brain-write-status ok">✓ ${escape(verb)}</div>`);
 }
 
 /** Render live task cards for any claude_ask tool calls on this turn.
