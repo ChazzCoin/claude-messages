@@ -1396,6 +1396,159 @@ details.chat-task-event.tool-result .chat-task-event-tool {
 .repo-git-status.err   { color: var(--red); }
 .repo-git-status.muted { color: var(--text-faint); }
 
+/* =====================================================================
+   Auto-notes card — list_auto_notes
+   ===================================================================== */
+
+.chat-note-card {
+  max-width: 88%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: flex-start;
+}
+
+.note-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.note-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.note-cat-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.note-cat-badge.urgent   { background: rgba(220,70,70,0.15); color: var(--red);        border: 1px solid rgba(220,70,70,0.3); }
+.note-cat-badge.business { background: rgba(212,154,107,0.12); color: var(--accent);   border: 1px solid rgba(212,154,107,0.3); }
+.note-cat-badge.other    { background: var(--bg-card-2, #1e1913); color: var(--text-faint); border: 1px solid var(--border); }
+
+.note-contact {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.note-summary {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.note-dot          { font-size: 10px; flex-shrink: 0; }
+.note-dot.open     { color: var(--accent); }
+.note-dot.reviewed { color: var(--text-faint); }
+
+.note-unreviewed-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(212,154,107,0.12);
+  color: var(--accent);
+  border: 1px solid rgba(212,154,107,0.3);
+  margin-left: 4px;
+}
+
+/* =====================================================================
+   Claude sessions card — claude_list_sessions
+   ===================================================================== */
+
+.chat-claude-card {
+  max-width: 88%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: flex-start;
+}
+
+.claude-session-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.claude-session-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.claude-session-dot          { font-size: 10px; flex-shrink: 0; line-height: 1; }
+.claude-session-dot.running  { color: var(--green); }
+.claude-session-dot.idle     { color: var(--text-faint); }
+
+.claude-session-project {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claude-session-title {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.claude-session-age {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.claude-running-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(109,187,125,0.12);
+  color: var(--green);
+  border: 1px solid rgba(109,187,125,0.3);
+  margin-left: 4px;
+}
+
 /* "Galt is thinking…" — animated dots in a small galt-bubble shape. */
 .chat-typing {
   display: flex;

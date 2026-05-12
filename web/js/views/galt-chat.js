@@ -252,8 +252,10 @@ function cssEsc(s) {
 }
 
 // Tool names that get dedicated card rendering (excluded from generic tool strip).
-const REPO_WRITE_TOOLS = new Set(['write_task', 'move_task', 'git_commit_push']);
-const REPO_READ_TOOLS  = new Set(['list_repos', 'repo_status', 'search_tasks', 'active_tasks_all']);
+const REPO_WRITE_TOOLS  = new Set(['write_task', 'move_task', 'git_commit_push']);
+const REPO_READ_TOOLS   = new Set(['list_repos', 'repo_status', 'search_tasks', 'active_tasks_all']);
+const NOTE_TOOLS        = new Set(['list_auto_notes']);
+const CLAUDE_INFO_TOOLS = new Set(['claude_list_sessions']);
 
 function renderBubble(m) {
   const cls = m.role === 'user' ? 'me' : 'galt';
@@ -261,12 +263,14 @@ function renderBubble(m) {
     ? `<div class="galt-chat-bubble-meta">${escapeHtml(m.model)}${m.ts ? ' · ' + escapeHtml(relTime(m.ts)) : ''}${m.rounds ? ' · ' + m.rounds + ' round' + (m.rounds === 1 ? '' : 's') : ''}</div>`
     : '';
   // Dedicated card flavors — each handles its own tool name set.
-  const proposals   = renderProposalCards(m.tool_calls);
-  const approvals   = renderApprovalCards(m.tool_calls);
-  const events      = renderEventListCards(m.tool_calls);
-  const claudeTasks = renderTaskCards(m.tool_calls);
-  const repoReads   = renderRepoReadCards(m.tool_calls);
-  const repoWrites  = renderRepoWriteCards(m.tool_calls);
+  const proposals    = renderProposalCards(m.tool_calls);
+  const approvals    = renderApprovalCards(m.tool_calls);
+  const events       = renderEventListCards(m.tool_calls);
+  const claudeTasks  = renderTaskCards(m.tool_calls);
+  const repoReads    = renderRepoReadCards(m.tool_calls);
+  const repoWrites   = renderRepoWriteCards(m.tool_calls);
+  const noteCards    = renderNoteCards(m.tool_calls);
+  const claudeCards  = renderClaudeInfoCards(m.tool_calls);
 
   // Everything else collapses into the generic pill strip.
   const readCalls = Array.isArray(m.tool_calls)
@@ -276,7 +280,9 @@ function renderBubble(m) {
         tc.name !== 'list_calendar_events' &&
         tc.name !== 'claude_ask' &&
         !REPO_WRITE_TOOLS.has(tc.name) &&
-        !REPO_READ_TOOLS.has(tc.name))
+        !REPO_READ_TOOLS.has(tc.name) &&
+        !NOTE_TOOLS.has(tc.name) &&
+        !CLAUDE_INFO_TOOLS.has(tc.name))
     : [];
   const tools = readCalls.length > 0 ? renderToolStrip(readCalls) : '';
   return `
@@ -284,6 +290,8 @@ function renderBubble(m) {
       ${tools}
       ${repoReads}
       ${repoWrites}
+      ${noteCards}
+      ${claudeCards}
       ${events}
       ${proposals}
       ${approvals}
@@ -532,6 +540,114 @@ function taskStateBadge(state) {
   const labels = { backlog: 'backlog', active: 'active', done: 'done' };
   const label = labels[state] || state;
   return `<span class="repo-state-badge ${state}">${escapeHtml(label)}</span>`;
+}
+
+/* ============================================================
+   Auto-notes card — list_auto_notes
+   ============================================================ */
+
+function renderNoteCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .map((tc) => {
+      if (tc.name === 'list_auto_notes') return renderAutoNotesCard(tc);
+      return '';
+    })
+    .filter(Boolean)
+    .join('');
+}
+
+function renderAutoNotesCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || typeof r !== 'object') return '';
+  const notes = Array.isArray(r.notes) ? r.notes : [];
+  const total = typeof r.count === 'number' ? r.count : notes.length;
+  const unreviewed = notes.filter((n) => !n.reviewed_at_ms).length;
+
+  const rows = notes.slice(0, 10).map((n) => {
+    const cat = (n.category || 'other').toLowerCase();
+    const catClass = cat === 'urgent' ? 'urgent' : cat === 'business' ? 'business' : 'other';
+    const dot = n.reviewed_at_ms
+      ? '<span class="note-dot reviewed">●</span>'
+      : '<span class="note-dot open">○</span>';
+    const name = escapeHtml(n.contact_name || n.handle || '?');
+    const summary = escapeHtml((n.summary || '').slice(0, 90));
+    return `
+      <div class="note-row">
+        <span class="note-cat-badge ${catClass}">${escapeHtml(cat)}</span>
+        <span class="note-contact">${name}</span>
+        <span class="note-summary">${summary}</span>
+        ${dot}
+      </div>`;
+  }).join('');
+
+  const more = notes.length > 10
+    ? `<div class="repo-task-more">+${notes.length - 10} more</div>` : '';
+  const unreviewedLabel = unreviewed > 0
+    ? `<span class="note-unreviewed-badge">${unreviewed} open</span>` : '';
+
+  return `
+    <div class="galt-note-card">
+      <div class="galt-repo-card-head">
+        <span class="repo-card-kind">Auto Notes</span>
+        <span class="repo-card-meta">${total} total ${unreviewedLabel}</span>
+      </div>
+      ${notes.length ? `<div class="note-rows">${rows}${more}</div>` : '<div class="repo-task-more">nothing to follow up on</div>'}
+    </div>`;
+}
+
+/* ============================================================
+   Claude session card — claude_list_sessions
+   ============================================================ */
+
+function renderClaudeInfoCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .map((tc) => {
+      if (tc.name === 'claude_list_sessions') return renderClaudeSessionsCard(tc);
+      return '';
+    })
+    .filter(Boolean)
+    .join('');
+}
+
+function renderClaudeSessionsCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || typeof r !== 'object') return '';
+  const sessions = Array.isArray(r.sessions) ? r.sessions : [];
+  const runningCount = typeof r.running_count === 'number' ? r.running_count : 0;
+
+  const rows = sessions.slice(0, 10).map((s) => {
+    const project = (s.cwd || '').split('/').filter(Boolean).pop() || '?';
+    const title = escapeHtml((s.title || 'Untitled session').slice(0, 60));
+    const age = s.last_active_at_ms ? relTime(s.last_active_at_ms) : '';
+    const runDot = s.is_running
+      ? '<span class="claude-session-dot running">●</span>'
+      : '<span class="claude-session-dot idle">○</span>';
+    return `
+      <div class="claude-session-row">
+        ${runDot}
+        <span class="claude-session-project">${escapeHtml(project)}</span>
+        <span class="claude-session-title">${title}</span>
+        ${age ? `<span class="claude-session-age">${escapeHtml(age)}</span>` : ''}
+      </div>`;
+  }).join('');
+
+  const more = sessions.length > 10
+    ? `<div class="repo-task-more">+${sessions.length - 10} more</div>` : '';
+  const runningLabel = runningCount > 0
+    ? `<span class="claude-running-badge">${runningCount} live</span>` : '';
+
+  return `
+    <div class="galt-claude-card">
+      <div class="galt-repo-card-head">
+        <span class="repo-card-kind">Claude Sessions</span>
+        <span class="repo-card-meta">${sessions.length} recent ${runningLabel}</span>
+      </div>
+      ${sessions.length ? `<div class="claude-session-rows">${rows}${more}</div>` : '<div class="repo-task-more">no sessions found</div>'}
+    </div>`;
 }
 
 function renderTaskCards(toolCalls) {
