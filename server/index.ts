@@ -139,6 +139,9 @@ import {
   getRepo,
   setRepoActive,
   setRepoAutoPull,
+  setRepoBranch,
+  setRepoName,
+  deleteRepo,
   upsertRepoSnapshot,
   listRepoPhases,
   listRepoTasks,
@@ -1873,15 +1876,77 @@ app.get('/api/repos', (_req, res) => {
   res.json({ repos: listRepos({ activeOnly: false }) });
 });
 
-/** Register a new repo by local path. */
-app.post('/api/repos', async (req, res) => {
-  const { local_path, company } = req.body as { local_path?: string; company?: string };
-  if (!local_path) return res.status(400).json({ error: 'local_path is required' });
+/** Derive an SSH clone URL from an HTTPS GitHub/Bitbucket/GitLab URL.
+ *  https://github.com/user/repo.git → git@github.com:user/repo.git */
+function toSshUrl(httpsUrl: string): string {
+  return httpsUrl
+    .replace(/^https?:\/\/([^/]+)\//, 'git@$1:')
+    .replace(/\.git$/, '') + '.git';
+}
 
-  if (!isClaudeKitRepo(local_path)) {
-    return res.status(400).json({
-      error: 'Not a claude-kit repo — missing .claude/foundation.json or tasks/ROADMAP.md',
-    });
+/** Register a new repo by local path OR remote URL (auto-clones). */
+app.post('/api/repos', async (req, res) => {
+  const { local_path: rawPath, company } = req.body as { local_path?: string; company?: string };
+  if (!rawPath) return res.status(400).json({ error: 'local_path is required' });
+
+  let local_path: string;
+
+  // If the user pasted a URL, clone it first.
+  const isUrl = /^(https?:\/\/|git@)/.test(rawPath.trim());
+  if (isUrl) {
+    // Prefer SSH so the key loaded via ssh-add works.
+    const sshUrl = rawPath.startsWith('http') ? toSshUrl(rawPath.trim()) : rawPath.trim();
+    const repoName = sshUrl.replace(/\.git$/, '').split('/').pop()!.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const cloneBase = path.join(os.homedir(), '.galt', 'repos');
+    local_path = path.join(cloneBase, repoName);
+
+    if (fs.existsSync(local_path)) {
+      // Already cloned — just re-register (user may have deleted the DB row).
+      console.log(`[repos] ${repoName} already cloned at ${local_path}, re-registering`);
+    } else {
+      fs.mkdirSync(cloneBase, { recursive: true });
+      console.log(`[repos] cloning ${sshUrl} → ${local_path}`);
+      try {
+        // Resolve SSH_AUTH_SOCK the same way the watcher does.
+        const sock = process.env.SSH_AUTH_SOCK ?? await (async () => {
+          try {
+            const uid = process.getuid?.() ?? os.userInfo().uid;
+            const { stdout } = await execFileP(
+              'launchctl',
+              ['asuser', String(uid), 'launchctl', 'getenv', 'SSH_AUTH_SOCK'],
+              { timeout: 3_000 },
+            );
+            return stdout.trim() || undefined;
+          } catch { return undefined; }
+        })();
+
+        const gitSshCmd = 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15';
+        const env: NodeJS.ProcessEnv = { ...process.env, GIT_SSH_COMMAND: gitSshCmd, GIT_TERMINAL_PROMPT: '0' };
+        if (sock) env.SSH_AUTH_SOCK = sock;
+
+        await execFileP('git', ['clone', '--depth', '1', sshUrl, local_path], {
+          timeout: 60_000, env,
+        });
+        console.log(`[repos] cloned ${repoName}`);
+      } catch (err) {
+        return res.status(500).json({ error: `Clone failed: ${(err as Error & { stderr?: string }).stderr?.trim() ?? (err as Error).message}` });
+      }
+    }
+  } else {
+    // Local path — expand ~ and verify it exists.
+    local_path = rawPath.startsWith('~/')
+      ? path.join(os.homedir(), rawPath.slice(2))
+      : rawPath;
+    if (!fs.existsSync(local_path)) {
+      return res.status(400).json({ error: `Directory not found: ${local_path}` });
+    }
+  }
+
+  // Soft-warn if claude-kit markers are missing — don't hard-block.
+  // The extract will still work, it'll just return sparse metadata.
+  const isKit = isClaudeKitRepo(local_path);
+  if (!isKit) {
+    console.warn(`[repos] registering non-kit repo at ${local_path} (no foundation.json or ROADMAP.md)`);
   }
 
   // Run initial extract so the repo has data immediately.
@@ -1905,7 +1970,85 @@ app.post('/api/repos', async (req, res) => {
   // Start the watcher if this is the first registered repo.
   if (!repoWatcher.isRunning()) repoWatcher.start();
 
-  res.json({ repo: row });
+  res.json({ repo: row, is_claude_kit: isKit });
+});
+
+/**
+ * Briefing — one-shot aggregate of every active repo:
+ * phases, active tasks, recent audit entries.
+ * Must be before /:id to avoid route clash.
+ */
+app.get('/api/repos/briefing', (_req, res) => {
+  const repos = listRepos({ activeOnly: true });
+  const now = Date.now();
+
+  const compiled = repos.map((repo) => {
+    const phases = listRepoPhases(repo.id);
+    const activeTasks = listRepoTasks(repo.id, { state: 'active' });
+    const backlogCount = listRepoTasks(repo.id, { state: 'backlog' }).length;
+    const doneCount = listRepoTasks(repo.id, { state: 'done' }).length;
+    const audit = listRepoAuditEntries(repo.id, 5);
+
+    const staleTasks = activeTasks.filter(
+      (t) => t.mtime != null && (now - t.mtime) / 86400000 >= STALE_DAYS,
+    );
+
+    return {
+      repo: {
+        id: repo.id,
+        name: repo.name,
+        company: repo.company,
+        platform: repo.platform,
+        branch: repo.branch,
+        last_polled_at: repo.last_polled_at,
+      },
+      phases: phases.map((p) => ({
+        phase_num: p.phase_num,
+        name: p.name,
+        status: p.status,
+      })),
+      active_tasks: activeTasks.map((t) => ({
+        task_id: t.task_id,
+        title: t.title,
+        phase_num: t.phase_num,
+        is_stub: !!t.is_stub,
+        days: t.mtime != null ? Math.floor((now - t.mtime) / 86400000) : null,
+        stale: t.mtime != null && (now - t.mtime) / 86400000 >= STALE_DAYS,
+      })),
+      stale_count: staleTasks.length,
+      backlog_count: backlogCount,
+      done_count: doneCount,
+      audit: audit.map((e) => ({ date: e.entry_date, emoji: e.emoji, text: e.text })),
+    };
+  });
+
+  // Cross-repo stale tasks sorted oldest first.
+  const allStale = compiled
+    .flatMap((r) => r.active_tasks
+      .filter((t) => t.stale)
+      .map((t) => ({ ...t, repo_name: r.repo.name, company: r.repo.company })),
+    )
+    .sort((a, b) => (b.days ?? 0) - (a.days ?? 0));
+
+  // Recent audit across all repos, last 7 days, newest first.
+  const cutoff = new Date(now - 7 * 86400000).toISOString().slice(0, 10);
+  const recentAudit = compiled
+    .flatMap((r) => r.audit
+      .filter((e) => e.date >= cutoff)
+      .map((e) => ({ ...e, repo_name: r.repo.name, company: r.repo.company })),
+    )
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 30);
+
+  res.json({
+    generated_at: now,
+    repo_count: repos.length,
+    total_active: compiled.reduce((s, r) => s + r.active_tasks.length, 0),
+    total_stale: allStale.length,
+    repos: compiled,
+    stale_tasks: allStale,
+    recent_audit: recentAudit,
+  });
 });
 
 /** All active tasks across all repos — must be before /:id to avoid route clash. */
@@ -1922,8 +2065,8 @@ app.get('/api/repos/tasks/search', (req, res) => {
   res.json({ tasks: searchRepoTasks(q, { state, repoId }) });
 });
 
-/** Get one repo's full snapshot. */
-app.get('/api/repos/:id', (req, res) => {
+/** Get one repo's full snapshot. Includes current_branch from git. */
+app.get('/api/repos/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const repo = getRepo(id);
@@ -1931,16 +2074,37 @@ app.get('/api/repos/:id', (req, res) => {
   const phases = listRepoPhases(id);
   const tasks = listRepoTasks(id);
   const audit = listRepoAuditEntries(id, 20);
-  res.json({ repo, phases, tasks, audit });
+
+  // Read the currently checked-out branch name (best-effort).
+  let current_branch: string | null = null;
+  try {
+    const { stdout } = await execFileP('git', ['branch', '--show-current'], {
+      cwd: repo.local_path, timeout: 3_000,
+    });
+    current_branch = stdout.trim() || null;
+  } catch { /* detached HEAD or not a git repo */ }
+
+  res.json({ repo, phases, tasks, audit, current_branch });
 });
 
 /** Update repo settings: active and/or auto_pull. */
 app.patch('/api/repos/:id', (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
-  const body = req.body as { active?: boolean; auto_pull?: boolean };
+  const body = req.body as { active?: boolean; auto_pull?: boolean; branch?: string | null; name?: string };
   if (body.active !== undefined) setRepoActive(id, body.active);
   if (body.auto_pull !== undefined) setRepoAutoPull(id, body.auto_pull);
+  if ('branch' in body) setRepoBranch(id, body.branch ?? null);
+  if (body.name?.trim()) setRepoName(id, body.name);
+  res.json({ ok: true });
+});
+
+/** Delete a repo and all its snapshot data. */
+app.delete('/api/repos/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const ok = deleteRepo(id);
+  if (!ok) return res.status(404).json({ error: 'not found' });
   res.json({ ok: true });
 });
 

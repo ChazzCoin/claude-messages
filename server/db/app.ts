@@ -359,6 +359,7 @@ function migrate(db: DB) {
       description     TEXT,
       active          INTEGER DEFAULT 1,
       auto_pull       INTEGER DEFAULT 1,
+      branch          TEXT,
       last_polled_at  INTEGER,
       last_commit_sha TEXT,
       added_at        INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
@@ -536,6 +537,10 @@ function migrate(db: DB) {
   if (!repoCols.some((c) => c.name === 'auto_pull')) {
     db.exec('ALTER TABLE repos ADD COLUMN auto_pull INTEGER DEFAULT 1');
     console.log('[migrate] repos: added auto_pull column');
+  }
+  if (!repoCols.some((c) => c.name === 'branch')) {
+    db.exec('ALTER TABLE repos ADD COLUMN branch TEXT');
+    console.log('[migrate] repos: added branch column');
   }
 
   // Rename kv key summon_persona → galt_voice_profile. Galt's voice was
@@ -2644,6 +2649,7 @@ export interface RepoRow {
   description: string | null;
   active: number;
   auto_pull: number;   // 1 = pull before each extract; 0 = read-only
+  branch: string | null;  // null = use whatever is checked out
   last_polled_at: number | null;
   last_commit_sha: string | null;
   added_at: number;
@@ -2729,6 +2735,26 @@ export function setRepoActive(id: number, active: boolean): boolean {
 
 export function setRepoAutoPull(id: number, autoPull: boolean): boolean {
   const info = getAppDb().prepare('UPDATE repos SET auto_pull = ? WHERE id = ?').run(autoPull ? 1 : 0, id);
+  return info.changes > 0;
+}
+
+export function setRepoBranch(id: number, branch: string | null): boolean {
+  const info = getAppDb().prepare('UPDATE repos SET branch = ? WHERE id = ?').run(branch || null, id);
+  return info.changes > 0;
+}
+
+export function setRepoName(id: number, name: string): boolean {
+  const info = getAppDb().prepare('UPDATE repos SET name = ? WHERE id = ?').run(name.trim(), id);
+  return info.changes > 0;
+}
+
+export function deleteRepo(id: number): boolean {
+  const db = getAppDb();
+  // Cascade manually (no FK enforcement in this schema).
+  db.prepare('DELETE FROM repo_audit_entries WHERE repo_id = ?').run(id);
+  db.prepare('DELETE FROM repo_tasks WHERE repo_id = ?').run(id);
+  db.prepare('DELETE FROM repo_phases WHERE repo_id = ?').run(id);
+  const info = db.prepare('DELETE FROM repos WHERE id = ?').run(id);
   return info.changes > 0;
 }
 

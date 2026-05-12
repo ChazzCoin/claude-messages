@@ -73,10 +73,11 @@ export async function setView(view, arg = null) {
   setActiveNav(navKey);
   setRightPanelMode(view === 'thread' ? 'thread' : 'collapsed');
   clearDraftsToolbar();
-  // Reset per-view body-class state. The home view sets .home-v9-active on
-  // .main when it mounts; clearing here ensures other views see a clean
-  // class list when they take over.
+  // Reset per-view body-class state. Views that need full-bleed layouts add
+  // a class to .main on mount and rely on this cleanup to remove it when
+  // navigating away.
   document.querySelector('.main')?.classList.remove('home-v9-active');
+  document.querySelector('.main')?.classList.remove('repos-active');
 
   switch (view) {
     case 'home':          await renderHomeView(); break;

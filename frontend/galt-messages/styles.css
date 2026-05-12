@@ -1137,6 +1137,265 @@ details.chat-task-event.tool-result .chat-task-event-tool {
   margin-top: 8px;
 }
 
+/* ── Repo read cards ─────────────────────────────────────────────── */
+
+.chat-repo-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  padding: 10px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+  max-width: 88%;
+  font-size: 13px;
+}
+
+.chat-repo-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-repo-kind {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.chat-repo-meta {
+  font-size: 9.5px;
+  font-family: ui-monospace, monospace;
+  color: var(--text-faint);
+}
+
+/* list_repos rows */
+.repo-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.repo-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.repo-name {
+  font-weight: 600;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.repo-company {
+  color: var(--text-faint);
+  font-size: 11px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-task-count {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.repo-task-count.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Phase strip */
+.repo-phase-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 0 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.repo-phase-dot { font-size: 11px; flex-shrink: 0; }
+.repo-phase-dot.shipped { color: var(--green); }
+.repo-phase-dot.active  { color: var(--accent); }
+.repo-phase-dot.queued  { color: var(--text-faint); }
+.repo-phase-dot.unknown { color: var(--text-faint); }
+
+.repo-phase-name {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.repo-phase-sep {
+  color: var(--text-faint);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+/* Task rows */
+.repo-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.repo-task-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.repo-task-id {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  min-width: 52px;
+}
+
+.repo-task-title {
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-task-repo {
+  font-size: 10px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  font-family: ui-monospace, monospace;
+}
+
+.repo-task-age {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  min-width: 22px;
+  text-align: right;
+}
+
+.repo-task-age.stale { color: var(--red); }
+
+.repo-task-more {
+  font-size: 11px;
+  color: var(--text-faint);
+  padding-top: 2px;
+}
+
+/* State badge */
+.repo-state-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  font-family: ui-monospace, monospace;
+}
+
+.repo-state-badge.active {
+  background: rgba(212, 154, 107, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(212, 154, 107, 0.3);
+}
+
+.repo-state-badge.done {
+  background: rgba(109, 187, 125, 0.12);
+  color: var(--green);
+  border: 1px solid rgba(109, 187, 125, 0.25);
+}
+
+.repo-state-badge.backlog {
+  background: var(--bg-elev);
+  color: var(--text-faint);
+  border: 1px solid var(--border-2);
+}
+
+/* ── Repo write cards ────────────────────────────────────────────── */
+
+.chat-repo-write-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  padding: 10px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+  max-width: 70%;
+}
+
+.chat-repo-write-card.git-ok    { border-color: rgba(109, 187, 125, 0.3); }
+.chat-repo-write-card.git-error { border-color: var(--red); opacity: 0.85; }
+
+.repo-write-kind { color: var(--text-faint); }
+
+.repo-write-task-id {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.repo-write-task-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.repo-write-task-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.repo-write-path {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--text-faint);
+  word-break: break-all;
+  margin-top: 1px;
+}
+
+.repo-write-path.err { color: var(--red); }
+
+.repo-git-status {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.repo-git-status.ok    { color: var(--green); }
+.repo-git-status.err   { color: var(--red); }
+.repo-git-status.muted { color: var(--text-faint); }
+
 /* "Galt is thinking…" — animated dots in a small galt-bubble shape. */
 .chat-typing {
   display: flex;

@@ -2,9 +2,12 @@
 //
 // Each entry is one tool Galt can call mid-conversation. Tools wrap
 // the existing read paths (chat.db, app.db, AddressBook, Calendar,
-// CallHistory.storedata) — no new write surfaces. Read-only by design;
+// CallHistory.storedata) plus task-write surfaces.
+//
 // per the user, "no guard rails" applies to *visibility* (Galt can
-// read everything you can), not to actions on your account.
+// read everything you can) AND task-write actions (direct writes to
+// repo task files + git commit/push). User explicitly accepted the
+// risks — direct action, not proposals.
 //
 // Conventions:
 //   - Every tool returns a JSON-serializable object. Strings are fine
@@ -19,12 +22,18 @@
 //     returning 500 messages is wasteful. Sensible defaults + a
 //     `limit` arg the model can override.
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { ToolDefinition } from './client.js';
 import { listEventsInWindow } from '../integrations/calendar-db.js';
 import { listRecentCalls } from '../integrations/call-history.js';
-import { insertChatCalendarProposal } from '../db/app.js';
+import { insertChatCalendarProposal, getRepo } from '../db/app.js';
 import { claudeCli } from '../integrations/claude-cli.js';
 import { startClaudeTask } from '../task-runner.js';
+
+const execFileP = promisify(execFile);
 import {
   appleDateToUnixMs,
   getChatDb,
@@ -779,7 +788,7 @@ const claude_list_sessions: ToolDefinition = {
 
 const list_repos: ToolDefinition = {
   name: 'list_repos',
-  description: 'List all registered claude-kit repos (codebases). Shows name, company, platform, active status, and last-poll time. Use this to discover which repos are tracked before drilling in.',
+  description: 'List all registered claude-kit repos (codebases). Shows name, company, platform, active status, last-poll time, and active task count. Use this to discover which repos are tracked before drilling in.',
   parameters: {
     type: 'object',
     properties: {
@@ -797,6 +806,7 @@ const list_repos: ToolDefinition = {
       active: !!r.active,
       last_polled_at: r.last_polled_at,
       description: r.description,
+      active_task_count: listRepoTasks(r.id, { state: 'active' }).length,
     }));
   },
 };
@@ -813,11 +823,14 @@ const repo_status: ToolDefinition = {
   },
   execute: async (args) => {
     const repoId = args.repo_id as number;
+    const repo = getRepo(repoId);
     const phases = listRepoPhases(repoId);
     const activeTasks = listRepoTasks(repoId, { state: 'active' });
     const backlogTasks = listRepoTasks(repoId, { state: 'backlog' });
     const recentAudit = listRepoAuditEntries(repoId, 10);
     return {
+      repo_name: repo?.name ?? `Repo #${repoId}`,
+      repo_company: repo?.company ?? null,
       phases: phases.map((p) => ({
         phase_num: p.phase_num,
         name: p.name,
@@ -894,6 +907,284 @@ const active_tasks_all: ToolDefinition = {
 };
 
 /* ============================================================
+   Task write tools
+   ============================================================
+   Direct task-file writes + git operations for the user's repos.
+   No guard-rail proposals — user accepted direct action.
+   ============================================================ */
+
+/** Derive a slug from a title: lowercase, strip non-alphanum/space,
+ *  collapse spaces to hyphens, trim, max 40 chars. */
+function titleToSlug(title: string): string {
+  return title.toLowerCase()
+    .replace(/[^a-z0-9 ]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+}
+
+/** Find the next available TASK-NNN number in a repo. Scans all
+ *  three state directories and returns max+1 (minimum 1). */
+function nextTaskNumber(repoPath: string): number {
+  let max = 0;
+  for (const state of ['backlog', 'active', 'done']) {
+    const dir = path.join(repoPath, 'tasks', state);
+    if (!fs.existsSync(dir)) continue;
+    for (const f of fs.readdirSync(dir)) {
+      const m = f.match(/^TASK-(\d+)/i);
+      if (m) max = Math.max(max, parseInt(m[1]!, 10));
+    }
+  }
+  return max + 1;
+}
+
+/** Build git env with SSH agent socket (best-effort). Mirrors the
+ *  logic in repo-watcher.ts without duplicating the module. */
+async function buildGitEnv(): Promise<NodeJS.ProcessEnv> {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10',
+    GIT_TERMINAL_PROMPT: '0',
+  };
+  // Try to get SSH_AUTH_SOCK via launchctl when not in environment.
+  if (!env.SSH_AUTH_SOCK) {
+    try {
+      const os = await import('node:os');
+      const uid = process.getuid?.() ?? os.default.userInfo().uid;
+      const { stdout } = await execFileP(
+        'launchctl',
+        ['asuser', String(uid), 'launchctl', 'getenv', 'SSH_AUTH_SOCK'],
+        { timeout: 3_000 },
+      );
+      const sock = stdout.trim();
+      if (sock) env.SSH_AUTH_SOCK = sock;
+    } catch { /* no launchctl or no agent — SSH push may fail for private repos */ }
+  }
+  return env;
+}
+
+const write_task: ToolDefinition = {
+  name: 'write_task',
+  description:
+    'Create or update a task file in a repo\'s tasks/ directory. If task_id is omitted, generates the next TASK-NNN id. Writes the markdown file, appends an audit entry to tasks/AUDIT.md, and adds the task to ROADMAP.md if not already present. Use this to capture new work items or update existing task bodies.',
+  parameters: {
+    type: 'object',
+    required: ['repo_id', 'title', 'state'],
+    properties: {
+      repo_id: { type: 'number', description: 'Repo id from list_repos.' },
+      task_id: { type: 'string', description: 'Existing task id (e.g. "TASK-042"). Omit to create a new task.' },
+      title: { type: 'string', description: 'One-line task title.' },
+      state: { type: 'string', enum: ['backlog', 'active', 'done'], description: 'Which bucket to write to.' },
+      body: { type: 'string', description: 'Markdown body for the task file. Can include ## Purpose, ## Acceptance criteria, etc.' },
+      phase_num: { type: 'number', description: 'Phase number to register this task under in ROADMAP.md. Optional.' },
+    },
+    additionalProperties: false,
+  },
+  async execute(args) {
+    const repoId = args.repo_id as number;
+    const repo = getRepo(repoId);
+    if (!repo) throw new Error(`Repo ${repoId} not found`);
+    const repoPath = repo.local_path;
+
+    const title = (args.title as string).trim();
+    if (!title) throw new Error('title required');
+    const state = args.state as 'backlog' | 'active' | 'done';
+    const bodyRaw = typeof args.body === 'string' ? args.body.trim() : '';
+
+    // Resolve task id — existing or new.
+    let taskId: string;
+    let isNew = false;
+    if (typeof args.task_id === 'string' && args.task_id.trim()) {
+      taskId = args.task_id.trim().toUpperCase();
+    } else {
+      const num = nextTaskNumber(repoPath);
+      taskId = `TASK-${String(num).padStart(3, '0')}`;
+      isNew = true;
+    }
+
+    const slug = titleToSlug(title);
+    const fileName = `${taskId}-${slug}.md`;
+    const stateDir = path.join(repoPath, 'tasks', state);
+    fs.mkdirSync(stateDir, { recursive: true });
+
+    // If updating, remove old file (may be in a different state dir).
+    if (!isNew) {
+      for (const s of ['backlog', 'active', 'done']) {
+        const dir = path.join(repoPath, 'tasks', s);
+        if (!fs.existsSync(dir)) continue;
+        for (const f of fs.readdirSync(dir)) {
+          if (f.toUpperCase().startsWith(taskId + '-') || f.toUpperCase() === taskId + '.MD') {
+            fs.unlinkSync(path.join(dir, f));
+          }
+        }
+      }
+    }
+
+    // Write task file.
+    const fileContent = bodyRaw
+      ? `# ${title}\n\n${bodyRaw}\n`
+      : `# ${title}\n`;
+    const filePath = path.join(stateDir, fileName);
+    fs.writeFileSync(filePath, fileContent, 'utf-8');
+
+    // Append audit entry.
+    const auditPath = path.join(repoPath, 'tasks', 'AUDIT.md');
+    const today = new Date().toISOString().slice(0, 10);
+    const emoji = state === 'done' ? '✅' : state === 'active' ? '🚀' : '📋';
+    const auditLine = `\n## ${today}\n- ${emoji} ${isNew ? 'Created' : 'Updated'} ${taskId} — ${title}\n`;
+    if (fs.existsSync(auditPath)) {
+      fs.appendFileSync(auditPath, auditLine, 'utf-8');
+    } else {
+      fs.writeFileSync(auditPath, `# AUDIT\n${auditLine}`, 'utf-8');
+    }
+
+    // Update ROADMAP.md — add task under its phase section if phase_num given and not already listed.
+    if (typeof args.phase_num === 'number') {
+      const roadmapPath = path.join(repoPath, 'tasks', 'ROADMAP.md');
+      if (fs.existsSync(roadmapPath)) {
+        let roadmap = fs.readFileSync(roadmapPath, 'utf-8');
+        const taskLine = `- ${taskId} — ${title}`;
+        if (!roadmap.includes(taskId)) {
+          // Find the phase section and append.
+          const phaseHeader = new RegExp(`(##\\s+Phase\\s+${args.phase_num}\\b[^\\n]*)`, 'i');
+          if (phaseHeader.test(roadmap)) {
+            roadmap = roadmap.replace(phaseHeader, `$1\n${taskLine}`);
+          } else {
+            // Phase section not found — append at end of file.
+            roadmap += `\n${taskLine}\n`;
+          }
+          fs.writeFileSync(roadmapPath, roadmap, 'utf-8');
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      task_id: taskId,
+      file_path: filePath,
+      state,
+      title,
+      is_new: isNew,
+    };
+  },
+};
+
+const move_task: ToolDefinition = {
+  name: 'move_task',
+  description:
+    'Move a task to a different state (backlog → active → done). Renames the file between state directories and appends an audit entry.',
+  parameters: {
+    type: 'object',
+    required: ['repo_id', 'task_id', 'new_state'],
+    properties: {
+      repo_id: { type: 'number', description: 'Repo id from list_repos.' },
+      task_id: { type: 'string', description: 'Task id (e.g. "TASK-042").' },
+      new_state: { type: 'string', enum: ['backlog', 'active', 'done'], description: 'Target state.' },
+    },
+    additionalProperties: false,
+  },
+  async execute(args) {
+    const repoId = args.repo_id as number;
+    const repo = getRepo(repoId);
+    if (!repo) throw new Error(`Repo ${repoId} not found`);
+    const repoPath = repo.local_path;
+
+    const taskId = (args.task_id as string).trim().toUpperCase();
+    const newState = args.new_state as 'backlog' | 'active' | 'done';
+
+    // Find the task file.
+    let srcPath: string | null = null;
+    let fileName = '';
+    for (const s of ['backlog', 'active', 'done']) {
+      const dir = path.join(repoPath, 'tasks', s);
+      if (!fs.existsSync(dir)) continue;
+      for (const f of fs.readdirSync(dir)) {
+        if (f.toUpperCase().startsWith(taskId + '-') || f.toUpperCase() === taskId + '.MD') {
+          srcPath = path.join(dir, f);
+          fileName = f;
+        }
+      }
+    }
+    if (!srcPath) throw new Error(`Task ${taskId} not found in any state directory of repo ${repo.name}`);
+
+    const destDir = path.join(repoPath, 'tasks', newState);
+    fs.mkdirSync(destDir, { recursive: true });
+    const destPath = path.join(destDir, fileName);
+    fs.renameSync(srcPath, destPath);
+
+    // Append audit entry.
+    const auditPath = path.join(repoPath, 'tasks', 'AUDIT.md');
+    const today = new Date().toISOString().slice(0, 10);
+    const emoji = newState === 'done' ? '✅' : newState === 'active' ? '🚀' : '📋';
+    const auditLine = `\n## ${today}\n- ${emoji} Moved ${taskId} → ${newState}\n`;
+    if (fs.existsSync(auditPath)) {
+      fs.appendFileSync(auditPath, auditLine, 'utf-8');
+    } else {
+      fs.writeFileSync(auditPath, `# AUDIT\n${auditLine}`, 'utf-8');
+    }
+
+    return { ok: true, task_id: taskId, new_state: newState, file: destPath };
+  },
+};
+
+const git_commit_push: ToolDefinition = {
+  name: 'git_commit_push',
+  description:
+    'Stage all changes, commit, and push to the remote for a repo. Use this after write_task or move_task to persist changes to git. The commit message should be descriptive (e.g. "task: add TASK-042 implement auth flow").',
+  parameters: {
+    type: 'object',
+    required: ['repo_id', 'message'],
+    properties: {
+      repo_id: { type: 'number', description: 'Repo id from list_repos.' },
+      message: { type: 'string', description: 'Git commit message.' },
+    },
+    additionalProperties: false,
+  },
+  async execute(args) {
+    const repoId = args.repo_id as number;
+    const repo = getRepo(repoId);
+    if (!repo) throw new Error(`Repo ${repoId} not found`);
+    const repoPath = repo.local_path;
+
+    const message = (args.message as string).trim();
+    if (!message) throw new Error('commit message required');
+
+    const env = await buildGitEnv();
+    const opts = { cwd: repoPath, timeout: 30_000, env };
+
+    // Stage everything (task files + audit + roadmap changes).
+    await execFileP('git', ['add', 'tasks/'], opts);
+
+    // Commit — may fail if nothing to commit, which is fine.
+    let committed = false;
+    try {
+      const { stdout } = await execFileP('git', ['commit', '-m', message], opts);
+      committed = !stdout.includes('nothing to commit');
+      if (!committed) committed = true; // commit succeeded
+    } catch (err) {
+      const msg = (err as Error & { stderr?: string }).stderr?.trim() ?? (err as Error).message;
+      if (msg.includes('nothing to commit')) {
+        return { ok: true, committed: false, pushed: false, message: 'nothing to commit' };
+      }
+      throw new Error(`git commit failed: ${msg}`);
+    }
+
+    // Push.
+    let pushOutput = '';
+    try {
+      const { stdout, stderr } = await execFileP('git', ['push'], opts);
+      pushOutput = (stdout + stderr).trim();
+    } catch (err) {
+      const msg = (err as Error & { stderr?: string }).stderr?.trim() ?? (err as Error).message;
+      throw new Error(`git push failed: ${msg}`);
+    }
+
+    return { ok: true, committed, pushed: true, push_output: pushOutput || 'up to date' };
+  },
+};
+
+/* ============================================================
    Public registry
    ============================================================ */
 
@@ -922,6 +1213,9 @@ export function buildChatTools(galtMessageId: string): ToolDefinition[] {
     repo_status,
     search_tasks,
     active_tasks_all,
+    write_task,
+    move_task,
+    git_commit_push,
   ];
 }
 
@@ -946,4 +1240,7 @@ export const CHAT_TOOLS: ToolDefinition[] = [
   repo_status,
   search_tasks,
   active_tasks_all,
+  write_task,
+  move_task,
+  git_commit_push,
 ];

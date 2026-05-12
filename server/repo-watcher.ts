@@ -104,17 +104,22 @@ interface PullResult {
 }
 
 /**
- * Fast-forward pull from origin.
+ * Fast-forward pull from origin, optionally switching to a specific branch.
  *
- * - Uses SSH_AUTH_SOCK so private repos work without a passphrase prompt.
- * - BatchMode=yes makes SSH fail immediately (not hang) if the agent
- *   can't authenticate — so a missing key doesn't stall the poll loop.
- * - StrictHostKeyChecking=accept-new silently accepts new host keys
- *   (github.com, bitbucket, etc.) without an interactive prompt.
- * - ff-only means we never create a merge commit. If the remote diverged
- *   (shouldn't happen on personal branches) we just skip and log.
+ * If `branch` is set:
+ *   1. `git fetch origin <branch>` — fetches without touching working tree
+ *   2. `git checkout <branch>` — switches (creates local tracking branch on
+ *      first run; no-op if already on it)
+ *   3. `git merge --ff-only origin/<branch>` — advances HEAD
+ *
+ * If `branch` is null, just runs `git pull --ff-only` on whatever is
+ * currently checked out.
+ *
+ * - BatchMode=yes: SSH fails immediately if agent can't auth (never hangs).
+ * - StrictHostKeyChecking=accept-new: silently accepts new host keys.
+ * - ff-only: never creates a merge commit.
  */
-async function gitPull(repoPath: string): Promise<PullResult> {
+async function gitPull(repoPath: string, branch: string | null): Promise<PullResult> {
   const sock = await getSshAuthSock();
 
   const gitSshCmd = [
@@ -127,19 +132,32 @@ async function gitPull(repoPath: string): Promise<PullResult> {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GIT_SSH_COMMAND: gitSshCmd,
-    GIT_TERMINAL_PROMPT: '0',   // never prompt for credentials
+    GIT_TERMINAL_PROMPT: '0',
   };
   if (sock) env.SSH_AUTH_SOCK = sock;
 
+  const opts = { cwd: repoPath, timeout: 30_000, env };
+
   try {
-    const { stdout } = await execFileP(
-      'git',
-      ['pull', '--ff-only', '--quiet'],
-      { cwd: repoPath, timeout: 30_000, env },
-    );
-    // "Already up to date." → no new commits
-    const changed = !stdout.includes('Already up to date');
-    return { ok: true, changed, message: stdout.trim() || 'up to date' };
+    if (branch) {
+      // 1. Fetch the target branch from origin.
+      await execFileP('git', ['fetch', '--quiet', 'origin', branch], opts);
+
+      // 2. Switch to it (creates local tracking branch if first time).
+      await execFileP('git', ['checkout', '--quiet', branch], opts);
+
+      // 3. Fast-forward merge.
+      const { stdout } = await execFileP(
+        'git', ['merge', '--ff-only', '--quiet', `origin/${branch}`], opts,
+      );
+      const changed = !stdout.includes('Already up to date');
+      return { ok: true, changed, message: stdout.trim() || `up to date on ${branch}` };
+    } else {
+      // No branch override — pull whatever is checked out.
+      const { stdout } = await execFileP('git', ['pull', '--ff-only', '--quiet'], opts);
+      const changed = !stdout.includes('Already up to date');
+      return { ok: true, changed, message: stdout.trim() || 'up to date' };
+    }
   } catch (err) {
     const msg = (err as Error & { stderr?: string }).stderr?.trim()
       ?? (err as Error).message;
@@ -199,7 +217,7 @@ export class RepoWatcher {
     try {
       // --- 1. Auto-pull if enabled ---
       if (repo.auto_pull) {
-        const pull = await gitPull(repo.local_path);
+        const pull = await gitPull(repo.local_path, repo.branch);
         if (!pull.ok) {
           // Non-fatal: log and continue with local state.
           console.warn(

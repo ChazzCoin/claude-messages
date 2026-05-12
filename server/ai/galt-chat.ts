@@ -19,7 +19,7 @@
 
 import { chatWithTools } from './client.js';
 import { buildChatTools } from './chat-tools.js';
-import { getSettings } from '../db/app.js';
+import { getSettings, listRepos, listAllActiveTasks } from '../db/app.js';
 import { getMirrorDb } from '../firebase.js';
 
 /** One message in the running conversation, as the model sees it. */
@@ -161,14 +161,70 @@ If the user asks an analytical question on top ("when's my next free hour?", "wh
 
 When you call propose_calendar_event, your reply afterward should be short: confirm what you drafted (title + date/time in plain English) and tell the user to tap Approve. Don't dump the JSON. The user sees the proposal card in the chat — your job is the natural-language framing around it.
 
+REPO TOOLS — read and write tasks across all tracked repos:
+- list_repos — discover which repos are tracked
+- repo_status — phases + active tasks for a specific repo
+- search_tasks — find tasks by keyword across all repos
+- active_tasks_all — every active task across all repos (great for status reports)
+- write_task — CREATE or UPDATE a task file on disk. Takes repo_id, title, state (backlog/active/done), optional body (markdown), optional phase_num. Auto-assigns the next TASK-NNN id when creating new. Also updates AUDIT.md and ROADMAP.md. Direct write — no approval step.
+- move_task — move a task between states (backlog/active/done). Takes repo_id, task_id, new_state. Renames the file and appends an audit entry.
+- git_commit_push — stage, commit, and push after writes. Call this after write_task or move_task to get the changes into git. Takes repo_id and a commit message.
+
+IMPORTANT WRITE FLOW: when the user asks to add or update a task, call write_task directly — no approval needed. If they want it committed, call git_commit_push right after. Tell the user what you did and the new task id. Don't propose; just do it.
+
 If the user asks for something a tool doesn't cover (Apple Notes, sending an iMessage, propose-reminder, modifying existing calendar events), say so plainly — don't invent a fake tool call. Tool coverage will expand; right now this is what you've got.
 
 If the user just wants to chat, banter, brainstorm, or draft — do that. No tool calls needed.`;
 
+/** Build a compact repo status block to inject once per turn. Pulls
+ *  from app.db (last-polled snapshot) so it's instant — no git ops.
+ *  Returns empty string when no repos are registered. */
+function buildRepoContext(): string {
+  const repos = listRepos({ activeOnly: true });
+  if (!repos.length) return '';
+
+  const activeTasks = listAllActiveTasks();
+  if (!activeTasks.length && !repos.length) return '';
+
+  const lines: string[] = ['REPOS — current task snapshot (from last poll; call repo_status for fresh detail):'];
+
+  // Group active tasks by repo.
+  const byRepo = new Map<number, typeof activeTasks>();
+  for (const t of activeTasks) {
+    const rid = t.repo_id;
+    if (rid == null) continue;
+    if (!byRepo.has(rid)) byRepo.set(rid, []);
+    byRepo.get(rid)!.push(t);
+  }
+
+  for (const repo of repos) {
+    const repoTasks = byRepo.get(repo.id) ?? [];
+    const taskList = repoTasks.slice(0, 6).map((t) => {
+      const age = t.mtime != null ? Math.floor((Date.now() - t.mtime) / 86400000) : null;
+      const ageStr = age != null ? ` (${age}d)` : '';
+      return `  · ${t.task_id} — ${t.title}${ageStr}`;
+    });
+    const moreStr = repoTasks.length > 6 ? `  · …+${repoTasks.length - 6} more active` : '';
+    lines.push(`\n${repo.name}${repo.company ? ` (${repo.company})` : ''} — ${repoTasks.length} active task${repoTasks.length !== 1 ? 's' : ''}`);
+    if (taskList.length) lines.push(...taskList);
+    if (moreStr) lines.push(moreStr);
+  }
+
+  return lines.join('\n');
+}
+
 function buildSystemPrompt(): string {
   const voice = (getSettings().galt_voice_profile || '').trim();
-  if (!voice) return SYSTEM_PROMPT_BASE;
-  return `${SYSTEM_PROMPT_BASE}\n\nGALT'S VOICE — how you sound when speaking. Apply throughout.\n"""\n${voice}\n"""`;
+  const repoCtx = buildRepoContext();
+
+  let prompt = SYSTEM_PROMPT_BASE;
+  if (repoCtx) {
+    prompt += `\n\n${repoCtx}`;
+  }
+  if (voice) {
+    prompt += `\n\nGALT'S VOICE — how you sound when speaking. Apply throughout.\n"""\n${voice}\n"""`;
+  }
+  return prompt;
 }
 
 /** Tool-call result strings can be large. Truncate before persisting

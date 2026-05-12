@@ -421,7 +421,14 @@ export class StreamingClaudeCli {
   constructor(private readonly binary: () => string) {}
 
   start(opts: ChatTurnOpts): ChatStreamHandle {
-    const args = ['-p', opts.prompt, '--output-format', 'stream-json', '--verbose'];
+    const args = [
+      '-p', opts.prompt,
+      '--output-format', 'stream-json',
+      '--verbose',
+      // Required for headless subprocess operation — no terminal is attached
+      // to approve tool permission prompts interactively.
+      '--dangerously-skip-permissions',
+    ];
     if (opts.sessionId)            args.push('--session-id', opts.sessionId);
     if (opts.appendSystemPrompt)   args.push('--append-system-prompt', opts.appendSystemPrompt);
     if (opts.maxTurns != null)     args.push('--max-turns', String(opts.maxTurns));

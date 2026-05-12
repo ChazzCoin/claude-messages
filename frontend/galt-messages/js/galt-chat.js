@@ -285,38 +285,254 @@ function cssEsc(s) {
   return String(s).replace(/[^a-zA-Z0-9_-]/g, (c) => '\\' + c);
 }
 
+// Tool names with dedicated card rendering (excluded from generic strip).
+const REPO_WRITE_TOOLS = new Set(['write_task', 'move_task', 'git_commit_push']);
+const REPO_READ_TOOLS  = new Set(['list_repos', 'repo_status', 'search_tasks', 'active_tasks_all']);
+
 function bubble(m) {
   const cls = m.role === 'user' ? 'me' : 'galt';
-  // Tool calls render in five flavors:
-  //   - "propose_*"             → structured proposal cards (side effect on approve)
-  //   - "request_user_approval" → inline approve/deny prompt (decision flows back as next turn)
-  //   - "list_calendar_events"  → read-only event cards (display only, no actions)
-  //   - "claude_ask"            → live task card subscribed to /tasks/<id>
-  //   - everything else         → compact <details> chip strip
   const proposalCards = renderProposalCards(m.tool_calls);
   const approvalCards = renderApprovalCards(m.tool_calls);
-  const eventCards = renderEventListCards(m.tool_calls);
-  const taskCards = renderTaskCards(m.tool_calls);
+  const eventCards    = renderEventListCards(m.tool_calls);
+  const claudeTasks   = renderTaskCards(m.tool_calls);
+  const repoReads     = renderRepoReadCards(m.tool_calls);
+  const repoWrites    = renderRepoWriteCards(m.tool_calls);
   const otherCalls = Array.isArray(m.tool_calls)
     ? m.tool_calls.filter((tc) =>
         !tc.name.startsWith('propose_') &&
         tc.name !== 'request_user_approval' &&
         tc.name !== 'list_calendar_events' &&
-        tc.name !== 'claude_ask')
+        tc.name !== 'claude_ask' &&
+        !REPO_WRITE_TOOLS.has(tc.name) &&
+        !REPO_READ_TOOLS.has(tc.name))
     : [];
   const tools = otherCalls.length > 0 ? renderToolCalls(otherCalls) : '';
   return `
     <div class="chat-bubble-row ${cls}">
       <div class="chat-bubble-stack">
         ${tools}
+        ${repoReads}
+        ${repoWrites}
         ${eventCards}
         ${proposalCards}
         ${approvalCards}
-        ${taskCards}
+        ${claudeTasks}
         <div class="chat-bubble">${escape(m.text)}</div>
       </div>
     </div>
   `;
+}
+
+/* ============================================================
+   Repo read cards — list_repos / repo_status / search_tasks / active_tasks_all
+   ============================================================ */
+
+function renderRepoReadCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls.map((tc) => {
+    if (tc.name === 'list_repos')       return renderListReposCard(tc);
+    if (tc.name === 'repo_status')      return renderRepoStatusCard(tc);
+    if (tc.name === 'search_tasks')     return renderTaskListCard(tc, 'search');
+    if (tc.name === 'active_tasks_all') return renderTaskListCard(tc, 'all-active');
+    return '';
+  }).filter(Boolean).join('');
+}
+
+function renderListReposCard(tc) {
+  let repos;
+  try { repos = JSON.parse(tc.result_preview || '[]'); } catch { return ''; }
+  if (!Array.isArray(repos) || repos.length === 0) return '';
+  const rows = repos.map((r) => {
+    const count = typeof r.active_task_count === 'number' ? r.active_task_count : '?';
+    const countCls = count > 0 ? 'repo-task-count active' : 'repo-task-count';
+    const co = r.company ? `<span class="repo-company">${escape(r.company)}</span>` : '';
+    return `<div class="repo-row">
+      <span class="repo-name">${escape(r.name || `#${r.id}`)}</span>
+      ${co}
+      <span class="${countCls}">${count} active</span>
+    </div>`;
+  }).join('');
+  return `
+    <div class="chat-repo-card">
+      <div class="chat-repo-head">
+        <span class="chat-repo-kind">Repos</span>
+        <span class="chat-repo-meta">${repos.length} tracked</span>
+      </div>
+      <div class="repo-rows">${rows}</div>
+    </div>`;
+}
+
+function renderRepoStatusCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || typeof r !== 'object') return '';
+
+  const name = r.repo_name || 'Repo';
+  const co   = r.repo_company ? ` · ${r.repo_company}` : '';
+  const phases = Array.isArray(r.phases) ? r.phases : [];
+  const active = Array.isArray(r.active_tasks) ? r.active_tasks : [];
+
+  const phaseHtml = phases.map((p) => {
+    const dot = p.status === 'shipped' ? '●' : p.status === 'active' ? '◉' : '○';
+    const cls = `repo-phase-dot ${p.status || 'queued'}`;
+    const count = typeof p.task_count === 'number' ? ` (${p.task_count})` : '';
+    return `<span class="${cls}">${dot}</span><span class="repo-phase-name">${escape(p.name || `Phase ${p.phase_num}`)}${count}</span>`;
+  }).join('<span class="repo-phase-sep">→</span>');
+
+  const taskRows = active.slice(0, 8).map((t) => {
+    const age = typeof t.days_since_update === 'number'
+      ? `<span class="repo-task-age${t.days_since_update >= 10 ? ' stale' : ''}">${t.days_since_update}d</span>`
+      : '';
+    return `<div class="repo-task-row">
+      <span class="repo-task-id">${escape(t.task_id || '')}</span>
+      <span class="repo-task-title">${escape(t.title || '—')}</span>
+      ${age}
+    </div>`;
+  }).join('');
+  const moreStr = active.length > 8 ? `<div class="repo-task-more">+${active.length - 8} more active</div>` : '';
+  const backlog = typeof r.backlog_count === 'number' && r.backlog_count > 0
+    ? `<div class="repo-task-more">${r.backlog_count} in backlog</div>` : '';
+
+  return `
+    <div class="chat-repo-card">
+      <div class="chat-repo-head">
+        <span class="chat-repo-kind">${escape(name)}${escape(co)}</span>
+        <span class="chat-repo-meta">${active.length} active</span>
+      </div>
+      ${phases.length ? `<div class="repo-phase-strip">${phaseHtml}</div>` : ''}
+      ${active.length ? `<div class="repo-task-list">${taskRows}${moreStr}</div>` : ''}
+      ${backlog}
+    </div>`;
+}
+
+function renderTaskListCard(tc, kind) {
+  let tasks;
+  try { tasks = JSON.parse(tc.result_preview || '[]'); } catch { return ''; }
+  if (!Array.isArray(tasks)) return '';
+
+  const label = kind === 'search'
+    ? `Tasks · "${tc.arguments?.query || '…'}"`
+    : 'Active tasks · all repos';
+
+  if (tasks.length === 0) {
+    return `
+      <div class="chat-repo-card">
+        <div class="chat-repo-head">
+          <span class="chat-repo-kind">${escape(label)}</span>
+          <span class="chat-repo-meta">0 results</span>
+        </div>
+        <div class="repo-task-more">nothing found</div>
+      </div>`;
+  }
+
+  const rows = tasks.slice(0, 12).map((t) => {
+    const state = t.state || 'backlog';
+    const age = typeof t.days_since_update === 'number'
+      ? `<span class="repo-task-age${t.days_since_update >= 10 ? ' stale' : ''}">${t.days_since_update}d</span>`
+      : '';
+    const repo = t.repo_name ? `<span class="repo-task-repo">${escape(t.repo_name)}</span>` : '';
+    return `<div class="repo-task-row">
+      ${taskStateBadge(state)}
+      <span class="repo-task-id">${escape(t.task_id || '')}</span>
+      <span class="repo-task-title">${escape(t.title || '—')}</span>
+      ${repo}${age}
+    </div>`;
+  }).join('');
+  const more = tasks.length > 12 ? `<div class="repo-task-more">+${tasks.length - 12} more</div>` : '';
+
+  return `
+    <div class="chat-repo-card">
+      <div class="chat-repo-head">
+        <span class="chat-repo-kind">${escape(label)}</span>
+        <span class="chat-repo-meta">${tasks.length} result${tasks.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div class="repo-task-list">${rows}${more}</div>
+    </div>`;
+}
+
+/* ============================================================
+   Repo write cards — write_task / move_task / git_commit_push
+   ============================================================ */
+
+function renderRepoWriteCards(toolCalls) {
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls.map((tc) => {
+    if (tc.name === 'write_task')      return renderWriteTaskCard(tc);
+    if (tc.name === 'move_task')       return renderMoveTaskCard(tc);
+    if (tc.name === 'git_commit_push') return renderGitPushCard(tc);
+    return '';
+  }).filter(Boolean).join('');
+}
+
+function renderWriteTaskCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || !r.task_id) return '';
+  const filePath = (r.file_path || '').replace(/^.*\/tasks\//, 'tasks/');
+  const verb = r.is_new ? 'Created' : 'Updated';
+  return `
+    <div class="chat-repo-write-card">
+      <div class="chat-repo-head">
+        <span class="chat-repo-kind repo-write-kind">Task ${escape(verb)}</span>
+        ${taskStateBadge(r.state || 'backlog')}
+      </div>
+      <div class="repo-write-task-id">${escape(r.task_id)}</div>
+      <div class="repo-write-task-title">${escape(r.title || '—')}</div>
+      ${filePath ? `<div class="repo-write-path">${escape(filePath)}</div>` : ''}
+    </div>`;
+}
+
+function renderMoveTaskCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (!r || !r.task_id) return '';
+  return `
+    <div class="chat-repo-write-card">
+      <div class="chat-repo-head">
+        <span class="chat-repo-kind repo-write-kind">Task Moved</span>
+        ${taskStateBadge(r.new_state || '')}
+      </div>
+      <div class="repo-write-task-id">${escape(r.task_id)}</div>
+      <div class="repo-write-task-meta">→ ${escape(r.new_state || '')}</div>
+    </div>`;
+}
+
+function renderGitPushCard(tc) {
+  let r;
+  try { r = JSON.parse(tc.result_preview || '{}'); } catch { return ''; }
+  if (tc.error) {
+    return `
+      <div class="chat-repo-write-card git-error">
+        <div class="chat-repo-head">
+          <span class="chat-repo-kind repo-write-kind">Git Push</span>
+          <span class="repo-git-status err">✗ failed</span>
+        </div>
+        <div class="repo-write-path err">${escape(tc.error || 'unknown error')}</div>
+      </div>`;
+  }
+  if (r && r.committed === false) {
+    return `
+      <div class="chat-repo-write-card">
+        <div class="chat-repo-head">
+          <span class="chat-repo-kind repo-write-kind">Git</span>
+          <span class="repo-git-status muted">nothing to commit</span>
+        </div>
+      </div>`;
+  }
+  const msg = tc.arguments?.message || '';
+  return `
+    <div class="chat-repo-write-card git-ok">
+      <div class="chat-repo-head">
+        <span class="chat-repo-kind repo-write-kind">Git Pushed</span>
+        <span class="repo-git-status ok">↑ pushed</span>
+      </div>
+      ${msg ? `<div class="repo-write-task-title">${escape(msg)}</div>` : ''}
+    </div>`;
+}
+
+function taskStateBadge(state) {
+  const label = state || 'backlog';
+  return `<span class="repo-state-badge ${escape(label)}">${escape(label)}</span>`;
 }
 
 /** Render live task cards for any claude_ask tool calls on this turn.
