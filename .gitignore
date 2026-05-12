@@ -21,3 +21,6 @@ data/
 
 # Firebase CLI deploy cache (regenerated on every deploy)
 .firebase/
+
+# Claude Code worktrees — ephemeral, never commit
+.claude/worktrees/
