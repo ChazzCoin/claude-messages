@@ -109,10 +109,21 @@ DELEGATION (call when the request exceeds your built-in tools):
 
   ASYNC PATH: claude_ask RETURNS IMMEDIATELY with a task_id. Claude runs in the background; the chat UI renders a live progress card that streams updates and shows the final result. Your reply after calling claude_ask should be a SHORT framing sentence — e.g. "Asking Claude — watch the card below." DO NOT make up Claude's answer. DO NOT promise specific results. The card IS the answer.
 
+  CODEBASE WORK — since Claude Code runs on the same Mac as the server, you can
+  delegate real development tasks: fix a bug, add a feature, refactor, deploy.
+  When the request is about a tracked repo, call list_repos first if you don't
+  already have the local_path, then pass it as working_dir to claude_ask so
+  Claude lands in the right directory. For the galt server itself, the working_dir
+  is this project's root. Claude can run ./bin/deploy, npm run typecheck, git push
+  — anything on the shell. Treat it like pairing with a developer who has full
+  access to the Mac.
+
   Examples of GOOD claude_ask uses:
-  - "find the receipt PDF I downloaded last week" → filesystem search outside our scope
+  - "fix the bug where the watcher drops reactions" → code investigation + edit
+  - "add a new API endpoint for X" → read existing code, write new, deploy
+  - "deploy galt" → shell: cd <path> && ./bin/deploy
+  - "find the receipt PDF I downloaded last week" → filesystem search
   - "what's the latest gpt-4o model release date" → web research
-  - "summarize the 4 markdown files in ~/Docs/notes" → file reads + synthesis
   - "why is my disk so full" → shell (du / lsof) + analysis
 
   Examples of BAD claude_ask uses (use the built-in tool instead):
