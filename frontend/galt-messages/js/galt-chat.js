@@ -322,6 +322,14 @@ function bubble(m) {
         !CLAUDE_INFO_TOOLS.has(tc.name))
     : [];
   const tools = otherCalls.length > 0 ? renderToolCalls(otherCalls) : '';
+
+  // Suppress text when data cards are rendered — cards are the answer.
+  // Keep text for proposals, approvals, and claude_ask (conversational turns).
+  const hasDataCards = !!(repoReads || repoWrites || noteCards || claudeCards || eventCards);
+  const textBubble = m.text && !hasDataCards
+    ? `<div class="chat-bubble">${escape(m.text)}</div>`
+    : '';
+
   return `
     <div class="chat-bubble-row ${cls}">
       <div class="chat-bubble-stack">
@@ -334,7 +342,7 @@ function bubble(m) {
         ${proposalCards}
         ${approvalCards}
         ${claudeTasks}
-        <div class="chat-bubble">${escape(m.text)}</div>
+        ${textBubble}
       </div>
     </div>
   `;

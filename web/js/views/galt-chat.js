@@ -285,6 +285,16 @@ function renderBubble(m) {
         !CLAUDE_INFO_TOOLS.has(tc.name))
     : [];
   const tools = readCalls.length > 0 ? renderToolStrip(readCalls) : '';
+
+  // Suppress the text bubble whenever data cards are rendered — the card IS
+  // the answer and the text just echoes it. Keep text for conversational
+  // turns: proposals ("should I schedule this?"), approvals, and claude_ask
+  // delegation notes ("kicked it off, watch the card").
+  const hasDataCards = !!(repoReads || repoWrites || noteCards || claudeCards || events);
+  const textBubble = m.text && !hasDataCards
+    ? `<div class="galt-chat-bubble">${escapeHtml(m.text)}</div>`
+    : '';
+
   return `
     <div class="galt-chat-row ${cls}">
       ${tools}
@@ -296,7 +306,7 @@ function renderBubble(m) {
       ${proposals}
       ${approvals}
       ${claudeTasks}
-      <div class="galt-chat-bubble">${escapeHtml(m.text)}</div>
+      ${textBubble}
       ${meta}
     </div>
   `;
