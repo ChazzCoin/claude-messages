@@ -105,6 +105,16 @@ Tasks (in suggested ship order):
 
 ---
 
+## Phase 7 — Companion remote control
+
+> **Scope.** Features that elevate the companion PWA from observer + toggle panel to a real action surface: approving task PRs, merging them, and eventually other write operations the owner needs to complete from their phone. Each feature follows the existing Firebase command bus pattern — frontend sends a command, backend executes, pushes updated state.
+
+Tasks (in suggested ship order):
+
+- TASK-064 — Fix companion merge-PR button after new-task creation
+
+---
+
 ## Cross-cutting
 
 Tasks that don't fit a single phase — typically infrastructure that
