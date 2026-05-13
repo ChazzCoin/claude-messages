@@ -4271,6 +4271,39 @@ details.chat-task-event.tool-result .chat-task-event-tool {
   cursor: pointer;
 }
 .coss-repo-picker:focus { outline: none; border-color: var(--cos-c); }
+
+/* Galt global pill — always-on at head of queue. Sun-gold accent so it
+   reads as the "general Claude" entry point. */
+.coss-pill-global {
+  border-color: color-mix(in srgb, var(--sun-c) 30%, var(--cos-border));
+}
+.coss-pill-global.active {
+  background: color-mix(in srgb, var(--sun-c) 12%, var(--bg-2));
+  border-color: var(--sun-c);
+  color: var(--sun-c);
+}
+.coss-pill-global.active .coss-pill-dot { background: var(--sun-c); }
+
+/* + new pill — dashed border, dim until hovered/active */
+.coss-pill-new {
+  border-style: dashed;
+  color: var(--text-faint);
+}
+.coss-pill-new:hover,
+.coss-pill-new.active {
+  color: var(--cos-c);
+  border-color: var(--cos-c);
+  border-style: solid;
+}
+.coss-pill-plus {
+  font-size: 13px; font-weight: 600; line-height: 1;
+}
+
+/* Body card variant when global pill is active */
+.coss-card-global {
+  border-left-color: var(--sun-c);
+  border-color: color-mix(in srgb, var(--sun-c) 25%, var(--cos-border));
+}
 .coss-pill-count {
   font-size: 9.5px; font-weight: 700; font-family: ui-monospace, monospace;
   background: color-mix(in srgb, var(--cos-c) 18%, transparent);

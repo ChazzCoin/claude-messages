@@ -28,48 +28,92 @@ function escape(v) {
 
 /* ---------- COSS state (Claude Output Sessions Sheet) ---------- */
 
-let _cossActiveRepoId = null;
-let _cossSessions = [];
-let _cossAllRepos = [];
+// COSS active selection: either 'global' (no repo), or a repo id number.
+// 'new' is a transient mode that shows the repo picker but doesn't send.
+let _cossMode         = 'global';   // 'global' | 'repo' | 'new'
+let _cossActiveRepoId = null;       // valid when _cossMode === 'repo'
+let _cossSessions     = [];
+let _cossAllRepos     = [];
+let _cossGlobalSession = null;      // { session_id, last_used, task_count } | null
+
+export function getCOSSMode() { return _cossMode; }
 
 export function getActiveCOSSRepoId() {
-  // If a session pill is selected, use that. Otherwise fall back to the
-  // repo picker shown in the empty/start-new state (so the user can fire
-  // the first message and have the backend create the session row).
-  if (_cossActiveRepoId) return _cossActiveRepoId;
-  const picker = document.querySelector('[data-id="coss-repo-picker"]');
-  const v = picker?.value ? parseInt(picker.value, 10) : NaN;
-  return Number.isFinite(v) ? v : null;
+  // Existing session pill takes priority.
+  if (_cossMode === 'repo' && _cossActiveRepoId) return _cossActiveRepoId;
+  // 'new' mode falls back to the picker value (so the first send can create a session).
+  if (_cossMode === 'new') {
+    const picker = document.querySelector('[data-id="coss-repo-picker"]');
+    const v = picker?.value ? parseInt(picker.value, 10) : NaN;
+    return Number.isFinite(v) ? v : null;
+  }
+  return null;
 }
 
 export function selectCOSSSession(repoId) {
+  _cossMode = 'repo';
   _cossActiveRepoId = Number.isFinite(repoId) ? repoId : null;
-  renderCOSSQueue(_cossSessions, _cossAllRepos);
+  renderCOSSQueue(_cossSessions, _cossAllRepos, _cossGlobalSession);
 }
 
-export function renderCOSSQueue(sessions, repos) {
+export function selectCOSSGlobal() {
+  _cossMode = 'global';
+  _cossActiveRepoId = null;
+  renderCOSSQueue(_cossSessions, _cossAllRepos, _cossGlobalSession);
+}
+
+export function startCOSSNewSession() {
+  _cossMode = 'new';
+  _cossActiveRepoId = null;
+  renderCOSSQueue(_cossSessions, _cossAllRepos, _cossGlobalSession);
+}
+
+export function renderCOSSQueue(sessions, repos, globalSession) {
   _cossSessions = sessions || [];
-  if (repos) _cossAllRepos = repos;
+  if (repos)         _cossAllRepos = repos;
+  if (globalSession !== undefined) _cossGlobalSession = globalSession;
 
   const queueEl = $('[data-id="coss-queue"]');
   const countEl = $('[data-id="coss-session-count"]');
-  if (countEl) countEl.textContent = _cossSessions.length ? String(_cossSessions.length) : '';
-
-  // Auto-select first session when nothing is selected
-  if (!_cossActiveRepoId && _cossSessions.length) {
-    _cossActiveRepoId = _cossSessions[0].id;
-  }
+  // Count = repo sessions + 1 for global. Hide if only global exists.
+  const total = _cossSessions.length + 1;
+  if (countEl) countEl.textContent = total > 1 ? String(total) : '';
 
   if (queueEl) {
-    queueEl.innerHTML = _cossSessions.map((s) => {
-      const active = _cossActiveRepoId === s.id;
-      return `
+    const pills = [];
+
+    // Always-on Galt global pill.
+    const globalActive = _cossMode === 'global';
+    const globalCount  = _cossGlobalSession?.task_count ?? 0;
+    pills.push(`
+      <button class="coss-session-pill coss-pill-global${globalActive ? ' active' : ''}" data-action="coss-select-global">
+        <span class="coss-pill-dot${globalActive ? ' active' : ''}"></span>
+        <span class="coss-pill-name">Galt</span>
+        ${globalCount ? `<span class="coss-pill-count">${globalCount}</span>` : ''}
+      </button>`);
+
+    // Repo session pills.
+    for (const s of _cossSessions) {
+      const active = _cossMode === 'repo' && _cossActiveRepoId === s.id;
+      pills.push(`
         <button class="coss-session-pill${active ? ' active' : ''}" data-action="coss-session-select" data-repo-id="${s.id}">
           <span class="coss-pill-dot${active ? ' active' : ''}"></span>
           <span class="coss-pill-name">${escape(s.name)}</span>
           ${s.task_count ? `<span class="coss-pill-count">${s.task_count}</span>` : ''}
-        </button>`;
-    }).join('');
+        </button>`);
+    }
+
+    // + new session pill (only if there are repos available to attach to).
+    if (_cossAllRepos.length) {
+      const newActive = _cossMode === 'new';
+      pills.push(`
+        <button class="coss-session-pill coss-pill-new${newActive ? ' active' : ''}" data-action="coss-new-session" aria-label="Start a new repo session">
+          <span class="coss-pill-plus">＋</span>
+          <span class="coss-pill-name">new</span>
+        </button>`);
+    }
+
+    queueEl.innerHTML = pills.join('');
   }
 
   _cossRenderBody();
@@ -79,30 +123,54 @@ function _cossRenderBody() {
   const bodyEl = $('[data-id="coss-body"]');
   if (!bodyEl) return;
 
-  // No sessions yet — show a repo picker so the user can start one.
-  if (!_cossSessions.length) {
+  // 'new' mode — show the repo picker, regardless of whether sessions exist.
+  if (_cossMode === 'new') {
     if (!_cossAllRepos.length) {
       bodyEl.innerHTML = '<div class="coss-empty">No repos registered yet. Register a repo first, then come back to start a session.</div>';
       return;
     }
-    const opts = _cossAllRepos.map((r) =>
+    // Skip repos that already have an active session.
+    const existing = new Set(_cossSessions.map((s) => s.id));
+    const available = _cossAllRepos.filter((r) => !existing.has(r.id));
+    if (!available.length) {
+      bodyEl.innerHTML = '<div class="coss-empty">Every registered repo already has a session. Use a pill above to talk to it, or reset it from Settings.</div>';
+      return;
+    }
+    const opts = available.map((r) =>
       `<option value="${r.id}">${escape(r.name)}${r.company ? ' · ' + escape(r.company) : ''}</option>`
     ).join('');
     bodyEl.innerHTML = `
       <div class="coss-start-card">
-        <div class="coss-start-title">Start a new session</div>
+        <div class="coss-start-title">Start a new repo session</div>
         <div class="coss-start-hint">Pick the repo to attach the session to. The first message you send below will create it.</div>
         <select class="coss-repo-picker" data-id="coss-repo-picker">${opts}</select>
       </div>`;
     return;
   }
 
+  // 'global' mode — talking to Galt without a repo.
+  if (_cossMode === 'global') {
+    const g = _cossGlobalSession;
+    const ago = g?.last_used ? formatAgo(Date.now() - g.last_used) : '—';
+    bodyEl.innerHTML = `
+      <div class="coss-session-card coss-card-global">
+        <div class="coss-session-name">Galt — global</div>
+        <div class="coss-session-meta">
+          ${g?.task_count ? `<span>${g.task_count} message${g.task_count !== 1 ? 's' : ''}</span>` : '<span>fresh session</span>'}
+          ${g?.last_used ? `<span>last active ${ago}</span>` : ''}
+        </div>
+        <div class="coss-session-hint">No repo attached — talk to Claude about anything →</div>
+      </div>`;
+    return;
+  }
+
+  // 'repo' mode — talking to a specific repo's session.
   const selected = _cossActiveRepoId
     ? _cossSessions.find((s) => s.id === _cossActiveRepoId)
-    : _cossSessions[0];
+    : null;
 
   if (!selected) {
-    bodyEl.innerHTML = '<div class="coss-empty">Select a session above.</div>';
+    bodyEl.innerHTML = '<div class="coss-empty">Pick a session pill above.</div>';
     return;
   }
 
@@ -130,7 +198,7 @@ export function renderAll(store) {
   renderBriefing(store);
   renderPushPanel();
   updateRepoMicSelect(store.state?.repo_sessions || []);
-  renderCOSSQueue(store.state?.repo_sessions || [], store.repos || []);
+  renderCOSSQueue(store.state?.repo_sessions || [], store.repos || [], store.state?.global_session ?? null);
 }
 
 /** Populate the repo selector(s) on the home screen from /state.repo_sessions. */

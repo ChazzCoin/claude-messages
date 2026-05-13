@@ -12,7 +12,7 @@
 // the user sees the click registered.
 
 import { sendCommand, getStore } from './state.js';
-import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel, renderRepoPage, openRepoPage, closeRepoPage, renderTaskDetail, selectCOSSSession, getActiveCOSSRepoId } from './render.js';
+import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel, renderRepoPage, openRepoPage, closeRepoPage, renderTaskDetail, selectCOSSSession, getActiveCOSSRepoId, selectCOSSGlobal, startCOSSNewSession, getCOSSMode } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
 import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId, openCOSSSheet, startDictation } from './galt-chat.js';
 
@@ -358,14 +358,37 @@ const HANDLERS = {
     if (Number.isFinite(repoId)) selectCOSSSession(repoId);
   },
 
-  /* coss-send — route text to the selected repo's persistent session */
+  /* coss-select-global — switch to the global (no-repo) Galt session */
+  'coss-select-global': () => selectCOSSGlobal(),
+
+  /* coss-new-session — enter "new session" mode (shows the repo picker) */
+  'coss-new-session': () => startCOSSNewSession(),
+
+  /* coss-send — route text to whichever session is active. The COSS mode
+     decides which backend command fires:
+       - 'global' → global_claude_task (no repo, persistent Galt session)
+       - 'repo'   → repo_claude_task (existing repo session)
+       - 'new'    → repo_claude_task (creates a session for the picked repo) */
   'coss-send': async () => {
     const input = document.querySelector('[data-id="coss-input"]');
     if (!input) return;
     const text = input.value.trim();
     if (!text) return;
+    const mode = getCOSSMode();
+
+    if (mode === 'global') {
+      input.value = '';
+      try {
+        await sendCommand('global_claude_task', { text });
+        showToast('sent to Galt', 'ok');
+      } catch (err) {
+        showToast(`session: ${err.message}`, 'error');
+      }
+      return;
+    }
+
     const repoId = getActiveCOSSRepoId();
-    if (!repoId) { showToast('Select a session first', 'error'); return; }
+    if (!repoId) { showToast('Pick a repo first', 'error'); return; }
     input.value = '';
     try {
       await sendCommand('repo_claude_task', { repo_id: repoId, text });

@@ -8,7 +8,7 @@
 // device. If that ever changes, swap the path to /state/<device_id> and
 // add device_id selection on the frontend.
 
-import { getSettings, listAwayContacts, countUnreviewedAutoNotes, getDeviceId, getAiUsageStats, listRepos, getRepoSessions, type RepoSessionRow } from './db/app.js';
+import { getSettings, listAwayContacts, countUnreviewedAutoNotes, getDeviceId, getAiUsageStats, listRepos, getRepoSessions, getGlobalSession, type RepoSessionRow, type GlobalSessionRow } from './db/app.js';
 import {
   countActiveAwaySessions,
   countActiveSummonSessions,
@@ -86,6 +86,11 @@ interface StateSnapshot {
     last_used: number;
     task_count: number;
   }>;
+  /** Persistent global (no-repo) Claude session. Always present after
+   *  the first global message — null until then. The companion always
+   *  shows a "Galt — global" pill regardless; this field carries the
+   *  usage stats once they exist. */
+  global_session: GlobalSessionRow | null;
 }
 
 function buildSnapshot(): StateSnapshot {
@@ -143,7 +148,16 @@ function buildSnapshot(): StateSnapshot {
     },
     calendars: safeListCalendars(),
     repo_sessions: buildRepoSessions(),
+    global_session: safeGetGlobalSession(),
   };
+}
+
+function safeGetGlobalSession(): GlobalSessionRow | null {
+  try { return getGlobalSession(); }
+  catch (err) {
+    console.warn('[firebase-state] global_session read failed:', (err as Error).message);
+    return null;
+  }
 }
 
 function buildRepoSessions(): StateSnapshot['repo_sessions'] {

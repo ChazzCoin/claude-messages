@@ -31,6 +31,9 @@ import {
   getOrCreateRepoSession,
   touchRepoSession,
   resetRepoSession,
+  getOrCreateGlobalSession,
+  touchGlobalSession,
+  resetGlobalSession,
 } from './db/app.js';
 import { exportCalendarProposal, dismissCalendarProposal } from './calendar-export.js';
 import { cancelTask, startClaudeTask } from './task-runner.js';
@@ -351,6 +354,29 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       const repoId = typeof p.repo_id === 'number' ? p.repo_id : NaN;
       if (!Number.isFinite(repoId)) throw new Error('repo_id required');
       const newId = resetRepoSession(repoId);
+      void pushStateSnapshot();
+      return { ok: true, new_session_id: newId };
+    }
+
+    case 'global_claude_task': {
+      // Conversational task with the persistent global (no-repo) Claude
+      // session. Used for general discussion that isn't tied to a repo.
+      const text = typeof p.text === 'string' ? p.text.trim() : '';
+      if (!text) throw new Error('text required');
+
+      const sessionId = getOrCreateGlobalSession();
+      touchGlobalSession();
+
+      const task = startClaudeTask({
+        task:       text,
+        session_id: sessionId,
+        max_turns:  50,
+      });
+      return { ok: true, task_id: task.id };
+    }
+
+    case 'reset_global_session': {
+      const newId = resetGlobalSession();
       void pushStateSnapshot();
       return { ok: true, new_session_id: newId };
     }

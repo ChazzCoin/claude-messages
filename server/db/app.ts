@@ -417,6 +417,17 @@ function migrate(db: DB) {
       last_used   INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
       task_count  INTEGER NOT NULL DEFAULT 0
     );
+
+    -- Singleton row holding the persistent "global" Claude session — used
+    -- for conversations that aren't tied to a specific repo. Same shape as
+    -- repo_sessions; the CHECK keeps the table to one row.
+    CREATE TABLE IF NOT EXISTS global_sessions (
+      id          INTEGER PRIMARY KEY CHECK (id = 1),
+      session_id  TEXT    NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+      last_used   INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+      task_count  INTEGER NOT NULL DEFAULT 0
+    );
   `);
 
   // Defensive ALTERs for upgrades from prior schema.
@@ -3004,4 +3015,61 @@ export function getRepoSessions(): RepoSessionRow[] {
   return getAppDb()
     .prepare('SELECT * FROM repo_sessions ORDER BY last_used DESC')
     .all() as RepoSessionRow[];
+}
+
+/* ── Global (non-repo) Claude session ─────────────────────────────────
+   Single persistent session used when the user wants to talk to Claude
+   without attaching a repo. Mirrors the repo_sessions shape so the
+   /state snapshot can render it alongside repo sessions in COSS.
+   ────────────────────────────────────────────────────────────────── */
+
+export interface GlobalSessionRow {
+  session_id: string;
+  created_at: number;
+  last_used:  number;
+  task_count: number;
+}
+
+export function getOrCreateGlobalSession(): string {
+  const db = getAppDb();
+  const existing = db.prepare(
+    'SELECT session_id FROM global_sessions WHERE id = 1'
+  ).get() as { session_id: string } | undefined;
+  if (existing) return existing.session_id;
+  const id = randomUUID();
+  db.prepare(
+    'INSERT INTO global_sessions (id, session_id) VALUES (1, ?)'
+  ).run(id);
+  return id;
+}
+
+export function touchGlobalSession(): void {
+  getAppDb().prepare(
+    `UPDATE global_sessions
+     SET last_used  = strftime('%s', 'now') * 1000,
+         task_count = task_count + 1
+     WHERE id = 1`
+  ).run();
+}
+
+export function resetGlobalSession(): string {
+  const db = getAppDb();
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO global_sessions (id, session_id)
+     VALUES (1, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       session_id = excluded.session_id,
+       created_at = strftime('%s', 'now') * 1000,
+       last_used  = strftime('%s', 'now') * 1000,
+       task_count = 0`
+  ).run(id);
+  return id;
+}
+
+export function getGlobalSession(): GlobalSessionRow | null {
+  const row = getAppDb()
+    .prepare('SELECT session_id, created_at, last_used, task_count FROM global_sessions WHERE id = 1')
+    .get() as GlobalSessionRow | undefined;
+  return row ?? null;
 }
