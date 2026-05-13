@@ -12,25 +12,37 @@
 // the user sees the click registered.
 
 import { sendCommand, getStore } from './state.js';
-import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel } from './render.js';
+import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel, renderRepoPage, openRepoPage, closeRepoPage, renderTaskDetail } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
-import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision } from './galt-chat.js';
+import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo } from './galt-chat.js';
 
 /* ---------- the registry ---------- */
 
 const HANDLERS = {
   /* sheet open/close */
-  'open-settings': () => openSheet('settings'),
   'open-status':   () => openSheet('status'),
   'edit-away':     () => openSheet('away'),
 
   /* navigation — hash-routed SPA. main.js applyRoute() reacts to
      hashchange and starts the chat subscription / focuses input. */
   'open-chat':     () => { location.hash = '#/chat'; },
+  'open-notes':     () => { location.hash = '#/notes'; },
+  'open-briefing':  () => { location.hash = '#/briefing'; },
   'nav-home':      () => { location.hash = '#/'; },
+  // Re-apply voice UI every time settings opens so the toggle reflects
+  // the real localStorage state regardless of when it was last set.
+  'open-settings': () => { openSheet('settings'); initVoice(); },
 
   'chat-send':     () => { void sendChatTurn(); },
   'chat-clear':    () => { void clearChat(); },
+  'voice-toggle':         () => { toggleVoice(); },
+  'voice-settings-toggle':() => { toggleVoice(); },
+  'chat-mic':             () => { toggleMic(); },
+  'voice-test':           () => { testVoice(); },
+  'memory-mic':           () => { startMemoryMic(); },
+  'memory-dismiss':       () => { dismissMemoryResponse(); },
+  'claude-mic':           () => { startClaudeMic(); },
+  'claude-dismiss':       () => { dismissClaudePanel(); },
 
   /* calendar proposal approve / dismiss — sent via the /commands bus
      (export_calendar_proposal / dismiss_calendar_proposal). Backend
@@ -122,6 +134,231 @@ const HANDLERS = {
     }
   },
 
+  'briefing-refresh': async () => {
+    try {
+      await sendCommand('refresh_repos');
+      // No toast needed — the /repos subscription re-renders automatically.
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  },
+
+  /* open-repo — tap a repo row in the briefing → full-screen task management page */
+  'open-repo': (target) => {
+    const repoId = parseInt(target.closest('[data-repo-id]')?.dataset.repoId ?? target.dataset.repoId, 10);
+    if (!Number.isFinite(repoId)) return;
+    const repo = (getStore().repos || []).find((r) => r.id === repoId);
+    if (!repo) { showToast('repo not found', 'error'); return; }
+    // Merge in-session COS PRs (local dashboard) with snapshot PRs (companion).
+    // Snapshot PRs use task_id (snake_case); normalize to taskId for renderRepoPage.
+    const cosPRs  = getCOSOpenPRsForRepo(repoId);
+    const cosIds  = new Set(cosPRs.map((x) => x.taskId));
+    const snapPRs = (repo.open_prs || [])
+      .filter((x) => !cosIds.has(x.task_id))
+      .map((x) => ({ taskId: x.task_id, pr: x.pr }));
+    const openPRs = [...cosPRs, ...snapPRs];
+    renderRepoPage(repo, openPRs);
+    openRepoPage();
+  },
+
+  /* close-repo-page — back button on the repo page overlay */
+  'close-repo-page': () => closeRepoPage(),
+
+  /* close-task-detail — dismiss task detail sheet */
+  'close-task-detail': () => closeSheet('task-detail'),
+
+  /* view-task — tap a task row to read its full spec */
+  'view-task': (target) => {
+    const taskId = target.closest('[data-task-id]')?.dataset.taskId;
+    const repoId = parseInt(target.closest('[data-repo-id]')?.dataset.repoId, 10);
+    if (!taskId || !repoId) return;
+
+    const store = getStore();
+    const repo  = (store.repos || []).find((r) => r.id === repoId);
+    if (!repo) return;
+
+    // Search across all task lists
+    const allTasks = [
+      ...(repo.active_tasks || []),
+      ...(repo.backlog_tasks || []),
+      ...(repo.done_tasks || []),
+    ];
+    const task = allTasks.find((t) => t.task_id === taskId);
+    if (!task) return;
+
+    // Build phase map for the detail label
+    const phaseMap = {};
+    for (const p of (repo.phases || [])) phaseMap[p.phase_num] = p;
+
+    renderTaskDetail(task, repo, phaseMap);
+    openSheet('task-detail');
+  },
+
+  /* rsh-tab — tab strip in the repo page */
+  'rsh-tab': (target) => {
+    const tab = target.dataset.tab;
+    if (!tab) return;
+    const tabStrip = target.closest('[data-id="rsh-tabs"]');
+    if (tabStrip) {
+      for (const btn of tabStrip.querySelectorAll('.rsh-tab')) btn.classList.remove('active');
+      target.classList.add('active');
+    }
+    const panels = document.querySelectorAll('.rsh-tab-panel');
+    for (const panel of panels) {
+      panel.style.display = panel.dataset.tabPanel === tab ? '' : 'none';
+    }
+  },
+
+  /* start-repo-task (Assign) — implement spec via Claude, open COS */
+  'start-repo-task': async (target) => {
+    const repoId = parseInt(target.dataset.repoId, 10);
+    const taskId = target.dataset.taskId;
+    if (!Number.isFinite(repoId) || !taskId) return;
+    target.disabled = true;
+    target.textContent = '…';
+    try {
+      const result = await sendCommand('start_repo_task', { repo_id: repoId, task_id: taskId });
+      const uuid = result?.task_id;
+      if (!uuid) throw new Error('no task_id returned');
+      target.disabled = false; target.textContent = '▶ Assign';
+      closeSheet('task-detail');
+      openClaudeOutputSheet(uuid, `Assign: ${result?.spec_title || taskId}`, repoId);
+    } catch (err) {
+      target.disabled = false;
+      target.textContent = '▶ Assign';
+      showToast(`assign failed: ${err.message}`, 'error');
+    }
+  },
+
+  /* spec-repo-task (Spec) — expand stub to full spec via Claude, open COS */
+  'spec-repo-task': async (target) => {
+    const repoId = parseInt(target.dataset.repoId, 10);
+    const taskId = target.dataset.taskId;
+    if (!Number.isFinite(repoId) || !taskId) return;
+    target.disabled = true;
+    target.textContent = '…';
+    try {
+      const result = await sendCommand('spec_task', { repo_id: repoId, task_id: taskId });
+      const uuid = result?.task_id;
+      if (!uuid) throw new Error('no task_id returned');
+      target.disabled = false; target.textContent = '◎ Spec';
+      closeSheet('task-detail');
+      openClaudeOutputSheet(uuid, `Spec: ${result?.spec_title || taskId}`, repoId);
+    } catch (err) {
+      target.disabled = false;
+      target.textContent = '◎ Spec';
+      showToast(`spec failed: ${err.message}`, 'error');
+    }
+  },
+
+  /* rsh-create-task — reveal narrative form for task creation */
+  'rsh-create-task': (target) => {
+    const form = document.querySelector('[data-id="rsh-create-form"]');
+    if (!form) return;
+    form.dataset.createType = 'task';
+    form.dataset.repoId = target.dataset.repoId;
+    const label = form.querySelector('[data-id="rsh-create-label"]');
+    if (label) label.textContent = 'Describe the task you want:';
+    const input = form.querySelector('[data-id="rsh-create-input"]');
+    if (input) input.value = '';
+    form.style.display = 'flex';
+    input?.focus();
+  },
+
+  /* rsh-create-phase — reveal narrative form for phase creation */
+  'rsh-create-phase': (target) => {
+    const form = document.querySelector('[data-id="rsh-create-form"]');
+    if (!form) return;
+    form.dataset.createType = 'phase';
+    form.dataset.repoId = target.dataset.repoId;
+    const label = form.querySelector('[data-id="rsh-create-label"]');
+    if (label) label.textContent = 'Describe the phase you want to plan:';
+    const input = form.querySelector('[data-id="rsh-create-input"]');
+    if (input) input.value = '';
+    form.style.display = 'flex';
+    input?.focus();
+  },
+
+  /* rsh-create-submit — send narrative to Claude, open COS */
+  'rsh-create-submit': async (target) => {
+    const form = document.querySelector('[data-id="rsh-create-form"]');
+    if (!form) return;
+    const type      = form.dataset.createType;
+    const repoId    = parseInt(form.dataset.repoId, 10);
+    const input     = form.querySelector('[data-id="rsh-create-input"]');
+    const narrative = input?.value?.trim();
+    if (!narrative) { showToast('describe what you want first', 'error'); return; }
+    const submitBtn = form.querySelector('[data-action="rsh-create-submit"]');
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '…'; }
+    try {
+      const cmd   = type === 'task' ? 'create_repo_task' : 'create_repo_phase';
+      const label = type === 'task' ? '＋ Create task' : '⊕ Plan phase';
+      const result = await sendCommand(cmd, { repo_id: repoId, narrative });
+      const uuid   = result?.task_id;
+      if (!uuid) throw new Error('no task_id returned');
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '→ Create'; }
+      form.style.display = 'none';
+      openClaudeOutputSheet(uuid, label, repoId);
+    } catch (err) {
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '→ Create'; }
+      showToast(err.message, 'error');
+    }
+  },
+
+  /* rsh-create-cancel — hide the narrative form */
+  'rsh-create-cancel': () => {
+    const form = document.querySelector('[data-id="rsh-create-form"]');
+    if (form) form.style.display = 'none';
+  },
+
+  /* cos-task-select — switch the active task view in the COS */
+  'cos-task-select': (target) => {
+    const taskId = target.dataset.taskId;
+    if (taskId) selectCOSTask(taskId);
+  },
+
+  /* open-cos — reopen the COS sheet (floating pill or any trigger) */
+  'open-cos': () => openSheet('cos'),
+
+  /* close-cos — dismiss the COS sheet (tasks keep running) */
+  'close-cos': () => closeSheet('cos'),
+
+  /* approve-pr — squash merge the open PR */
+  'approve-pr': async (target) => {
+    const taskId  = target.dataset.taskId;
+    const repoId  = parseInt(target.dataset.repoId, 10);
+    const prNumber = parseInt(target.dataset.prNumber, 10);
+    if (!taskId || !Number.isFinite(prNumber)) return;
+    target.disabled = true;
+    target.textContent = 'Merging…';
+    try {
+      await sendCommand('approve_pr', { task_id: taskId, repo_id: repoId, pr_number: prNumber });
+      showToast('PR merged ✓', 'ok');
+    } catch (err) {
+      target.disabled = false;
+      target.textContent = '✓ Merge';
+      showToast(`merge failed: ${err.message}`, 'error');
+    }
+  },
+
+  /* deny-pr — close (reject) the open PR */
+  'deny-pr': async (target) => {
+    const taskId  = target.dataset.taskId;
+    const repoId  = parseInt(target.dataset.repoId, 10);
+    const prNumber = parseInt(target.dataset.prNumber, 10);
+    if (!taskId || !Number.isFinite(prNumber)) return;
+    target.disabled = true;
+    target.textContent = 'Closing…';
+    try {
+      await sendCommand('deny_pr', { task_id: taskId, repo_id: repoId, pr_number: prNumber });
+      showToast('PR closed', 'ok');
+    } catch (err) {
+      target.disabled = false;
+      target.textContent = '✗ Close';
+      showToast(`close failed: ${err.message}`, 'error');
+    }
+  },
+
   /* away message editor */
   'save-away': async () => {
     const input = document.querySelector('[data-id="away-input"]');
@@ -173,6 +410,15 @@ const HANDLERS = {
   },
 
   /* notes */
+  'mark-all-reviewed': async () => {
+    try {
+      await sendCommand('mark_all_notes_reviewed');
+      showToast('all notes marked reviewed', 'ok');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  },
+
   'view-source': async (target) => {
     const id = parseInt(target.dataset.noteId, 10);
     if (!Number.isFinite(id)) return;
@@ -294,6 +540,13 @@ export function wireEventDelegation() {
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-action], [data-toggle], [data-close]');
     if (!t) return;
+
+    // If the click landed inside a [data-action-stop] zone but the resolved
+    // action element (t) is outside that zone, we're about to fire a parent
+    // action that the stop zone is blocking. Skip it.
+    const stopZone = e.target.closest('[data-action-stop]');
+    if (stopZone && !stopZone.contains(t)) return;
+
     // <select> change events handled below — clicking the select to
     // open it shouldn't trigger the action handler.
     if (t.tagName === 'SELECT') return;
@@ -325,9 +578,9 @@ export function wireEventDelegation() {
   wireDebouncedSave('voice-profile',  'set_voice_profile',  'voice profile saved');
   wireDebouncedSave('default-away',   'set_away_message',   'default away saved');
 
-  // Escape closes any open sheet (desktop ergonomics)
+  // Escape closes any open sheet or page overlay (desktop ergonomics)
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeAllSheets();
+    if (e.key === 'Escape') { closeAllSheets(); closeRepoPage(); }
   });
 }
 

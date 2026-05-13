@@ -3,16 +3,19 @@
 import { startSubscriptions, subscribe } from './state.js';
 import { renderAll, hideBoot } from './render.js';
 import { wireEventDelegation } from './actions.js';
-import { wireChatInput, startChatSubscription, focusChatInput } from './galt-chat.js';
+import { wireChatInput, startChatSubscription, focusChatInput, startMemoryMic } from './galt-chat.js';
 
 // Hash routing — minimal SPA.
-//   #/        → home (notes feed)
+//   #/        → home (toggles + quick views + quick actions)
 //   #/chat    → galt chat full-page
-// More routes (e.g. #/chat/settings) can land here later. We don't
-// bring in a router library; the surface is tiny.
+//   #/notes   → notes feed full-page
+// We don't bring in a router library; the surface is tiny.
 function applyRoute() {
   const raw = (location.hash || '#/').replace(/^#/, '');
-  const route = raw.startsWith('/chat') ? 'chat' : 'home';
+  const route = raw.startsWith('/chat')     ? 'chat'
+              : raw.startsWith('/notes')    ? 'notes'
+              : raw.startsWith('/briefing') ? 'briefing'
+              : 'home';
   const app = document.querySelector('.app');
   if (app) app.dataset.route = route;
   if (route === 'chat') {
@@ -27,6 +30,11 @@ function boot() {
   wireChatInput();
   startSubscriptions();
   subscribe(renderAll);
+
+  // Start the chat subscription at boot — not just when the chat route
+  // opens. This makes TTS and the memory mic work from any page since
+  // renderMessages (and its speakText call) fires globally.
+  startChatSubscription();
 
   applyRoute();
   window.addEventListener('hashchange', applyRoute);

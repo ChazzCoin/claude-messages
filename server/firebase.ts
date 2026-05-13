@@ -15,6 +15,12 @@
 //   /state                     live snapshot of settings + contacts +
 //                              health, written on boot and after every
 //                              mutation. Single key — single-user app.
+//   /repos/<id>                per-repo snapshot (phases, active tasks,
+//                              backlog/done counts, recent audit). Written
+//                              by firebase-repos.ts after every extract,
+//                              manual refresh, register, or delete.
+//                              The companion subscribes here for the
+//                              briefing page — no command round-trip.
 //   /commands/<auto_id>        intents pushed by the frontend; the
 //                              listener in firebase-commands.ts picks
 //                              them up, applies locally, writes a

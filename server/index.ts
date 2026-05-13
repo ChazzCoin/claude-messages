@@ -162,6 +162,7 @@ import { extractRepo, isClaudeKitRepo } from './integrations/repo-monitor.js';
 import { googleChat } from './integrations/google-chat.js';
 import { mirrorAutoNote, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
+import { pushRepoSnapshot, pushAllRepoSnapshots, mirrorDeleteRepo } from './firebase-repos.js';
 import { startCommandListener, stopCommandListener } from './firebase-commands.js';
 import { sendPushToAll } from './firebase-push.js';
 import { sendChatTurn, listChatHistory, clearChatHistory } from './ai/galt-chat.js';
@@ -1966,6 +1967,7 @@ app.post('/api/repos', async (req, res) => {
     description: snapshot.meta.description,
   });
   upsertRepoSnapshot(row.id, snapshot, snapshot.latest_commit_sha);
+  void pushRepoSnapshot(row.id);   // mirror new repo to RTDB
 
   // Start the watcher if this is the first registered repo.
   if (!repoWatcher.isRunning()) repoWatcher.start();
@@ -2105,6 +2107,7 @@ app.delete('/api/repos/:id', (req, res) => {
   if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
   const ok = deleteRepo(id);
   if (!ok) return res.status(404).json({ error: 'not found' });
+  void mirrorDeleteRepo(id);   // remove RTDB doc
   res.json({ ok: true });
 });
 
@@ -2117,6 +2120,7 @@ app.post('/api/repos/:id/refresh', async (req, res) => {
   try {
     const snapshot = await extractRepo(repo.local_path);
     upsertRepoSnapshot(id, snapshot, snapshot.latest_commit_sha);
+    void pushRepoSnapshot(id);   // push fresh snapshot to RTDB
     res.json({ ok: true, snapshot_at: snapshot.snapshot_at });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -3310,6 +3314,9 @@ const server = app.listen(config.port, config.host, () => {
   // Push initial state snapshot so the remote console reflects the live
   // server immediately on boot, not only after the first user mutation.
   void pushStateSnapshotNow();
+  // Mirror all current repo snapshots so the companion briefing page
+  // is populated immediately without waiting for the next watcher poll.
+  void pushAllRepoSnapshots();
   // Start the RTDB command listener so the remote console can push
   // intents back to this Mac.
   startCommandListener();

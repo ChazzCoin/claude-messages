@@ -79,40 +79,66 @@ export interface ListEventsOptions {
   limit?: number;
 }
 
-/** Returns events whose start_date falls within the window. Hidden,
- *  phantom-master, and reminder rows are filtered out. */
-export function listEventsInWindow(opts: ListEventsOptions = {}): DbCalendarEvent[] {
-  const hoursBack  = Math.max(0, Math.min(720,  opts.hoursBack  ?? 0));
-  const hoursAhead = Math.max(0, Math.min(8760, opts.hoursAhead ?? 168));
-  const limit      = Math.max(1, Math.min(1000, opts.limit ?? 200));
-
-  const now = Date.now();
-  const startUnixMs = now - hoursBack  * 3_600_000;
-  const endUnixMs   = now + hoursAhead * 3_600_000;
+/** Core query: returns events whose start falls in [startUnixMs, endUnixMs).
+ *
+ *  Sources both CalendarItem (non-recurring + recurring masters that
+ *  materialized as their own row) and OccurrenceCache (recurring
+ *  occurrences that Calendar.app has pre-computed). The UNION covers
+ *  the known gap: recurring events only appear in OccurrenceCache, not
+ *  as separate CalendarItem rows.
+ *
+ *  Deduped by (start, title) to collapse the common case where an event
+ *  appears in both tables (e.g. the first occurrence of a recurring series
+ *  sometimes has a CalendarItem row AND an OccurrenceCache entry). */
+function queryEventsInRange(startUnixMs: number, endUnixMs: number, limit: number): DbCalendarEvent[] {
   const startApple = unixMsToAppleSeconds(startUnixMs);
   const endApple   = unixMsToAppleSeconds(endUnixMs);
 
   const db = getDb();
   const rows = db.prepare(`
-    SELECT
-      ci.UUID                   AS uid,
-      ci.summary                AS title,
-      ci.start_date             AS start_apple,
-      ci.end_date               AS end_apple,
-      ci.description            AS notes,
-      ci.all_day                AS all_day,
-      c.title                   AS calendar
-    FROM CalendarItem ci
-    LEFT JOIN Calendar c ON c.ROWID = ci.calendar_id
-    WHERE ci.hidden = 0
-      AND ci.entity_type != 1
-      AND (ci.phantom_master IS NULL OR ci.phantom_master = 0)
-      AND ci.start_date IS NOT NULL
-      AND ci.start_date >= ?
-      AND ci.start_date <  ?
-    ORDER BY ci.start_date ASC
+    SELECT uid, title, start_apple, end_apple, notes, all_day, calendar
+    FROM (
+      -- Non-recurring events and recurring masters with their own row
+      SELECT
+        ci.UUID       AS uid,
+        ci.summary    AS title,
+        ci.start_date AS start_apple,
+        ci.end_date   AS end_apple,
+        ci.description AS notes,
+        ci.all_day    AS all_day,
+        c.title       AS calendar
+      FROM CalendarItem ci
+      LEFT JOIN Calendar c ON c.ROWID = ci.calendar_id
+      WHERE ci.hidden = 0
+        AND ci.entity_type != 1
+        AND (ci.phantom_master IS NULL OR ci.phantom_master = 0)
+        AND ci.start_date IS NOT NULL
+        AND ci.start_date >= ?
+        AND ci.start_date <  ?
+
+      UNION ALL
+
+      -- Recurring event occurrences pre-computed by Calendar.app
+      SELECT
+        ci.UUID              AS uid,
+        ci.summary           AS title,
+        oc.occurrence_date   AS start_apple,
+        oc.occurrence_end_date AS end_apple,
+        ci.description       AS notes,
+        ci.all_day           AS all_day,
+        c.title              AS calendar
+      FROM OccurrenceCache oc
+      JOIN CalendarItem ci ON ci.ROWID = oc.event_id
+      LEFT JOIN Calendar c ON c.ROWID = oc.calendar_id
+      WHERE ci.hidden = 0
+        AND ci.entity_type != 1
+        AND oc.occurrence_date IS NOT NULL
+        AND oc.occurrence_date >= ?
+        AND oc.occurrence_date <  ?
+    )
+    ORDER BY start_apple ASC
     LIMIT ?
-  `).all(startApple, endApple, limit) as Array<{
+  `).all(startApple, endApple, startApple, endApple, limit) as Array<{
     uid: string | null;
     title: string | null;
     start_apple: number | null;
@@ -122,9 +148,6 @@ export function listEventsInWindow(opts: ListEventsOptions = {}): DbCalendarEven
     calendar: string | null;
   }>;
 
-  // Dedup by (start, title) — the cache db often has the same event
-  // duplicated across stores when iCloud and a CalDAV account both
-  // sync the same calendar (especially Holidays in United States).
   const seen = new Set<string>();
   const out: DbCalendarEvent[] = [];
   for (const r of rows) {
@@ -140,13 +163,38 @@ export function listEventsInWindow(opts: ListEventsOptions = {}): DbCalendarEven
       title: r.title,
       start_iso: new Date(startMs).toISOString(),
       end_iso: new Date(endMs).toISOString(),
-      location: null, // location is in a separate Location table; future work
+      location: null,
       notes: r.notes || null,
       calendar: r.calendar || '',
       all_day: !!r.all_day,
     });
   }
   return out;
+}
+
+/** Returns all events on a specific calendar day (midnight → midnight, local time).
+ *  Use this for "today", "tomorrow", "this Friday" — any day-scoped query. */
+export function listEventsOnDate(dateStr: string, limit = 200): DbCalendarEvent[] {
+  // Parse as local midnight — avoids the UTC-offset shift that new Date('YYYY-MM-DD') causes.
+  const parts = dateStr.split('-').map(Number);
+  const [year, month, day] = [parts[0] ?? 0, parts[1] ?? 1, parts[2] ?? 1];
+  const startMs = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+  const endMs   = startMs + 24 * 3_600_000;
+  return queryEventsInRange(startMs, endMs, Math.min(1000, limit));
+}
+
+/** Returns events whose start_date falls within the window. Hidden,
+ *  phantom-master, and reminder rows are filtered out. */
+export function listEventsInWindow(opts: ListEventsOptions = {}): DbCalendarEvent[] {
+  const hoursBack  = Math.max(0, Math.min(720,  opts.hoursBack  ?? 0));
+  const hoursAhead = Math.max(0, Math.min(8760, opts.hoursAhead ?? 168));
+  const limit      = Math.max(1, Math.min(1000, opts.limit ?? 200));
+
+  const now = Date.now();
+  const startUnixMs = now - hoursBack  * 3_600_000;
+  const endUnixMs   = now + hoursAhead * 3_600_000;
+
+  return queryEventsInRange(startUnixMs, endUnixMs, limit);
 }
 
 export function isCalendarDbReadable(): boolean {

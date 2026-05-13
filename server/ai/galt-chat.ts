@@ -292,12 +292,48 @@ function buildLifeContext(): string {
   return parts.join('\n\n');
 }
 
+/** Injected at the very top of every prompt turn so Galt always
+ *  knows exactly when "now" is. Rebuilt per-request so it's never stale. */
+function buildRuntimeContext(): string {
+  const now = new Date();
+
+  const dateStr = now.toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+  const timeStr = now.toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+  });
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  const hour = now.getHours();
+  const timePeriod =
+    hour < 5  ? 'late night' :
+    hour < 12 ? 'morning'    :
+    hour < 17 ? 'afternoon'  :
+    hour < 21 ? 'evening'    : 'night';
+
+  const dayType = (now.getDay() === 0 || now.getDay() === 6) ? 'weekend' : 'weekday';
+
+  return [
+    `<current_datetime>`,
+    `  Date      : ${dateStr}`,
+    `  Time      : ${timeStr}`,
+    `  Timezone  : ${tz}`,
+    `  Period    : ${timePeriod} · ${dayType}`,
+    `  ISO 8601  : ${now.toISOString()}`,
+    `</current_datetime>`,
+    ``,
+    `Use this as your authoritative "now" for any question involving dates, times, scheduling, or recency. Never guess the date.`,
+  ].join('\n');
+}
+
 function buildSystemPrompt(): string {
   const voice = (getSettings().galt_voice_profile || '').trim();
   const repoCtx = buildRepoContext();
   const lifeCtx = buildLifeContext();
 
-  let prompt = SYSTEM_PROMPT_BASE;
+  // Runtime context goes first — Galt reads it before anything else.
+  let prompt = buildRuntimeContext() + '\n\n' + SYSTEM_PROMPT_BASE;
   if (lifeCtx) {
     prompt += `\n\n${lifeCtx}`;
   }

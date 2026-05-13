@@ -37,6 +37,7 @@ import {
   type RepoSnapshot,
   type RepoTask,
 } from './integrations/repo-monitor.js';
+import { pushRepoSnapshot } from './firebase-repos.js';
 
 const execFileP = promisify(execFile);
 
@@ -63,7 +64,7 @@ let cachedSshAuthSock: string | null | undefined = undefined;  // undefined = no
  *
  * Returns null if no agent is reachable.
  */
-async function getSshAuthSock(): Promise<string | null> {
+export async function getSshAuthSock(): Promise<string | null> {
   if (cachedSshAuthSock !== undefined) return cachedSshAuthSock;
 
   // 1. Inherited from the parent shell.
@@ -241,6 +242,7 @@ export class RepoWatcher {
       // --- 3. Full extract ---
       const snapshot = await extractRepo(repo.local_path);
       upsertRepoSnapshot(repo.id, snapshot, snapshot.latest_commit_sha);
+      void pushRepoSnapshot(repo.id);   // mirror to RTDB — fire-and-forget
 
       console.log(
         `[repo-watcher] extracted ${repo.name}: ` +

@@ -16,6 +16,7 @@ const store = {
   state: null,         // { settings, watched_contacts, health, ... }
   notes: [],           // array, sorted newest-first
   notesByGuid: new Map(),
+  repos: [],           // array of repo snapshots from /repos, sorted by company+name
   connected: false,
   lastError: null,
 };
@@ -72,6 +73,28 @@ export function startSubscriptions() {
       arr.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       store.notes = arr;
       store.notesByGuid = map;
+      notify();
+    },
+    (err) => {
+      store.lastError = err.message;
+      notify();
+    },
+  );
+
+  // /repos — per-repo snapshots mirrored by the backend after every
+  // extract / refresh / register. One doc per repo; replaced wholesale.
+  // The companion briefing page subscribes to this instead of firing a
+  // command — data is already live when the page opens.
+  onValue(
+    ref(db, '/repos'),
+    (snap) => {
+      const val = snap.val() || {};
+      const arr = Object.values(val).filter(Boolean);
+      arr.sort((a, b) => {
+        const co = (a.company || '').localeCompare(b.company || '');
+        return co !== 0 ? co : (a.name || '').localeCompare(b.name || '');
+      });
+      store.repos = arr;
       notify();
     },
     (err) => {

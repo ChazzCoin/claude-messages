@@ -66,6 +66,9 @@ async function submitChatTurn(text, { clearInput }) {
   if (!text || !text.trim()) return;
   if (_waitingForGalt) return;  // gate against double-send
 
+  // Cut off Galt if he's mid-sentence — user is taking the turn
+  cancelSpeech();
+
   if (clearInput) {
     const input = document.querySelector('[data-id="chat-input"]');
     if (input) {
@@ -109,6 +112,10 @@ function escape(v) {
     .replaceAll("'", '&#39;');
 }
 
+// Track the last Galt message we spoke so we don't re-speak on every
+// re-render (RTDB pushes can fire multiple times for the same message).
+let _lastSpokenId = null;
+
 function renderMessages(messages) {
   const root = document.querySelector('[data-id="chat-messages"]');
   if (!root) return;
@@ -131,6 +138,32 @@ function renderMessages(messages) {
   if (scroll) {
     // requestAnimationFrame so the layout is settled before we measure.
     requestAnimationFrame(() => { scroll.scrollTop = scroll.scrollHeight; });
+  }
+  // Auto-speak the latest Galt message if voice is enabled and it's new.
+  const last = messages[messages.length - 1];
+  if (last && last.role === 'galt' && last.id !== _lastSpokenId) {
+    const textToSpeak = last.text || '';
+    if (textToSpeak.trim()) {
+      _lastSpokenId = last.id;
+
+      // If a memory mic request was in flight, route the reply through the
+      // memory response panel (voice-off path) or speak it (voice-on path).
+      if (_memoryWaiting) {
+        _memoryWaiting = false;
+        if (voiceEnabled()) {
+          // Voice on: speak, and show speaking state on the memory button.
+          _setMemoryState('speaking');
+          speakText(textToSpeak, { onEnd: () => _setMemoryState('idle') });
+        } else {
+          // Voice off: show reply inline below the memory mic button.
+          _setMemoryState('idle');
+          _setMemoryPanel('reply', textToSpeak);
+        }
+      } else {
+        // Normal chat page flow — speak unconditionally if voice is on.
+        speakText(textToSpeak);
+      }
+    }
   }
 }
 
@@ -157,7 +190,7 @@ function ensureTaskSubscriptions() {
   }
 }
 
-function subscribeToTask(taskId) {
+export function subscribeToTask(taskId) {
   const rowRef = ref(db, `/tasks/${taskId}`);
   const eventsRef = ref(db, `/tasks/${taskId}/events`);
 
@@ -165,6 +198,8 @@ function subscribeToTask(taskId) {
     const task = snap.val();
     if (!task) return;
     updateTaskCardRow(taskId, task);
+    // Keep COS pill dots + task view status in sync
+    _cosOnTaskUpdate(taskId, task.status, task.pr ?? null);
   };
   onValue(rowRef, rowCb);
 
@@ -186,8 +221,10 @@ function subscribeToTask(taskId) {
 }
 
 function updateTaskCardRow(taskId, task) {
-  const card = document.querySelector(`.chat-task-card[data-task-id="${cssEsc(taskId)}"]`);
-  if (!card) return;
+  // querySelectorAll so both mobile and desktop quick-action panels update.
+  const cards = document.querySelectorAll(`.chat-task-card[data-task-id="${cssEsc(taskId)}"]`);
+  if (!cards.length) return;
+  for (const card of cards) {
   const status = task.status || 'queued';
   card.dataset.status = status;
   const statusEl = card.querySelector(`[data-id="task-status-${cssEsc(taskId)}"]`);
@@ -224,15 +261,70 @@ function updateTaskCardRow(taskId, task) {
     const terminal = status === 'succeeded' || status === 'failed' || status === 'cancelled';
     if (terminal) cancelBtn.style.display = 'none';
   }
+
+  // PR card — appears when the onComplete callback mirrors task.pr to RTDB.
+  if (task.pr) {
+    const pr = task.pr;
+    let prSlot = card.querySelector('.chat-task-pr-card');
+    if (!prSlot) {
+      prSlot = document.createElement('div');
+      prSlot.className = 'chat-task-pr-card';
+      card.appendChild(prSlot);
+    }
+    // Only re-render if the state actually changed (avoids button flicker).
+    if (prSlot.dataset.prState === pr.state && prSlot.dataset.prNumber === String(pr.number)) {
+      // state unchanged — skip re-render
+    } else {
+      const isOpen   = pr.state === 'open';
+      const isMerged = pr.state === 'merged';
+      const stateIcon = isMerged ? '✓' : pr.state === 'closed' ? '✗' : '⎇';
+
+      // Truncate body for preview (first non-empty line, max 120 chars)
+      const bodyPreview = (() => {
+        if (!pr.body) return '';
+        const first = pr.body.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('>'));
+        if (!first) return '';
+        return first.length > 120 ? first.slice(0, 120) + '…' : first;
+      })();
+
+      prSlot.innerHTML = `
+        <div class="task-pr-top">
+          <div class="task-pr-breadcrumb">
+            <span class="task-pr-repo">${escape(pr.repo_name)}</span>
+            <span class="task-pr-sep">›</span>
+            <span class="task-pr-num">#${escape(pr.number)}</span>
+            <span class="task-pr-state-badge task-pr-state-${escape(pr.state)}">${stateIcon} ${escape(pr.state)}</span>
+          </div>
+          <a class="task-pr-open-btn" href="${escape(pr.url)}" target="_blank" rel="noopener" title="Open on GitHub">
+            View PR →
+          </a>
+        </div>
+        <div class="task-pr-title">${escape(pr.title)}</div>
+        ${bodyPreview ? `<div class="task-pr-body">${escape(bodyPreview)}</div>` : ''}
+        <div class="task-pr-branch">⎇ ${escape(pr.branch)}</div>
+        ${isOpen ? `
+          <div class="task-pr-actions">
+            <button class="task-pr-merge-btn" data-action="approve-pr" data-task-id="${escape(taskId)}" data-repo-id="${escape(pr.repo_id)}" data-pr-number="${escape(pr.number)}">✓ Merge</button>
+            <button class="task-pr-close-btn" data-action="deny-pr" data-task-id="${escape(taskId)}" data-repo-id="${escape(pr.repo_id)}" data-pr-number="${escape(pr.number)}">✗ Close</button>
+          </div>` : ''}
+      `;
+      prSlot.dataset.prState  = pr.state;
+      prSlot.dataset.prNumber = String(pr.number);
+    }
+  }
+  } // end for (const card of cards)
 }
 
 function appendTaskCardEvent(taskId, ev) {
-  const root = document.querySelector(`[data-id="task-events-${cssEsc(taskId)}"]`);
-  if (!root) return;
+  // querySelectorAll so both mobile and desktop quick-action panels update.
+  const roots = document.querySelectorAll(`[data-id="task-events-${cssEsc(taskId)}"]`);
+  if (!roots.length) return;
   const html = renderTaskEventLine(ev);
   if (!html) return;
-  root.insertAdjacentHTML('beforeend', html);
-  // Auto-scroll if the event lives near the bottom of the chat.
+  for (const root of roots) {
+    root.insertAdjacentHTML('beforeend', html);
+  }
+  // Auto-scroll the chat page if open.
   const scroll = document.querySelector('[data-id="chat-scroll"]');
   if (scroll) requestAnimationFrame(() => { scroll.scrollTop = scroll.scrollHeight; });
 }
@@ -1085,6 +1177,8 @@ export function wireChatInput() {
       void sendChatTurn();
     }
   });
+  // Restore voice state from localStorage on boot
+  initVoice();
 }
 
 /** Focus the input after the sheet animates in. */
@@ -1094,4 +1188,772 @@ export function focusChatInput() {
   // 150ms ≈ matches the sheet slide-up; focusing earlier scrolls the
   // viewport oddly on iOS.
   setTimeout(() => input.focus(), 180);
+}
+
+/* ============================================================
+   Voice module — two-way voice for the companion PWA.
+
+   STT: Web Speech API (SpeechRecognition / webkitSpeechRecognition)
+   TTS: Web Speech Synthesis API (speechSynthesis)
+
+   localStorage keys:
+     galt_voice_enabled — 'true' | 'false'
+     galt_voice_name    — selected SpeechSynthesisVoice name
+
+   Flow (STT):
+     user taps mic → startListening() → onresult → fills input →
+     auto-submits via submitChatTurn()
+
+   Flow (TTS):
+     renderMessages() sees new Galt reply → speakText(text) →
+     speechSynthesis.speak(). cancelSpeech() fires at the top of
+     submitChatTurn so Galt stops talking when user sends a new turn.
+
+   iOS note: speechSynthesis requires a silent utterance fired on
+   the first user gesture to unlock the API. unlockSpeechSynthesis()
+   is called inside toggleVoice() when the user first enables voice.
+   ============================================================ */
+
+const _LS_ENABLED = 'galt_voice_enabled';
+const _LS_VOICE   = 'galt_voice_name';
+
+let _recognition    = null;
+let _listening      = false;
+let _speechUnlocked = false;
+let _isSpeaking     = false;    // true while speechSynthesis is mid-utterance
+let _memoryWaiting  = false;    // true after memory mic submit, waiting for Galt reply
+
+export function voiceEnabled() {
+  return localStorage.getItem(_LS_ENABLED) === 'true';
+}
+
+function _setVoiceEnabled(on) {
+  localStorage.setItem(_LS_ENABLED, String(on));
+  _applyVoiceUI();
+}
+
+function _applyVoiceUI() {
+  const on          = voiceEnabled();
+  const chatPage    = document.querySelector('.chat-page');
+  const primaryBtn  = document.querySelector('[data-id="chat-primary-btn"]');
+  const chatInput   = document.querySelector('[data-id="chat-input"]');
+  const settingsBtn = document.querySelector('[data-id="voice-settings-toggle"]');
+  const picker      = document.querySelector('[data-id="voice-picker"]');
+  const testBtn     = document.querySelector('[data-id="voice-test-btn"]');
+
+  // data-voice on .chat-page drives icon swap + input dimming via CSS
+  if (chatPage) chatPage.dataset.voice = String(on);
+
+  // ALL global voice toggle buttons (mobile header, desktop sidebar, chat header)
+  for (const btn of document.querySelectorAll('.voice-global-btn')) {
+    btn.dataset.on = String(on);
+  }
+
+  // Swap the single chat send/mic button's action
+  if (primaryBtn) {
+    primaryBtn.dataset.action = on ? 'chat-mic' : 'chat-send';
+    primaryBtn.setAttribute('aria-label', on ? 'Speak' : 'Send');
+  }
+
+  // Read-only in voice mode — interim text still streams in via JS
+  if (chatInput)   chatInput.readOnly      = on;
+  if (settingsBtn) settingsBtn.textContent = on ? 'On' : 'Off';
+  if (picker)      picker.style.display    = on ? 'block' : 'none';
+  if (testBtn)     testBtn.style.display   = on ? 'block' : 'none';
+
+  if (!on && _listening) _stopListening();
+}
+
+/** Update data-speaking on all voice buttons + chat send button. */
+function _setSpeakingUI(on) {
+  _isSpeaking = on;
+  for (const btn of document.querySelectorAll('.voice-global-btn')) {
+    btn.dataset.speaking = String(on);
+  }
+  const primaryBtn = document.querySelector('[data-id="chat-primary-btn"]');
+  if (primaryBtn) primaryBtn.dataset.speaking = String(on);
+}
+
+/** Set the memory mic button state (idle | listening | waiting | speaking)
+ *  and update the hint text across both mobile and desktop instances. */
+function _setMemoryState(state) {
+  const hintMap = { idle: 'Tap to speak', listening: 'Listening…', waiting: 'Thinking…', speaking: 'Speaking…' };
+  const hint = hintMap[state] || 'Tap to speak';
+  for (const btn of document.querySelectorAll('[data-id="memory-mic-btn"], [data-id="d-memory-mic-btn"]')) {
+    btn.dataset.memState = state;
+    const hintEl = btn.querySelector('.memory-mic-hint');
+    if (hintEl) hintEl.textContent = hint;
+    const stateLabel = btn.querySelector('.memory-mic-state-label');
+    if (stateLabel) stateLabel.textContent = state === 'idle' ? 'Memory' : hint;
+  }
+}
+
+/** Show / update / hide the inline memory response panel.
+ *  Injects HTML so there's no show/hide fight with CSS display rules.
+ *
+ *  state: 'waiting' | 'reply' | 'hidden' */
+function _setMemoryPanel(state, text = '') {
+  const panels = [
+    document.querySelector('[data-id="memory-response"]'),
+    document.querySelector('[data-id="d-memory-response"]'),
+  ].filter(Boolean);
+
+  if (state === 'hidden') {
+    for (const p of panels) { p.hidden = true; p.innerHTML = ''; }
+    return;
+  }
+
+  if (state === 'waiting') {
+    const html = `
+      <div class="memory-response-loading">
+        <span></span><span></span><span></span>
+      </div>`;
+    for (const p of panels) { p.hidden = false; p.innerHTML = html; }
+    return;
+  }
+
+  if (state === 'reply') {
+    // Exact same structure as brainShell() in the chat renderer —
+    // purple header, ◈ GALT BRAIN · MEMORY, body with the reply text.
+    const html = `
+      <div class="memory-brain-card">
+        <div class="chat-brain-header">
+          <span class="brain-sigil">◈</span>
+          <span class="brain-label">GALT BRAIN</span>
+          <span class="brain-module-sep">·</span>
+          <span class="brain-module">MEMORY</span>
+          <button class="memory-response-dismiss" data-action="memory-dismiss" aria-label="Dismiss">×</button>
+        </div>
+        <div class="brain-body">
+          <div class="brain-memory-content">${escape(text)}</div>
+        </div>
+      </div>`;
+    for (const p of panels) { p.hidden = false; p.innerHTML = html; }
+  }
+}
+
+/** Hide the memory response panel. Exported so actions.js can wire the dismiss button. */
+export function dismissMemoryResponse() {
+  _setMemoryPanel('hidden');
+}
+
+function _unlockSpeechSynthesis() {
+  if (_speechUnlocked || typeof speechSynthesis === 'undefined') return;
+  const u = new SpeechSynthesisUtterance('');
+  u.volume = 0;
+  speechSynthesis.speak(u);
+  _speechUnlocked = true;
+}
+
+/** Strip markdown so it doesn't get read aloud. */
+function _stripMarkdown(text) {
+  return text
+    .replace(/```[\s\S]*?```/g, '')           // fenced code
+    .replace(/`[^`]+`/g, '')                   // inline code
+    .replace(/#+\s/g, '')                      // headings
+    .replace(/\*\*([^*]+)\*\*/g, '$1')        // **bold**
+    .replace(/\*([^*]+)\*/g, '$1')            // *italic*
+    .replace(/__([^_]+)__/g, '$1')            // __bold__
+    .replace(/_([^_]+)_/g, '$1')              // _italic_
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // [label](url)
+    .replace(/^\s*[-*+]\s/gm, '')             // list bullets
+    .replace(/\n{2,}/g, '. ')                 // paragraph breaks → pause
+    .replace(/\n/g, ' ')
+    .trim();
+}
+
+function _getSelectedVoice() {
+  if (typeof speechSynthesis === 'undefined') return null;
+  const name   = localStorage.getItem(_LS_VOICE);
+  const voices = speechSynthesis.getVoices();
+  if (!voices.length) return null;
+  if (name) {
+    const v = voices.find(v => v.name === name);
+    if (v) return v;
+  }
+  return voices.find(v => v.lang.startsWith('en')) || voices[0] || null;
+}
+
+/** Speak a Galt reply aloud. No-op if voice is disabled or unsupported.
+ *  Tracks _isSpeaking so buttons animate during playback. */
+export function speakText(text, { onEnd } = {}) {
+  if (!voiceEnabled()) return;
+  if (!text || !text.trim()) return;
+  if (typeof speechSynthesis === 'undefined') return;
+  cancelSpeech();
+  const u = new SpeechSynthesisUtterance(_stripMarkdown(text));
+  const v = _getSelectedVoice();
+  if (v) u.voice = v;
+  u.rate  = 1.05;
+  u.pitch = 1;
+  u.onstart = () => { _setSpeakingUI(true); };
+  u.onend   = () => { _setSpeakingUI(false); if (onEnd) onEnd(); };
+  u.onerror  = () => { _setSpeakingUI(false); if (onEnd) onEnd(); };
+  speechSynthesis.speak(u);
+}
+
+/** Cancel any in-flight speech. Called at the top of submitChatTurn. */
+export function cancelSpeech() {
+  if (typeof speechSynthesis === 'undefined') return;
+  if (speechSynthesis.speaking || speechSynthesis.pending) {
+    speechSynthesis.cancel();
+    _setSpeakingUI(false);
+  }
+}
+
+function _setListeningUI(on) {
+  for (const btn of document.querySelectorAll('.voice-global-btn')) {
+    btn.dataset.listening = String(on);
+  }
+  const primaryBtn = document.querySelector('[data-id="chat-primary-btn"]');
+  if (primaryBtn) primaryBtn.dataset.listening = String(on);
+}
+
+function _stopListening() {
+  if (_recognition) {
+    try { _recognition.stop(); } catch (_) {}
+    _recognition = null;
+  }
+  _listening = false;
+  _setListeningUI(false);
+}
+
+function _startListening() {
+  if (_listening) { _stopListening(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    showToast('Speech input not supported in this browser', 'error');
+    return;
+  }
+
+  _recognition = new SR();
+  _recognition.lang            = 'en-US';
+  _recognition.interimResults  = true;   // real-time transcript feedback
+  _recognition.maxAlternatives = 1;
+  _recognition.continuous      = false;
+
+  _recognition.onresult = (e) => {
+    // Concatenate all result segments into one live transcript string.
+    // The API delivers a growing array: earlier items may be final,
+    // the last item is interim until it stabilises.
+    let transcript = '';
+    let hasFinal   = false;
+    for (let i = 0; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript;
+      if (e.results[i].isFinal) hasFinal = true;
+    }
+
+    // Populate the input field in real-time so the user can read along.
+    // The field is readOnly in voice mode so this is the only way text
+    // appears there — no conflict with manual typing.
+    const input = document.querySelector('[data-id="chat-input"]');
+    if (input) { input.value = transcript; autosizeInput(input); }
+
+    // Only fire the send when the engine has committed a final result.
+    if (hasFinal && transcript.trim()) {
+      _stopListening();
+      setTimeout(() => void submitChatTurn(transcript.trim(), { clearInput: true }), 80);
+    }
+  };
+
+  _recognition.onerror = (e) => {
+    _stopListening();
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      showToast(`Voice error: ${e.error}`, 'error');
+    }
+  };
+
+  _recognition.onend = () => { if (_listening) _stopListening(); };
+
+  _recognition.start();
+  _listening = true;
+  _setListeningUI(true);
+}
+
+/** Toggle voice on/off (header button + settings toggle). */
+export function toggleVoice() {
+  const on = !voiceEnabled();
+  if (on) {
+    _unlockSpeechSynthesis();
+    populateVoicePicker();
+  } else {
+    _stopListening();
+    cancelSpeech();
+  }
+  _setVoiceEnabled(on);
+}
+
+/** Toggle the mic (listen / stop listening). */
+export function toggleMic() {
+  if (!voiceEnabled()) return;
+  cancelSpeech();        // cut Galt off if he's talking
+  _startListening();
+}
+
+/** Populate the voice picker <select> in settings with English voices. */
+export function populateVoicePicker() {
+  const select = document.querySelector('[data-id="voice-picker"]');
+  if (!select || typeof speechSynthesis === 'undefined') return;
+
+  function fill() {
+    const voices = speechSynthesis.getVoices()
+      .filter(v => v.lang.startsWith('en'))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (!voices.length) return;
+    const saved = localStorage.getItem(_LS_VOICE);
+    select.innerHTML = voices.map(v =>
+      `<option value="${escape(v.name)}"${v.name === saved ? ' selected' : ''}>${escape(v.name)} (${v.lang})</option>`
+    ).join('');
+    select.onchange = () => localStorage.setItem(_LS_VOICE, select.value);
+  }
+
+  // Chrome fires 'voiceschanged'; Safari/iOS may have them immediately
+  if (speechSynthesis.getVoices().length > 0) {
+    fill();
+  } else {
+    speechSynthesis.addEventListener('voiceschanged', fill, { once: true });
+  }
+}
+
+/** Test the currently selected voice. */
+export function testVoice() {
+  speakText("Hey, this is Galt. Voice is working.");
+}
+
+/** Restore voice UI state from localStorage. Called once at boot. */
+export function initVoice() {
+  _applyVoiceUI();
+  if (voiceEnabled()) populateVoicePicker();
+}
+
+/* ============================================================
+   Claude quick-action — home-screen direct Claude delegation.
+
+   Flow:
+     tap → listen → send 'quick_claude' command →
+       backend creates task (startClaudeTask) → returns task_id →
+       subscribe to /tasks/<task_id> → stream events inline
+
+   The injected .chat-task-card reuses ALL existing task-card
+   update machinery (updateTaskCardRow / appendTaskCardEvent).
+   The outer .claude-quick-card provides the blue Claude header.
+   ============================================================ */
+
+let _claudeRec         = null;
+let _claudeListening   = false;
+
+function _setClaudeState(state) {
+  const hintMap = { idle: 'Tap to ask', listening: 'Listening…', waiting: 'Connecting…' };
+  const hint = hintMap[state] || 'Tap to ask';
+  for (const btn of document.querySelectorAll('[data-id="claude-mic-btn"], [data-id="d-claude-mic-btn"]')) {
+    btn.dataset.claudeState = state;
+    const hintEl = btn.querySelector('.claude-mic-hint');
+    if (hintEl) hintEl.textContent = hint;
+    const stateLabel = btn.querySelector('.claude-mic-state-label');
+    if (stateLabel) stateLabel.textContent = state === 'idle' ? 'Claude' : hint;
+  }
+}
+
+function _stopClaudeListening() {
+  if (_claudeRec) { try { _claudeRec.stop(); } catch (_) {} _claudeRec = null; }
+  _claudeListening = false;
+}
+
+/** Inject content into the Claude response panels.
+ *  state: 'hidden' | 'waiting' | 'task'  */
+function _setClaudePanel(state, taskId = '') {
+  const panels = [
+    document.querySelector('[data-id="claude-response"]'),
+    document.querySelector('[data-id="d-claude-response"]'),
+  ].filter(Boolean);
+
+  if (state === 'hidden') {
+    for (const p of panels) { p.hidden = true; p.innerHTML = ''; }
+    return;
+  }
+
+  if (state === 'waiting') {
+    const html = `
+      <div class="claude-quick-card">
+        <div class="claude-quick-header">
+          <span class="claude-sigil">◆</span>
+          <span class="claude-label">CLAUDE</span>
+          <span class="brain-module-sep">·</span>
+          <span class="brain-module">connecting</span>
+          <button class="memory-response-dismiss" data-action="claude-dismiss" aria-label="Dismiss">×</button>
+        </div>
+        <div class="memory-response-loading" style="padding:10px 12px;">
+          <span></span><span></span><span></span>
+        </div>
+      </div>`;
+    for (const p of panels) { p.hidden = false; p.innerHTML = html; }
+    return;
+  }
+
+  if (state === 'task') {
+    // Both panels get the same shell. The first panel's data-ids get
+    // picked up by subscribeToTask; the second panel mirrors via the
+    // querySelectorAll fix in updateTaskCardRow / appendTaskCardEvent.
+    const id = escape(taskId);
+    const cardHtml = `
+      <div class="claude-quick-card">
+        <div class="claude-quick-header">
+          <span class="claude-sigil">◆</span>
+          <span class="claude-label">CLAUDE</span>
+          <span class="brain-module-sep">·</span>
+          <span class="claude-status-badge" data-id="task-status-${id}">queued</span>
+          <button class="memory-response-dismiss" data-action="claude-dismiss" aria-label="Dismiss">×</button>
+        </div>
+        <div class="chat-task-card" data-task-id="${id}" data-status="queued">
+          <div class="chat-task-body">
+            <div class="chat-task-events" data-id="task-events-${id}"></div>
+            <div class="chat-task-message" data-id="task-message-${id}"></div>
+          </div>
+          <div class="chat-task-foot">
+            <div class="chat-task-meta" data-id="task-meta-${id}"></div>
+            <button class="chat-proposal-btn dismiss chat-task-cancel" data-action="task-cancel" data-task-id="${id}">Cancel</button>
+          </div>
+        </div>
+      </div>`;
+    for (const p of panels) { p.hidden = false; p.innerHTML = cardHtml; }
+    // Wire the live RTDB subscription — idempotent guard inside.
+    subscribeToTask(taskId);
+  }
+}
+
+/** Open the repo-task-sheet body with a live task card for the given UUID.
+ *  Called by actions.js after `start_repo_task` returns the task UUID.
+ *  The caller opens the sheet; this function just writes the content + wires the sub. */
+export function openRepoTaskPanel(taskId, title) {
+  const titleEl = document.querySelector('[data-id="repo-task-sheet-title"]');
+  const bodyEl  = document.querySelector('[data-id="repo-task-sheet-body"]');
+  if (!bodyEl) return;
+  if (titleEl) titleEl.textContent = title || 'Task';
+
+  const id = escape(taskId);
+  bodyEl.innerHTML = `
+    <div class="chat-task-card" data-task-id="${id}" data-status="queued">
+      <div class="chat-task-head">
+        <div class="chat-task-kind">⚡ Claude Code</div>
+        <div class="chat-task-status" data-id="task-status-${id}">queued</div>
+      </div>
+      <div class="chat-task-body" data-id="task-body-${id}">
+        <div class="chat-task-events" data-id="task-events-${id}"></div>
+        <div class="chat-task-message" data-id="task-message-${id}"></div>
+      </div>
+      <div class="chat-task-foot">
+        <div class="chat-task-meta" data-id="task-meta-${id}"></div>
+        <button class="chat-proposal-btn dismiss chat-task-cancel" data-action="task-cancel" data-task-id="${id}">Cancel</button>
+      </div>
+    </div>
+  `;
+  subscribeToTask(taskId);
+}
+
+/* ============================================================
+   Claude Output Sheet (COS) — global multi-task stream viewer.
+
+   Design: Galt Brain visual language, Claude-blue palette.
+   Each repo task (assign / spec / create task / create phase)
+   opens a live streaming view inside this sheet. Multiple
+   concurrent tasks are tracked in a pill queue at the top.
+
+   The COS reuses all existing .chat-task-card machinery:
+   subscribeToTask → updateTaskCardRow → appendTaskCardEvent.
+   We inject a .chat-task-card into a .cos-task-view wrapper;
+   the subscription finds it via querySelectorAll.
+   ============================================================ */
+
+const _cosTasks = new Map();  // taskId → { title, repoId, status, pr }
+let   _cosActiveId = null;
+
+/** Open the COS for a new task (or re-focus an existing one). */
+export function openClaudeOutputSheet(taskId, title, repoId) {
+  if (!_cosTasks.has(taskId)) {
+    _cosTasks.set(taskId, {
+      title:   title || taskId,
+      repoId:  repoId ?? null,
+      status:  'queued',
+      pr:      null,
+    });
+    _cosInjectView(taskId, title);
+    subscribeToTask(taskId);
+  }
+  _cosActivate(taskId);
+  // Open the sheet via the existing open/close helpers
+  const backdrop = document.querySelector('[data-id="cos-backdrop"]');
+  const sheet    = document.querySelector('[data-id="cos-sheet"]');
+  if (backdrop) backdrop.dataset.visible = 'true';
+  if (sheet)    sheet.dataset.visible    = 'true';
+}
+
+/** Switch the active task view from a pill tap. */
+export function selectCOSTask(taskId) {
+  if (_cosTasks.has(taskId)) _cosActivate(taskId);
+}
+
+/** Return tasks with open PRs for a given repo — used by renderRepoPage. */
+export function getCOSOpenPRsForRepo(repoId) {
+  const out = [];
+  for (const [taskId, meta] of _cosTasks) {
+    if (meta.repoId === repoId && meta.pr?.state === 'open') {
+      out.push({ taskId, pr: meta.pr });
+    }
+  }
+  return out;
+}
+
+/* -- internal -- */
+
+function _cosInjectView(taskId, title) {
+  const body = document.querySelector('[data-id="cos-body"]');
+  if (!body) return;
+  const id   = escape(taskId);
+  const view = document.createElement('div');
+  view.className          = 'cos-task-view';
+  view.dataset.taskId     = taskId;
+  view.dataset.taskStatus = 'queued';
+  view.style.display      = 'none';
+  view.innerHTML = `
+    <div class="cos-task-header">
+      <span class="cos-task-title-text">${escape(title || taskId)}</span>
+      <span class="cos-task-status-chip" data-id="task-status-${id}">queued</span>
+      <button class="cos-cancel-btn chat-task-cancel" data-action="task-cancel" data-task-id="${id}">Cancel</button>
+    </div>
+    <div class="cos-task-card-wrap">
+      <div class="chat-task-card" data-task-id="${id}" data-status="queued">
+        <div class="chat-task-body" data-id="task-body-${id}">
+          <div class="chat-task-events" data-id="task-events-${id}"></div>
+          <div class="chat-task-message" data-id="task-message-${id}"></div>
+        </div>
+        <div class="chat-task-foot">
+          <div class="chat-task-meta" data-id="task-meta-${id}"></div>
+          <button class="chat-proposal-btn dismiss chat-task-cancel" data-action="task-cancel" data-task-id="${id}">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  body.appendChild(view);
+}
+
+function _cosActivate(taskId) {
+  _cosActiveId = taskId;
+  for (const v of document.querySelectorAll('.cos-task-view')) {
+    v.style.display = v.dataset.taskId === taskId ? '' : 'none';
+  }
+  _cosRenderQueue();
+}
+
+function _cosRenderQueue() {
+  const queueEl  = document.querySelector('[data-id="cos-queue"]');
+  const countEl  = document.querySelector('[data-id="cos-task-count"]');
+  const pillEl   = document.querySelector('[data-id="cos-reopen-pill"]');
+  const reopenCt = document.querySelector('[data-id="cos-reopen-count"]');
+  if (!queueEl) return;
+
+  const pills = [];
+  let hasRunning = false;
+  for (const [id, meta] of _cosTasks) {
+    const isActive = id === _cosActiveId;
+    const st = meta.status || 'queued';
+    if (st === 'running' || st === 'queued') hasRunning = true;
+    pills.push(`
+      <button class="cos-task-pill${isActive ? ' active' : ''}"
+        data-action="cos-task-select" data-task-id="${escape(id)}">
+        <span class="cos-pill-dot" data-status="${escape(st)}"></span>
+        <span>${escape(meta.title.length > 32 ? meta.title.slice(0, 30) + '…' : meta.title)}</span>
+      </button>`);
+  }
+  queueEl.innerHTML = pills.join('');
+
+  const count = _cosTasks.size;
+  if (countEl) countEl.textContent = count > 0 ? String(count) : '';
+
+  // Drive the global reopen pill
+  if (pillEl) {
+    pillEl.dataset.visible = count > 0 ? 'true' : 'false';
+    pillEl.dataset.running = hasRunning ? 'true' : 'false';
+  }
+  if (reopenCt) reopenCt.textContent = count > 0 ? String(count) : '';
+}
+
+/** Called from subscribeToTask's onValue handler — keeps COS in sync. */
+function _cosOnTaskUpdate(taskId, status, pr) {
+  const meta = _cosTasks.get(taskId);
+  if (!meta) return;
+  if (status) {
+    meta.status = status;
+    // Stamp data-task-status on the view element for CSS-driven chip colors
+    const view = document.querySelector(`.cos-task-view[data-task-id="${CSS.escape(taskId)}"]`);
+    if (view) view.dataset.taskStatus = status;
+  }
+  if (pr) meta.pr = pr;
+  _cosRenderQueue();
+}
+
+/** Dismiss the Claude response panel. */
+export function dismissClaudePanel() {
+  _setClaudePanel('hidden');
+}
+
+/** Tap-to-talk quick action for Claude Code delegation.
+ *  Sends the spoken request directly to Claude (not via Galt),
+ *  then streams the task result inline below the button. */
+export async function startClaudeMic() {
+  if (_claudeListening) {
+    _stopClaudeListening();
+    _setClaudeState('idle');
+    return;
+  }
+
+  // Clear any previous result + cancel in-flight speech.
+  _setClaudePanel('hidden');
+  cancelSpeech();
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    showToast('Speech input not supported in this browser', 'error');
+    return;
+  }
+  _unlockSpeechSynthesis();
+
+  const rec = new SR();
+  rec.lang = 'en-US'; rec.interimResults = false; rec.continuous = false;
+
+  rec.onresult = async (e) => {
+    const transcript = e.results[0]?.[0]?.transcript?.trim();
+    if (!transcript) { _stopClaudeListening(); _setClaudeState('idle'); return; }
+
+    _stopClaudeListening();
+    _setClaudeState('waiting');
+    _setClaudePanel('waiting');
+
+    try {
+      const result = await sendCommand('quick_claude', { text: transcript });
+      const taskId = result?.task_id;
+      if (!taskId) throw new Error('no task_id returned');
+      _setClaudeState('idle');   // button resets; card carries the live state
+      _setClaudePanel('task', taskId);
+    } catch (err) {
+      _setClaudeState('idle');
+      _setClaudePanel('hidden');
+      showToast(`Claude: ${err.message}`, 'error');
+    }
+  };
+
+  rec.onerror = (e) => {
+    _stopClaudeListening(); _setClaudeState('idle');
+    if (e.error !== 'no-speech' && e.error !== 'aborted') showToast(`Voice: ${e.error}`, 'error');
+  };
+  rec.onend = () => { if (_claudeListening) { _stopClaudeListening(); _setClaudeState('idle'); } };
+
+  _claudeRec = rec;
+  rec.start();
+  _claudeListening = true;
+  _setClaudeState('listening');
+}
+
+/* ============================================================
+   Memory quick-action mic — home-screen shortcut.
+
+   Tap → listen → send text to Galt as a chat turn.
+   Galt's memory tools (write_memory / read_memory / list_memory)
+   handle the rest from context.
+
+   Output routing:
+     voice ON  → reply spoken aloud via the global subscription
+     voice OFF → navigate to #/chat so the user can read the reply
+
+   iOS note: mic permission is not persisted across PWA launches in
+   WebKit — this is a platform limitation. We call
+   _unlockSpeechSynthesis() here so at minimum TTS is primed. The
+   mic grant popup will appear each time on iOS; there is no
+   workaround short of a native app.
+   ============================================================ */
+
+let _memoryRec       = null;
+let _memoryListeningFlag = false;
+
+function _stopMemoryListening() {
+  if (_memoryRec) {
+    try { _memoryRec.stop(); } catch (_) {}
+    _memoryRec = null;
+  }
+  _memoryListeningFlag = false;
+  // Only reset state if not already handed off to waiting/speaking
+  // (caller decides what state comes next).
+}
+
+/** Tap-to-talk shortcut for the home screen.
+ *
+ *  State machine:
+ *    idle ──tap──▶ listening ──result──▶ waiting ──Galt reply──▶
+ *      voice on:  speaking ──onend──▶ idle
+ *      voice off: idle (inline panel shows reply)
+ *
+ *  Tapping again while listening cancels and resets.
+ */
+export function startMemoryMic() {
+  // If already listening → cancel
+  if (_memoryListeningFlag) {
+    _stopMemoryListening();
+    _setMemoryState('idle');
+    return;
+  }
+  // If waiting or speaking → also cancel (user tapping again means "new request")
+  _setMemoryPanel('hidden');
+  cancelSpeech();
+  _memoryWaiting = false;
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    showToast('Speech input not supported in this browser', 'error');
+    return;
+  }
+
+  // Unlock TTS on this user gesture so the spoken reply works on iOS.
+  _unlockSpeechSynthesis();
+
+  const rec = new SR();
+  rec.lang            = 'en-US';
+  rec.interimResults  = false;
+  rec.maxAlternatives = 1;
+  rec.continuous      = false;
+
+  rec.onresult = (e) => {
+    const transcript = e.results[0]?.[0]?.transcript?.trim();
+    if (!transcript) { _stopMemoryListening(); _setMemoryState('idle'); return; }
+
+    _stopMemoryListening();
+    // Transition to waiting — show the response panel's loading state.
+    _setMemoryState('waiting');
+    _memoryWaiting = true;
+    if (!voiceEnabled()) {
+      // Show inline loading dots so user knows reply is coming.
+      _setMemoryPanel('waiting');
+    }
+
+    // Submit the turn. Reply arrives via the RTDB subscription →
+    // renderMessages detects _memoryWaiting and routes accordingly.
+    void submitChatTurn(transcript, { clearInput: false });
+  };
+
+  rec.onerror = (e) => {
+    _stopMemoryListening();
+    _setMemoryState('idle');
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      showToast(`Voice: ${e.error}`, 'error');
+    }
+  };
+
+  rec.onend = () => {
+    if (_memoryListeningFlag) {
+      _stopMemoryListening();
+      _setMemoryState('idle');
+    }
+  };
+
+  _memoryRec = rec;
+  rec.start();
+  _memoryListeningFlag = true;
+  _setMemoryState('listening');
 }

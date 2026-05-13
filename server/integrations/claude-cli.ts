@@ -156,6 +156,11 @@ export interface ChatTurnOpts {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** Timeout in ms (defaults to 5 minutes — Claude tasks vary widely). */
   timeoutMs?: number;
+  /** Create a git worktree for this session with the given branch/name.
+   *  Equivalent to passing `-w <name>` to the CLI. Claude handles the
+   *  branch + worktree creation; the working dir shifts into it.
+   *  Pass the desired branch name (e.g. "galt/T-042-fix-auth"). */
+  worktreeName?: string;
 }
 
 export interface ChatToolEvent {
@@ -441,6 +446,7 @@ export class StreamingClaudeCli {
     if (opts.disallowedTools && opts.disallowedTools.length > 0) {
       args.push('--disallowedTools', opts.disallowedTools.join(' '));
     }
+    if (opts.worktreeName) args.push('--worktree', opts.worktreeName);
 
     const cwd = opts.workingDir ?? process.cwd();
     const child = spawn(this.binary(), args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });

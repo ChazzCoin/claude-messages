@@ -442,6 +442,14 @@ When making code changes for the user:
 
 ## Conventions
 
+- **Companion quick actions follow a single pattern.** Any home-screen
+  tap-to-speak shortcut (Memory, Claude, or future ones) is built using
+  the quick action pattern: state machine in `galt-chat.js`, button +
+  panel in `index.html` (mobile + desktop), CSS vars in `styles.css`,
+  handler in `actions.js`, command case in `firebase-commands.ts`.
+  Full spec: [`docs/decisions/quick-action-pattern.md`](docs/decisions/quick-action-pattern.md).
+  Existing examples: Memory (◈) and Claude (◆).
+
 - **`text` first, `attributedBody` as fallback.** Apple stores
   modern message bodies in `attributedBody` (serialized
   `NSAttributedString`). Use `resolveMessageText(text,

@@ -33,6 +33,10 @@ import { claudeCliStreamer, type ChatStreamHandle } from './integrations/claude-
  *  and SIGTERM the right one. Cleared on task completion / error. */
 const liveTasks = new Map<string, ChatStreamHandle>();
 
+/** Completion callbacks — registered by callers that need to run
+ *  post-task work (e.g. git push + gh pr create). Cleared after fire. */
+const completionCallbacks = new Map<string, (task: TaskRow) => Promise<void>>();
+
 /** Append + RTDB-mirror in one shot. Fire-and-forget on the RTDB
  *  side; the DB write is the source of truth. */
 function persistEvent(taskId: string, kind: string, data: unknown): void {
@@ -63,10 +67,17 @@ export interface ClaudeTaskInput {
   /** The galt-chat message id that kicked this task off, used for
    *  back-reference + display. */
   source_chat_msg_id?: string;
+  /** Create a git worktree with this branch name before starting.
+   *  Passed as `--worktree <name>` to the Claude CLI. Claude handles
+   *  the branch + worktree creation itself and works inside it. */
+  worktree_name?: string;
   /** Optional: surface a stricter timeout. Defaults to 15 minutes
    *  for Claude tasks (vs the 5min sync chat()) — streaming tasks
    *  can be longer. */
   timeout_ms?: number;
+  /** Called once after the task reaches a terminal state (succeeded,
+   *  failed, or cancelled). Use for post-task work like git push + PR. */
+  onComplete?: (task: TaskRow) => Promise<void>;
 }
 
 /** Kick off a Claude delegation as a background task. Returns the
@@ -91,6 +102,10 @@ export function startClaudeTask(input: ClaudeTaskInput): TaskRow {
     source_chat_msg_id: input.source_chat_msg_id ?? null,
   });
   void mirrorTask(created);
+
+  if (input.onComplete) {
+    completionCallbacks.set(id, input.onComplete);
+  }
 
   // Fire-and-forget — the runner closes the loop on its own.
   void runClaudeTaskBody(created, input);
@@ -125,6 +140,7 @@ async function runClaudeTaskBody(task: TaskRow, input: ClaudeTaskInput): Promise
     model: input.model,
     effort: input.effort,
     maxTurns: input.max_turns ?? 30,
+    worktreeName: input.worktree_name,
   });
   liveTasks.set(task.id, handle);
 
@@ -230,7 +246,7 @@ async function runClaudeTaskBody(task: TaskRow, input: ClaudeTaskInput): Promise
     return;
   }
 
-  persistTaskUpdate(task.id, {
+  const finalRow = persistTaskUpdate(task.id, {
     status: sawError ? 'failed' : 'succeeded',
     result: resultText,
     error: sawError ? resultText : null,
@@ -239,6 +255,17 @@ async function runClaudeTaskBody(task: TaskRow, input: ClaudeTaskInput): Promise
     total_cost_usd: totalCostUsd,
     num_turns: numTurns,
   });
+
+  // Fire onComplete callback — used by repo tasks to push branch + open PR.
+  const cb = completionCallbacks.get(task.id);
+  if (cb) {
+    completionCallbacks.delete(task.id);
+    if (finalRow) {
+      void cb(finalRow).catch((err) => {
+        console.error(`[task-runner] onComplete failed (task=${task.id}):`, (err as Error).message);
+      });
+    }
+  }
 }
 
 /** Cancel a running task. Returns false if the task isn't running

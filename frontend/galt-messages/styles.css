@@ -156,6 +156,315 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 }
 .away-box:hover .away-edit-icon { color: var(--accent); }
 
+/* ── Memory quick-action mic button ────────────────────────── */
+@keyframes memory-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 124, 248, 0.45); }
+  50%       { box-shadow: 0 0 0 7px rgba(139, 124, 248, 0); }
+}
+
+.memory-mic-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 13px 14px;
+  /* Purple-hinted at idle — quick action = first class */
+  background: var(--mem-bg); border: 1px solid var(--mem-border);
+  border-radius: var(--radius); color: var(--mem-c);
+  font-size: 14px; font-weight: 600;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.memory-mic-btn:hover {
+  background: var(--mem-glow); border-color: var(--mem-c);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.2), 0 0 0 3px rgba(139, 124, 248, 0.15);
+}
+.memory-mic-btn:active { background: var(--mem-glow); border-color: var(--mem-c); }
+
+.memory-mic-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--bg-2); border: 1px solid var(--mem-border);
+  flex-shrink: 0; transition: background 0.15s, border-color 0.15s;
+}
+.memory-mic-btn:hover .memory-mic-icon {
+  background: var(--mem-glow); border-color: var(--mem-c);
+}
+.memory-mic-label { font-weight: 600; }
+.memory-mic-hint  { font-size: 12px; color: var(--text-faint); margin-left: auto; }
+
+/* Listening state — hide hint, show active indicator */
+.memory-mic-btn[data-listening="true"] .memory-mic-hint { display: none; }
+
+/* Desktop sidebar variant — compact, matches settings-btn height */
+.sidebar-memory-btn {
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  font-size: 13px; margin-bottom: 6px;
+}
+.sidebar-memory-btn .memory-mic-hint { display: none; }
+.sidebar-memory-btn .memory-mic-icon {
+  width: 22px; height: 22px;
+}
+
+/* ── Memory mic state visuals ──────────────────────────────── */
+/* icon swap: mic shown by default, wave shown while listening */
+.mem-icon-wave { display: none; }
+.memory-mic-btn[data-mem-state="listening"] .mem-icon-mic  { display: none; }
+.memory-mic-btn[data-mem-state="listening"] .mem-icon-wave { display: block; }
+.memory-mic-btn[data-mem-state="speaking"]  .mem-icon-mic  { display: none; }
+
+/* listening — purple pulse */
+.memory-mic-btn[data-mem-state="listening"] {
+  background: var(--mem-glow); border-color: var(--mem-c); color: var(--mem-c);
+  animation: memory-pulse 1.1s ease-in-out infinite;
+}
+/* waiting — subtle, reads as "processing" */
+.memory-mic-btn[data-mem-state="waiting"] {
+  background: var(--bg-elev); border-color: var(--mem-border); color: var(--mem-dim);
+  animation: none;
+}
+/* speaking — slow purple glow */
+@keyframes voice-speak {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139, 124, 248, 0.4); }
+  50%       { box-shadow: 0 0 0 8px rgba(139, 124, 248, 0); }
+}
+.memory-mic-btn[data-mem-state="speaking"] {
+  background: var(--mem-glow); border-color: var(--mem-c); color: var(--mem-c);
+  animation: voice-speak 1.6s ease-in-out infinite;
+}
+
+/* ── Memory inline response panel ─────────────────────────── */
+/* The container is just a margin wrapper — content is injected by JS. */
+.memory-response          { margin-bottom: 14px; }
+.sidebar-memory-response  { margin-bottom: 6px; }
+
+/* Loading state — dots while waiting for Galt reply */
+.memory-response-loading {
+  display: flex; gap: 5px; align-items: center;
+  padding: 10px 12px;
+  background: var(--brain-bg); border: 1px solid var(--brain-border);
+  border-radius: 10px;
+}
+.memory-response-loading span {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--brain); display: inline-block;
+  animation: chat-typing 1.2s infinite ease-in-out;
+}
+.memory-response-loading span:nth-child(2) { animation-delay: 0.2s; }
+.memory-response-loading span:nth-child(3) { animation-delay: 0.4s; }
+
+/* In the standalone memory panel the content should expand to full height —
+   no clip. Override the chat-bubble cap set on .brain-memory-content. */
+.memory-brain-card .brain-memory-content {
+  max-height: none;
+  overflow: visible;
+}
+
+/* Brain-card reply — first-class quick-view container, purple palette */
+.memory-brain-card {
+  background: var(--brain-bg);
+  border: 1px solid var(--brain-border);
+  border-left: 3px solid var(--brain);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+}
+/* Dismiss button sits at the trailing edge of the header */
+.memory-brain-card .chat-brain-header { position: relative; }
+.memory-brain-card .memory-response-dismiss {
+  margin-left: auto;
+  width: 20px; height: 20px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1;
+  color: var(--brain-dim);
+}
+.memory-brain-card .memory-response-dismiss:hover {
+  background: rgba(139, 124, 248, 0.15);
+  color: var(--brain);
+}
+.sidebar-memory-response .memory-response-text { font-size: 13px; }
+
+/* ── Claude quick-action button ────────────────────────────── */
+@keyframes claude-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(91, 156, 248, 0.45); }
+  50%       { box-shadow: 0 0 0 7px rgba(91, 156, 248, 0); }
+}
+.claude-mic-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 13px 14px;
+  /* Hinted blue even at idle — quick action = first class */
+  background: var(--claude-bg); border: 1px solid var(--claude-border);
+  border-radius: var(--radius); color: var(--claude-c);
+  font-size: 14px; font-weight: 600;
+  margin-bottom: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.claude-mic-btn:hover {
+  background: var(--claude-glow); border-color: var(--claude-c);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.2), 0 0 0 3px rgba(91, 156, 248, 0.15);
+}
+
+/* Icon swap — bolt shown at idle, waveform while listening */
+.claude-icon-wave { display: none; }
+.claude-mic-btn[data-claude-state="listening"] .claude-icon-bolt { display: none; }
+.claude-mic-btn[data-claude-state="listening"] .claude-icon-wave { display: block; }
+
+/* State visuals */
+.claude-mic-btn[data-claude-state="listening"] {
+  background: var(--claude-glow); border-color: var(--claude-c);
+  animation: claude-pulse 1.1s ease-in-out infinite;
+}
+.claude-mic-btn[data-claude-state="waiting"] {
+  background: var(--bg-elev); border-color: var(--border-2);
+  color: var(--text-dim); animation: none;
+}
+
+.claude-mic-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--claude-bg); border: 1px solid var(--claude-border);
+  flex-shrink: 0;
+}
+.claude-mic-btn[data-claude-state="listening"] .claude-mic-icon {
+  background: var(--claude-glow); border-color: var(--claude-c);
+}
+.claude-mic-label { font-weight: 600; }
+.claude-mic-hint  { font-size: 12px; color: var(--claude-dim); margin-left: auto; }
+.claude-mic-btn[data-claude-state="listening"] .claude-mic-hint { display: none; }
+
+/* Desktop sidebar compact variant */
+.sidebar-claude-btn {
+  border-radius: var(--radius-sm); padding: 10px 12px;
+  font-size: 13px; margin-bottom: 6px;
+}
+.sidebar-claude-btn .claude-mic-hint { display: none; }
+.sidebar-claude-btn .claude-mic-icon { width: 22px; height: 22px; }
+
+/* ── Claude response panel ──────────────────────────────────── */
+/* Container is a bare margin wrapper — JS injects all content. */
+.claude-response          { margin-bottom: 14px; }
+.sidebar-claude-response  { margin-bottom: 6px; }
+
+/* Loading dots inside the Claude panel — blue tinted */
+.claude-response .memory-response-loading,
+.sidebar-claude-response .memory-response-loading {
+  background: var(--claude-bg); border-color: var(--claude-border);
+}
+.claude-response .memory-response-loading span,
+.sidebar-claude-response .memory-response-loading span {
+  background: var(--claude-c);
+}
+
+/* Claude card — matches brain-card visual language, blue palette.
+   First-class quick-view container — depth shadow + accent border-left. */
+.claude-quick-card {
+  background: var(--claude-bg);
+  border: 1px solid var(--claude-border);
+  border-left: 3px solid var(--claude-c);
+  border-radius: 12px;
+  overflow: hidden;
+  width: 100%;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+  transition: box-shadow 0.2s;
+}
+/* Status-driven border (using :has — supported Safari 15.4+, Chrome 105+) */
+.claude-quick-card:has(.chat-task-card[data-status="running"]) {
+  border-color: var(--claude-c);
+  box-shadow: 0 0 0 1px var(--claude-glow), 0 4px 16px rgba(91,156,248,0.12);
+}
+.claude-quick-card:has(.chat-task-card[data-status="succeeded"]) {
+  border-color: rgba(109, 187, 125, 0.45);
+}
+.claude-quick-card:has(.chat-task-card[data-status="failed"]) {
+  border-color: var(--red);
+}
+.claude-quick-card:has(.chat-task-card[data-status="cancelled"]) {
+  border-color: var(--border-2); opacity: 0.7;
+}
+
+.claude-quick-header {
+  background: var(--claude-header-bg);
+  border-bottom: 1px solid var(--claude-header-bdr);
+  padding: 5px 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+.claude-sigil {
+  font-size: 11px; color: var(--claude-c); flex-shrink: 0; line-height: 1;
+}
+.claude-label {
+  font-family: ui-monospace, monospace;
+  font-size: 9px; font-weight: 800;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--claude-c);
+}
+
+/* Inner task card: reset warm-amber styling, inherit Claude card bg */
+.claude-quick-card .chat-task-card {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 8px 12px 10px;
+}
+/* Status badge inside the header uses claude-dim for the text */
+.claude-status-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 9px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--claude-dim);
+}
+/* Dismiss button in Claude header */
+.claude-quick-header .memory-response-dismiss {
+  margin-left: auto;
+  width: 20px; height: 20px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1;
+  color: var(--claude-dim);
+}
+.claude-quick-header .memory-response-dismiss:hover {
+  background: rgba(91, 156, 248, 0.15); color: var(--claude-c);
+}
+
+/* Task-kind label inside Claude card — blue instead of warm-amber */
+.claude-quick-card .chat-task-kind { color: var(--claude-c); }
+.claude-quick-card .chat-task-card[data-status="running"] {
+  /* no border — outer .claude-quick-card handles it */
+  box-shadow: none;
+}
+
+/* ── Global voice toggle button ────────────────────────────── */
+/* Shared state logic — works in mobile header, desktop sidebar,
+   and on the chat page header (.chat-voice-btn). State drives
+   colors; the parent context sets the size/shape. */
+.voice-global-btn[data-on="true"]       { color: var(--accent); }
+.voice-global-btn[data-listening="true"] {
+  color: var(--accent);
+  animation: voice-pulse 1.2s ease-in-out infinite;
+}
+.voice-global-btn[data-speaking="true"] {
+  color: var(--accent);
+  animation: voice-speak 1.6s ease-in-out infinite;
+}
+
+/* Mobile header variant (inherits .icon-btn sizing: 40×40) */
+.header .voice-global-btn {
+  background: var(--bg-3);
+  transition: color 0.15s, background 0.15s;
+}
+.header .voice-global-btn:hover { background: var(--bg-elev); }
+.header .voice-global-btn[data-on="true"] { background: var(--accent-glow); }
+
+/* Desktop sidebar header variant */
+.sidebar-voice-btn {
+  width: 30px; height: 30px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.sidebar-voice-btn:hover { background: var(--bg-3); color: var(--text-dim); }
+.sidebar-voice-btn[data-on="true"] { background: var(--accent-glow); }
+
 /* Stats panel */
 .sidebar-stats {
   display: flex; flex-direction: column; gap: 6px;
@@ -383,6 +692,754 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .note:hover .note-view-hint { opacity: 1; }
 .note[data-reviewed="true"] .note-view-hint { opacity: 0; }
 
+/* ── Briefing page (route: briefing) ────────────────────────── */
+.briefing-page {
+  display: none;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+.app[data-route="briefing"] .desktop-layout,
+.app[data-route="briefing"] .mobile-layout { display: none; }
+.app[data-route="briefing"] .briefing-page  { display: flex; }
+
+.briefing-header {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  padding: calc(10px + var(--safe-top)) 12px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.briefing-header-title {
+  font-size: 13px; font-weight: 700; letter-spacing: 1.5px;
+  text-transform: uppercase; text-align: center; color: var(--text-dim);
+}
+.briefing-refresh-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: var(--radius-sm);
+  color: var(--text-faint);
+}
+.briefing-refresh-btn:hover { background: var(--bg-3); color: var(--text); }
+
+.briefing-scroll {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  padding: 0 0 80px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Greeting block */
+.brf-greet {
+  padding: 20px 16px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.brf-eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--text-faint);
+  margin-bottom: 4px;
+}
+.brf-day {
+  font-size: 26px; font-weight: 700; letter-spacing: -0.5px;
+  color: var(--text); line-height: 1.1;
+}
+.brf-day .brf-day-accent {
+  color: var(--accent);
+}
+.brf-standup {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 13px; color: var(--text-dim); line-height: 1.6;
+}
+
+/* Stat pill strip */
+.brf-stats {
+  display: flex; gap: 0;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.brf-stats::-webkit-scrollbar { display: none; }
+.brf-stat {
+  display: flex; align-items: center; gap: 5px;
+  padding: 10px 12px 10px 0;
+  font-size: 12px; color: var(--text-dim);
+  white-space: nowrap; flex-shrink: 0;
+}
+.brf-stat + .brf-stat::before {
+  content: '·'; margin-right: 12px;
+  color: var(--border-2);
+}
+.brf-stat-num {
+  font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.brf-stat-num.amber { color: var(--accent); }
+.brf-stat-num.red   { color: var(--red); }
+.brf-stat-num.green { color: var(--green); }
+.brf-stat-num.dim   { color: var(--text-faint); }
+.brf-stat-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.brf-stat-dot.ok     { background: var(--green); }
+.brf-stat-dot.warn   { background: var(--accent); }
+.brf-stat-dot.bad    { background: var(--red); }
+.brf-stat-dot.dim    { background: var(--border-2); }
+
+/* Section tags — uppercase dividers between content blocks */
+.brf-section {
+  padding: 0 16px;
+  margin-top: 16px;
+}
+.brf-section-tag {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--text-faint);
+  margin-bottom: 10px;
+}
+.brf-section-tag::after {
+  content: ''; flex: 1;
+  height: 1px; background: var(--border);
+}
+
+/* Generic panel card */
+.brf-panel {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.brf-panel-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.brf-panel-title {
+  font-size: 13px; font-weight: 600; color: var(--text); flex: 1;
+}
+.brf-panel-count {
+  font-size: 11px; color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.brf-panel-link {
+  font-size: 12px; color: var(--accent); cursor: pointer;
+  flex-shrink: 0;
+}
+.brf-panel-link:hover { opacity: 0.75; }
+
+/* Health grid inside panel */
+.brf-health-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.brf-health-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 9px 12px;
+  font-size: 12px; color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.brf-health-row:nth-child(odd)  { border-right: 1px solid var(--border); }
+.brf-health-row:nth-last-child(-n+2) { border-bottom: none; }
+.brf-health-label { color: var(--text-faint); font-size: 11px; min-width: 44px; }
+.brf-health-val   { font-weight: 600; }
+
+/* Mode chips row */
+.brf-mode-chips {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 12px;
+}
+.brf-mode-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.3px;
+  border: 1px solid var(--border);
+  background: var(--bg-3); color: var(--text-faint);
+}
+.brf-mode-chip[data-on="true"] {
+  background: var(--accent-glow); border-color: var(--accent); color: var(--accent);
+}
+.brf-mode-chip-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; flex-shrink: 0;
+}
+
+/* Note rows inside briefing */
+.brf-note-row {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background 0.12s;
+}
+.brf-note-row:last-child { border-bottom: none; }
+.brf-note-row:hover { background: var(--bg-3); }
+.brf-note-head {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+}
+.brf-note-summary {
+  font-size: 13px; color: var(--text-dim); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
+}
+.brf-note-actions {
+  display: flex; gap: 6px; margin-top: 8px;
+}
+.brf-note-btn {
+  font-size: 11px; padding: 4px 10px; border-radius: 6px;
+  background: var(--bg-3); color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.brf-note-btn:hover { background: var(--bg-elev); color: var(--text); }
+.brf-note-btn.primary { color: var(--accent); border-color: var(--accent); }
+
+/* AI usage rows */
+.brf-ai-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.brf-ai-row:last-child { border-bottom: none; }
+.brf-ai-period { color: var(--text-faint); min-width: 34px; font-size: 11px; }
+.brf-ai-cost   { font-size: 15px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.brf-ai-meta   { color: var(--text-faint); font-size: 11px; margin-left: auto; }
+
+/* Empty state */
+.brf-empty {
+  padding: 14px 12px;
+  font-size: 13px; color: var(--text-faint); font-style: italic;
+}
+
+@media (min-width: 901px) {
+  .briefing-scroll { padding-left: max(0px, calc((100% - 760px) / 2)); padding-right: max(0px, calc((100% - 760px) / 2)); }
+  .briefing-header { padding-left: max(12px, calc((100% - 760px) / 2)); padding-right: max(12px, calc((100% - 760px) / 2)); }
+}
+
+/* ── Notes full page (route: notes) ─────────────────────────── */
+.notes-page {
+  display: none;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+.app[data-route="notes"] .desktop-layout,
+.app[data-route="notes"] .mobile-layout { display: none; }
+.app[data-route="notes"] .notes-page    { display: flex; }
+
+.notes-page-header {
+  display: grid;
+  grid-template-columns: 40px 1fr auto 90px;
+  align-items: center;
+  padding: calc(10px + var(--safe-top)) 12px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.notes-page-title {
+  font-size: 16px; font-weight: 600; text-align: center;
+}
+.notes-page-count {
+  font-size: 12px; color: var(--text-faint);
+  font-variant-numeric: tabular-nums; padding: 0 6px;
+  white-space: nowrap;
+}
+.notes-page-action {
+  font-size: 13px; color: var(--accent);
+  padding: 8px 4px; text-align: right;
+}
+.notes-page-action:hover { opacity: 0.7; }
+.notes-page-scroll {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  padding: 14px 14px 80px;
+  -webkit-overflow-scrolling: touch;
+}
+@media (min-width: 901px) {
+  .notes-page-header { padding-left: max(12px, calc((100% - 760px) / 2)); padding-right: max(12px, calc((100% - 760px) / 2)); }
+  .notes-page-scroll  { padding-left: max(14px, calc((100% - 760px) / 2)); padding-right: max(14px, calc((100% - 760px) / 2)); }
+}
+
+/* ── Quick view — home-screen data preview widgets ──────────── */
+/* Quick views are FIRST CLASS — they should pop and be immediately
+   readable. Warm accent-left-border + depth shadow. */
+.quick-view {
+  margin-bottom: 14px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.22);
+  transition: box-shadow 0.2s;
+}
+.quick-view:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.32), 0 0 0 1px rgba(212,154,107,0.12);
+}
+.quick-view-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 14px;
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--accent) 8%, var(--bg-3)) 0%,
+    var(--bg-3) 60%);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none;
+  transition: background 0.15s;
+}
+.quick-view-header:hover {
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--accent) 14%, var(--bg-elev)) 0%,
+    var(--bg-elev) 60%);
+}
+.quick-view-title {
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 0.015em;
+  color: var(--text);
+}
+.quick-view-badge {
+  font-size: 10.5px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+.quick-view-arrow {
+  margin-left: auto;
+  color: var(--accent); font-size: 13px; line-height: 1;
+  display: flex; align-items: center;
+  transition: transform 0.15s;
+}
+.quick-view:hover .quick-view-arrow { transform: translateX(3px); }
+.quick-view-body {
+  /* no padding — child items provide their own */
+}
+.quick-view-empty {
+  padding: 14px;
+  font-size: 13px; color: var(--text-faint); font-style: italic;
+}
+/* A single note preview card inside the quick view */
+.quick-view-note {
+  display: flex; flex-direction: column; gap: 4px;
+  width: 100%; padding: 12px 14px;
+  text-align: left; cursor: pointer;
+  transition: background 0.12s;
+}
+.quick-view-note:hover { background: var(--bg-elev); }
+.quick-view-note-head {
+  display: flex; align-items: center; gap: 6px;
+}
+.quick-view-note-summary {
+  font-size: 13px; color: var(--text-dim); line-height: 1.45;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Standup text inside the briefing quick view */
+.quick-view-standup {
+  padding: 12px 14px;
+  font-size: 13px; color: var(--text-dim); line-height: 1.55;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.quick-view-standup:hover { background: var(--bg-elev); }
+
+/* ── Repos briefing list (brp-*) — mobile-first, companion theme ── */
+
+/* Top bar: total stats + refresh */
+.brp-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.brp-bar-stat { font-weight: 600; color: var(--text-dim); }
+.brp-bar-sep  { color: var(--border); }
+.brp-stale-badge { color: var(--accent); font-weight: 700; font-size: 11px; }
+.brp-refresh-btn {
+  margin-left: auto;
+  background: none; border: none;
+  color: var(--text-faint); font-size: 15px;
+  padding: 2px 4px; cursor: pointer; border-radius: 4px;
+  line-height: 1;
+}
+.brp-refresh-btn:hover { color: var(--text); }
+
+/* Company divider — subtle label, like a section break */
+.brp-co-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 4px 8px;
+}
+.brp-co-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.brp-co-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Repo card — home screen card matching quick-view / toggle design language */
+.brp-repo-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-left: 3px solid transparent;   /* overridden inline per company color */
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 10px;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.22);
+  transition: box-shadow 0.18s, border-color 0.18s;
+  position: relative;
+}
+.brp-repo-row:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.34), 0 0 0 1px rgba(212,154,107,0.1);
+}
+.brp-repo-row:active { filter: brightness(1.12); }
+
+/* Top band: gradient header sweep (company bg tint applied inline) */
+.brp-repo-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 14px 9px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(to right,
+    rgba(0,0,0,0.12) 0%,
+    transparent 70%);
+}
+
+/* Bottom stats strip */
+.brp-repo-stats {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 7px 14px 8px;
+  font-size: 11px;
+}
+.brp-stat-pill {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 8px 2px 0;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.brp-stat-pill + .brp-stat-pill {
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+.brp-stat-num {
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.brp-stat-num.has-prs  { color: var(--accent); }
+.brp-stat-num.has-active { color: var(--text); }
+
+/* Company divider label also picks up the company color via inline style */
+.brp-co-name { transition: color 0.15s; }
+
+/* Status dot — live/stale/offline indicator */
+.brp-repo-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--border-2);
+}
+.brp-repo-dot.ok    { background: var(--green); box-shadow: 0 0 4px var(--green); }
+.brp-repo-dot.warn  { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+.brp-repo-dot.stale { background: var(--accent); opacity: 0.7; }
+
+/* Main label stack */
+.brp-repo-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.brp-repo-name {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.brp-repo-sub {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-faint);
+}
+.brp-branch { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.brp-repo-sub-sep { color: var(--border-2); }
+
+/* Chevron */
+.brp-repo-chevron {
+  color: var(--text-faint); font-size: 16px; flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.brp-repo-row:hover .brp-repo-chevron { transform: translateX(2px); color: var(--text-dim); }
+
+/* Phase dots — tiny colored dots inline with the sub-row */
+.brp-phase-dots { display: flex; align-items: center; gap: 3px; }
+.brp-phase-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--border-2);
+}
+.brp-phase-dot.active  { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+.brp-phase-dot.shipped { background: var(--green); }
+.brp-phase-dot.queued  { background: var(--border-2); }
+
+/* ── PR scroll rail — horizontal strip of PR chips inside a repo card ── */
+.brp-pr-rail {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  padding: 0 14px 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.brp-pr-rail::-webkit-scrollbar { display: none; }
+
+.brp-pr-chip {
+  flex: 0 0 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 11px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+  scroll-snap-align: start;
+  min-width: 0;
+}
+
+.brp-pr-chip-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.brp-pr-chip-num {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.brp-pr-chip-view {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-faint);
+  text-decoration: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border-2);
+  border-radius: 5px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.brp-pr-chip-view:hover { color: var(--accent); border-color: var(--accent); }
+
+.brp-pr-chip-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.brp-pr-chip-branch {
+  font-size: 10px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.brp-pr-chip-actions {
+  display: flex;
+  gap: 5px;
+  margin-top: 2px;
+}
+.brp-pr-chip-merge,
+.brp-pr-chip-close {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  text-align: center;
+}
+.brp-pr-chip-merge {
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+}
+.brp-pr-chip-merge:hover { background: var(--green); color: var(--bg); border-color: var(--green); }
+.brp-pr-chip-close {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 35%, transparent);
+}
+.brp-pr-chip-close:hover { background: var(--red); color: var(--bg); border-color: var(--red); }
+.brp-pr-chip-merge:disabled,
+.brp-pr-chip-close:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Cross-repo attention + activity panels */
+.brp-panel-section {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+.brp-panel-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 10px 16px 4px;
+}
+.brp-stale-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.brp-stale-repo  { color: var(--text-faint); font-size: 11px; min-width: 60px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brp-stale-title { color: var(--text-dim); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brp-stale-days  { color: var(--accent); font-weight: 700; font-size: 11px; white-space: nowrap; }
+
+.brp-activity-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.brp-activity-emoji { font-size: 13px; flex-shrink: 0; }
+.brp-activity-text  { color: var(--text-dim); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brp-activity-repo  { color: var(--text-faint); font-size: 10px; white-space: nowrap; }
+.brp-activity-date  { color: var(--text-faint); font-size: 10px; white-space: nowrap; min-width: 44px; text-align: right; }
+
+.brp-loading { display: flex; align-items: center; gap: 8px; padding: 16px; color: var(--text-faint); font-size: 12px; }
+.brp-loading::before {
+  content: '';
+  display: inline-block; width: 10px; height: 10px;
+  border: 2px solid var(--border-2); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+
+/* ============================================================
+   Task detail sheet (tds-*) — full spec reader, opens from repo page
+   ============================================================ */
+.task-detail-sheet {
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.tds-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tds-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+.tds-close {
+  background: none; border: none;
+  font-size: 20px; color: var(--text-faint); cursor: pointer;
+  padding: 0 0 0 4px; line-height: 1;
+  flex-shrink: 0;
+}
+.tds-close:hover { color: var(--text); }
+.tds-task-id {
+  font-size: 11px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-faint);
+}
+.tds-badge {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.4px;
+  text-transform: uppercase; padding: 1px 5px; border-radius: 4px;
+}
+.tds-badge.stub {
+  background: color-mix(in srgb, var(--text-faint) 12%, transparent);
+  color: var(--text-faint);
+}
+.tds-badge.spec {
+  background: color-mix(in srgb, var(--claude-c) 14%, transparent);
+  color: var(--claude-c);
+}
+.tds-phase {
+  font-size: 11px; color: var(--text-faint);
+  background: var(--bg-3); border-radius: 4px; padding: 1px 6px;
+}
+.tds-age {
+  font-size: 10.5px; color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+.tds-age.stale { color: var(--accent); font-weight: 600; }
+.tds-title {
+  font-size: 15px; font-weight: 600; color: var(--text);
+  line-height: 1.4; padding: 12px 16px 8px;
+  flex-shrink: 0;
+}
+.tds-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+  font-size: 13px; line-height: 1.65; color: var(--text-dim);
+  white-space: pre-wrap;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.tds-body-empty {
+  color: var(--text-faint); font-style: italic; font-family: inherit;
+  font-size: 13px; padding: 8px 0;
+  white-space: normal;
+}
+.tds-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tds-action-btn {
+  flex: 1;
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-size: 13px; font-weight: 600;
+  border: 1.5px solid;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.tds-action-assign {
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+}
+.tds-action-assign:hover {
+  background: color-mix(in srgb, var(--green) 20%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 25%, transparent);
+}
+.tds-action-spec {
+  background: color-mix(in srgb, var(--claude-c) 12%, transparent);
+  color: var(--claude-c);
+  border-color: color-mix(in srgb, var(--claude-c) 40%, transparent);
+}
+.tds-action-spec:hover {
+  background: color-mix(in srgb, var(--claude-c) 20%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--claude-c) 25%, transparent);
+}
+
 /* ============================================================
    Source-message sheet — opens when a note is tapped
    ============================================================ */
@@ -535,7 +1592,7 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 
 .chat-page-header {
   display: grid;
-  grid-template-columns: 40px 1fr 60px;
+  grid-template-columns: 40px 1fr 36px 60px;
   align-items: center;
   padding: calc(10px + var(--safe-top)) 12px 10px;
   border-bottom: 1px solid var(--border);
@@ -558,6 +1615,29 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   text-align: right;
 }
 .chat-page-action:hover { opacity: 0.7; }
+
+/* Voice toggle button — in the chat header */
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 154, 107, 0.5); }
+  50%       { box-shadow: 0 0 0 6px rgba(212, 154, 107, 0); }
+}
+.chat-voice-btn {
+  width: 32px; height: 32px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  color: var(--text-faint);
+  transition: color 0.15s, background 0.15s;
+}
+.chat-voice-btn:hover { color: var(--text-dim); background: var(--bg-3); }
+.chat-voice-btn[data-on="true"] {
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+.chat-voice-btn[data-listening="true"] {
+  color: var(--accent);
+  background: var(--accent-glow);
+  animation: voice-pulse 1.2s ease-in-out infinite;
+}
 
 .chat-scroll {
   flex: 1;
@@ -955,7 +2035,7 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 }
 .chat-task-event {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 6px;
   font-size: 11.5px;
   color: var(--text-dim);
@@ -989,10 +2069,11 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   color: var(--text-faint);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 10.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
   min-width: 0;
+  flex: 1;
 }
 details.chat-task-event.tool-result { display: block; }
 details.chat-task-event.tool-result > summary {
@@ -1001,8 +2082,9 @@ details.chat-task-event.tool-result > summary {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  overflow: hidden;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  white-space: normal;
 }
 details.chat-task-event.tool-result > summary::-webkit-details-marker { display: none; }
 details.chat-task-event.tool-result .chat-task-event-tool {
@@ -1405,8 +2487,24 @@ details.chat-task-event.tool-result .chat-task-event-tool {
   --brain-bg: rgba(139, 124, 248, 0.06);
   --brain-border: rgba(139, 124, 248, 0.28);
   --brain-header-bg: rgba(139, 124, 248, 0.10);
+
+  /* Claude quick-action card — cool blue, distinct from brain purple */
+  --claude-c:          #5b9cf8;
+  --claude-bg:         rgba(91, 156, 248, 0.06);
+  --claude-border:     rgba(91, 156, 248, 0.30);
+  --claude-header-bg:  rgba(91, 156, 248, 0.10);
+  --claude-header-bdr: rgba(91, 156, 248, 0.18);
+  --claude-dim:        rgba(91, 156, 248, 0.55);
+  --claude-glow:       rgba(91, 156, 248, 0.15);
   --brain-header-border: rgba(139, 124, 248, 0.18);
   --brain-dim: rgba(139, 124, 248, 0.55);
+
+  /* Memory quick-action button — same purple family as brain */
+  --mem-c:      #8b7cf8;
+  --mem-bg:     rgba(139, 124, 248, 0.07);
+  --mem-border: rgba(139, 124, 248, 0.28);
+  --mem-glow:   rgba(139, 124, 248, 0.15);
+  --mem-dim:    rgba(139, 124, 248, 0.55);
 }
 
 .chat-brain-shell {
@@ -1725,6 +2823,44 @@ details.chat-task-event.tool-result .chat-task-event-tool {
 .chat-send:hover { background: var(--accent-dim); }
 .chat-send:active { transform: scale(0.96); }
 
+/* Dual-purpose send/mic button — icon swaps based on voice mode.
+   Both SVGs live inside .chat-send; CSS shows only the relevant one. */
+.btn-icon-mic { display: none; }
+.chat-page[data-voice="true"] .btn-icon-send { display: none; }
+.chat-page[data-voice="true"] .btn-icon-mic  { display: block; }
+
+/* Textarea in voice mode — read-only, dimmed to signal intent */
+.chat-page[data-voice="true"] .chat-input {
+  opacity: 0.65;
+  cursor: default;
+  caret-color: var(--accent);
+}
+
+/* Listening state — pulse the button */
+.chat-send[data-listening="true"] {
+  animation: voice-pulse 1.0s ease-in-out infinite;
+}
+/* Speaking state — slower glow while Galt talks */
+.chat-send[data-speaking="true"] {
+  color: var(--accent);
+  animation: voice-speak 1.6s ease-in-out infinite;
+}
+
+/* Voice settings — select picker */
+.field-select {
+  font: inherit; color: var(--text);
+  background: var(--bg-2); border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm); padding: 8px 10px; width: 100%;
+  outline: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23756558' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+.field-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.field-select option { background: var(--bg-2); }
+
 /* Form fields inside sheets */
 .field-group { display: flex; flex-direction: column; gap: 6px; }
 .field-label {
@@ -1805,6 +2941,998 @@ details.chat-task-event.tool-result .chat-task-event-tool {
   font-size: 13px; font-weight: 500;
 }
 .danger-btn:hover { background: rgba(212,88,90,0.18); }
+
+/* ============================================================
+   Repo detail sheet
+   ============================================================ */
+.brp-repo-header { cursor: pointer; position: relative; }
+.brp-repo-header:hover { opacity: 0.85; }
+.brp-repo-chevron {
+  margin-left: auto;
+  font-size: 18px;
+  color: var(--text-faint);
+  line-height: 1;
+  padding-left: 6px;
+  flex-shrink: 0;
+}
+
+/* Repo meta bar — branch / platform info line */
+.rsh-repo-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.rsh-platform { color: var(--text-faint); font-size: 11px; }
+
+/* ── Quick Options Container ─────────────────────────────────── */
+/* A first-class container for quick-option action buttons.
+   Labeled, elevated, color-coded by intent. */
+.rsh-qo-container {
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.rsh-qo-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+.rsh-qo-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.rsh-qo-hint {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.rsh-qo-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Quick option buttons — shared base ─────────────────────── */
+/* Default: container-level size — prominent, eye-catching.
+   Use .rsh-opt-inline for task-row compact variant. */
+.rsh-quick-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 15px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+.rsh-quick-opt:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Inline variant — compact for task-row context */
+.rsh-opt-inline {
+  padding: 4px 9px;
+  font-size: 11.5px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+/* Assign — green, "go implement this" */
+.rsh-opt-assign {
+  background: color-mix(in srgb, var(--green) 18%, transparent);
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 50%, transparent);
+}
+.rsh-opt-assign:hover:not(:disabled) {
+  background: var(--green);
+  color: var(--bg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
+}
+
+/* Spec — claude-blue, "think / research / plan" */
+.rsh-opt-spec {
+  background: var(--claude-bg);
+  color: var(--claude-c);
+  border-color: var(--claude-border);
+}
+.rsh-opt-spec:hover:not(:disabled) {
+  background: var(--claude-c);
+  color: var(--bg);
+  box-shadow: 0 0 0 3px var(--claude-glow);
+}
+
+/* Create — amber, "add something new to the backlog" */
+.rsh-opt-create {
+  background: var(--accent-glow);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.rsh-opt-create:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* Cancel — ghost, recedes visually */
+.rsh-opt-cancel {
+  background: transparent;
+  color: var(--text-faint);
+  border-color: transparent;
+  font-weight: 500;
+}
+.rsh-opt-cancel:hover { color: var(--text-dim); }
+
+/* Inline create form */
+.rsh-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.rsh-create-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.rsh-create-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  outline: none;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 100px;
+  font-family: inherit;
+}
+.rsh-create-textarea:focus { border-color: var(--accent); }
+.rsh-create-textarea::placeholder { color: var(--text-faint); }
+.rsh-create-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+/* Tab strip */
+.rsh-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.rsh-tab {
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.rsh-tab.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.rsh-tab:hover:not(.active) { opacity: 0.8; }
+
+/* Section empty state */
+.rsh-section-empty {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 16px 0;
+  text-align: center;
+}
+
+/* Phase group header — roadmap grouping in backlog view */
+.rsh-phase-group { margin-bottom: 8px; }
+.rsh-phase-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 4px;
+  border-bottom: 1px solid var(--border-2);
+  margin-bottom: 4px;
+}
+.rsh-phase-group-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.rsh-phase-group-meta {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+/* Task rows */
+.rsh-task-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 10px;
+  background: var(--bg-2);
+  border-radius: 8px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border-2);
+}
+.rsh-task-row.stale { border-color: var(--warn); }
+
+/* Task head row: id + badge + age + action button */
+.rsh-task-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.rsh-task-id {
+  font-size: 10.5px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-faint);
+}
+.rsh-task-age {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  margin-right: auto;
+}
+.rsh-task-age.stale { color: var(--warn); font-weight: 600; }
+.rsh-task-title {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+/* Stub / spec badges */
+.rsh-stub-badge,
+.rsh-spec-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.rsh-stub-badge {
+  background: color-mix(in srgb, var(--text-faint) 12%, transparent);
+  color: var(--text-faint);
+}
+.rsh-spec-badge {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+/* Phase rows in Phases tab */
+.rsh-phase-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-2);
+  border-radius: 8px;
+  margin-bottom: 4px;
+  font-size: 12.5px;
+}
+.rsh-phase-num {
+  font-size: 10.5px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-faint);
+  min-width: 26px;
+}
+.rsh-phase-name { flex: 1; color: var(--text); }
+.rsh-phase-status {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+/* ============================================================
+   Task PR card — injected into .chat-task-card when task.pr arrives
+   ============================================================ */
+.chat-task-pr-card {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Top row: breadcrumb + open button */
+.task-pr-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.task-pr-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  overflow: hidden;
+  min-width: 0;
+}
+.task-pr-repo {
+  color: var(--text-faint);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.task-pr-sep { color: var(--text-faint); }
+.task-pr-num {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.task-pr-state-badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.task-pr-state-open   { background: var(--accent-dim); color: var(--accent); }
+.task-pr-state-merged { background: color-mix(in srgb, var(--green) 20%, transparent); color: var(--green); }
+.task-pr-state-closed { background: var(--bg-2); color: var(--text-faint); }
+
+/* Open on GitHub button */
+.task-pr-open-btn {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.task-pr-open-btn:hover {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* PR title */
+.task-pr-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+/* PR body excerpt */
+.task-pr-body {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+
+/* Branch */
+.task-pr-branch {
+  font-size: 10.5px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-faint);
+}
+
+/* Merge / Close action buttons */
+.task-pr-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+.task-pr-merge-btn,
+.task-pr-close-btn {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  text-align: center;
+}
+.task-pr-merge-btn {
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+  color: var(--green);
+  border-color: var(--green);
+}
+.task-pr-merge-btn:hover:not(:disabled) {
+  background: var(--green);
+  color: var(--bg);
+}
+.task-pr-close-btn {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+  border-color: var(--red);
+}
+.task-pr-close-btn:hover:not(:disabled) {
+  background: var(--red);
+  color: var(--bg);
+}
+.task-pr-merge-btn:disabled,
+.task-pr-close-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+   Page overlay — full-screen slide-in-from-right navigation.
+   Used for the Repo Task Management page.
+   ============================================================ */
+.page-overlay {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  z-index: 92;                            /* above backdrop (90), below sheets (95) */
+  transform: translateX(100%);
+  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex; flex-direction: column;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  overflow: hidden;
+}
+.page-overlay[data-visible="true"] { transform: translateX(0); }
+
+@media (min-width: 901px) {
+  /* On desktop, overlay only covers the main area — leave sidebar visible. */
+  .page-overlay { left: 320px; }
+}
+
+/* ── Repo page header ──────────────────────────────────────── */
+.rpo-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.rpo-back-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: 8px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  transition: all 0.15s;
+}
+.rpo-back-btn:hover { background: var(--accent); color: var(--bg); }
+.rpo-header-name {
+  font-size: 16px; font-weight: 700; color: var(--text);
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rpo-header-chips { display: flex; gap: 5px; flex-shrink: 0; }
+.rpo-chip {
+  font-size: 10.5px; font-weight: 500;
+  color: var(--text-faint);
+  background: var(--bg-3); border: 1px solid var(--border-2);
+  border-radius: 6px; padding: 2px 7px;
+  white-space: nowrap;
+}
+.rpo-chip-branch {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+/* ── Repo page top panel (always visible, never scrolls) ───── */
+.rpo-top {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Quick action bar inside rpo-top */
+.rpo-qo-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+}
+.rpo-qo-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--text-faint);
+  margin-right: 4px;
+}
+.rpo-qo-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 13px; border-radius: 7px;
+  font-size: 12.5px; font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer; transition: all 0.15s;
+  white-space: nowrap;
+}
+/* Amber — "add something" */
+.rpo-qo-btn-create {
+  background: var(--accent-glow);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.rpo-qo-btn-create:hover {
+  background: var(--accent); color: var(--bg);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* Inline create form — appears between action bar and tab strip */
+.rpo-create-form {
+  display: none;
+  flex-direction: column; gap: 6px;
+  padding: 10px 16px 12px;
+  background: var(--bg-2);
+  border-top: 1px solid var(--border);
+}
+.rpo-create-form.visible { display: flex; }
+.rpo-create-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.4px;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.rpo-create-textarea {
+  width: 100%; box-sizing: border-box;
+  padding: 9px 11px; font-size: 13px; line-height: 1.5;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border-2); border-radius: 7px;
+  outline: none; resize: vertical; min-height: 90px;
+  font-family: inherit;
+}
+.rpo-create-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.rpo-create-textarea::placeholder { color: var(--text-faint); }
+.rpo-create-actions { display: flex; gap: 7px; justify-content: flex-end; }
+.rpo-create-submit {
+  padding: 7px 16px; border-radius: 7px; font-size: 12.5px; font-weight: 700;
+  background: var(--accent-glow); color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  cursor: pointer; transition: all 0.15s;
+}
+.rpo-create-submit:hover { background: var(--accent); color: var(--bg); }
+.rpo-create-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.rpo-create-cancel {
+  padding: 7px 12px; border-radius: 7px; font-size: 12.5px; font-weight: 500;
+  color: var(--text-faint); background: none; border: none; cursor: pointer;
+}
+.rpo-create-cancel:hover { color: var(--text-dim); }
+
+/* PR section below action bar, inside rpo-top.
+   Cards inside use the global .chat-task-pr-card design. */
+.rpo-pr-section {
+  border-top: 1px solid var(--border);
+  padding: 10px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.rpo-pr-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px;
+}
+.rpo-pr-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--green);
+}
+.rpo-pr-count {
+  font-size: 10px;
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+  color: var(--green); padding: 1px 7px; border-radius: 8px; font-weight: 600;
+}
+/* Keep old item/merge/close names for any other callers */
+.rpo-pr-section-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px 6px;
+}
+.rpo-pr-section-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--green);
+}
+.rpo-pr-section-count {
+  font-size: 10px;
+  background: color-mix(in srgb, var(--green) 15%, transparent);
+  color: var(--green); padding: 1px 6px; border-radius: 8px; font-weight: 600;
+}
+.rpo-pr-list { display: flex; flex-direction: column; }
+.rpo-pr-merge-btn {
+  font-size: 11px; font-weight: 700; padding: 3px 8px;
+  border-radius: 6px; cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+  border: 1px solid color-mix(in srgb, var(--green) 40%, transparent);
+}
+.rpo-pr-merge-btn:hover:not(:disabled) { background: var(--green); color: var(--bg); }
+.rpo-pr-close-btn {
+  font-size: 11px; font-weight: 700; padding: 3px 8px;
+  border-radius: 6px; cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+}
+.rpo-pr-close-btn:hover:not(:disabled) { background: var(--red); color: var(--bg); }
+.rpo-pr-merge-btn:disabled,
+.rpo-pr-close-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── Tab strip — sticky, underline style ───────────────────── */
+.rpo-tab-strip {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  padding: 0 16px;
+  gap: 0;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
+}
+.rpo-tab-strip::-webkit-scrollbar { display: none; }
+.rpo-tab {
+  padding: 10px 14px;
+  font-size: 12.5px; font-weight: 500;
+  color: var(--text-faint);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  cursor: pointer; transition: all 0.15s;
+  background: none; border-radius: 0;
+}
+.rpo-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.rpo-tab:hover:not(.active) { color: var(--text-dim); }
+.rpo-tab-count {
+  font-size: 10px; color: var(--text-faint);
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.rpo-tab.active .rpo-tab-count { color: var(--accent); opacity: 0.7; }
+
+/* ── Scrollable content area ───────────────────────────────── */
+.rpo-content {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+}
+.rpo-tab-panel { display: flex; flex-direction: column; }
+.rpo-empty {
+  padding: 32px 16px; font-size: 13px;
+  color: var(--text-faint); text-align: center; font-style: italic;
+}
+
+/* ── Phase group dividers ──────────────────────────────────── */
+.rpo-phase-group { display: flex; flex-direction: column; }
+.rpo-phase-divider {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 16px 8px;
+}
+.rpo-phase-divider-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; color: var(--accent);
+  white-space: nowrap;
+}
+.rpo-phase-divider-line {
+  flex: 1; height: 1px; background: var(--border);
+}
+.rpo-phase-divider-meta {
+  font-size: 10px; color: var(--text-faint); white-space: nowrap;
+}
+/* First phase group — no top gap */
+.rpo-phase-group:first-child .rpo-phase-divider { padding-top: 10px; }
+
+/* ── Task list items — clean, minimal, list style ──────────── */
+.rpo-task-item {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+}
+.rpo-task-item:last-child { border-bottom: none; }
+.rpo-task-item:hover { background: var(--bg-2); }
+/* Stale tasks get a subtle left accent */
+.rpo-task-item.stale { border-left: 2px solid var(--yellow); padding-left: 14px; }
+
+.rpo-task-meta {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.rpo-task-id {
+  font-size: 10.5px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text-faint);
+}
+.rpo-task-badge {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.4px;
+  text-transform: uppercase; padding: 1px 5px; border-radius: 4px;
+}
+.rpo-task-badge-stub {
+  background: color-mix(in srgb, var(--text-faint) 12%, transparent);
+  color: var(--text-faint);
+}
+.rpo-task-badge-spec {
+  background: color-mix(in srgb, var(--claude-c) 14%, transparent);
+  color: var(--claude-c);
+}
+.rpo-task-age {
+  font-size: 10.5px; color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.rpo-task-age.stale { color: var(--yellow); font-weight: 600; }
+/* Action button floats to the right of the meta row */
+.rpo-task-action { margin-left: auto; flex-shrink: 0; }
+.rpo-task-title {
+  font-size: 13px; color: var(--text); line-height: 1.35;
+}
+
+/* Inline action buttons on task rows */
+.rpo-action-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border-radius: 6px;
+  font-size: 11.5px; font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer; transition: all 0.15s;
+}
+.rpo-action-assign {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 45%, transparent);
+}
+.rpo-action-assign:hover:not(:disabled) {
+  background: var(--green); color: var(--bg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 20%, transparent);
+}
+.rpo-action-spec {
+  background: var(--claude-bg);
+  color: var(--claude-c);
+  border-color: var(--claude-border);
+}
+.rpo-action-spec:hover:not(:disabled) {
+  background: var(--claude-c); color: var(--bg);
+  box-shadow: 0 0 0 2px var(--claude-glow);
+}
+.rpo-action-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.rpo-action-close {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 35%, transparent);
+}
+.rpo-action-close:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--red) 20%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--red) 30%, transparent);
+}
+/* Tab count badges inside tab buttons */
+.rsh-tab.active .rpo-tab-count { color: var(--accent); opacity: 0.75; }
+
+/* Phase rows (Phases tab) */
+.rpo-phase-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.rpo-phase-item:last-child { border-bottom: none; }
+.rpo-phase-item-num {
+  font-size: 10.5px; font-family: ui-monospace, monospace;
+  color: var(--text-faint); min-width: 28px;
+}
+.rpo-phase-item-name { flex: 1; color: var(--text); font-weight: 500; }
+.rpo-phase-item-status {
+  font-size: 10.5px; color: var(--text-faint);
+  text-transform: capitalize;
+}
+
+/* ============================================================
+   COS reopen pill — floating global button, visible when agent tasks exist.
+   ============================================================ */
+.cos-reopen-pill {
+  position: fixed;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+  right: 18px;
+  z-index: 93;   /* above page overlay (92), below sheets (95) */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 8px 10px;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--claude-c) 16%, var(--bg-elev));
+  border: 1.5px solid color-mix(in srgb, var(--claude-c) 55%, transparent);
+  color: var(--claude-c);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,.45), 0 0 0 1px color-mix(in srgb, var(--claude-c) 20%, transparent);
+  transition: opacity 0.2s, transform 0.2s, background 0.15s;
+  transform: translateY(0);
+  white-space: nowrap;
+}
+.cos-reopen-pill[data-visible="false"] {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(12px);
+}
+.cos-reopen-pill[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.cos-reopen-pill:hover {
+  background: color-mix(in srgb, var(--claude-c) 26%, var(--bg-elev));
+  box-shadow: 0 4px 20px rgba(0,0,0,.5), 0 0 0 2px color-mix(in srgb, var(--claude-c) 30%, transparent);
+}
+.cos-reopen-sigil { font-size: 15px; line-height: 1; }
+.cos-reopen-label { letter-spacing: 0.02em; }
+.cos-reopen-count {
+  background: var(--claude-c);
+  color: var(--bg);
+  font-size: 11px; font-weight: 700;
+  min-width: 18px; height: 18px;
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px;
+}
+/* Pulse animation when a task is actively running */
+@keyframes cos-pulse {
+  0%, 100% { box-shadow: 0 4px 16px rgba(0,0,0,.45), 0 0 0 1px color-mix(in srgb, var(--claude-c) 20%, transparent); }
+  50%       { box-shadow: 0 4px 22px rgba(0,0,0,.5),  0 0 0 3px color-mix(in srgb, var(--claude-c) 35%, transparent); }
+}
+.cos-reopen-pill[data-running="true"] {
+  animation: cos-pulse 2.2s ease-in-out infinite;
+}
+
+/* ============================================================
+   Claude Output Sheet (COS) — global multi-task stream viewer.
+   Blue-themed, tall sheet. Galt Brain design language.
+   ============================================================ */
+.cos-sheet {
+  background: var(--bg-2);
+  border-top: 2px solid var(--claude-c);
+  max-height: 88vh;
+}
+
+/* COS header row */
+.cos-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px 8px;
+  background: var(--claude-header-bg);
+  border-bottom: 1px solid var(--claude-header-bdr);
+  flex-shrink: 0;
+}
+.cos-sigil { font-size: 16px; color: var(--claude-c); line-height: 1; }
+.cos-title {
+  font-size: 11px; font-weight: 800;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--claude-c); flex: 1;
+}
+.cos-badge {
+  font-size: 10.5px; font-weight: 700;
+  background: color-mix(in srgb, var(--claude-c) 18%, transparent);
+  color: var(--claude-c); padding: 2px 7px;
+  border-radius: 10px; min-width: 20px; text-align: center;
+}
+.cos-badge:empty { display: none; }
+.cos-close {
+  width: 24px; height: 24px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1; color: var(--claude-dim);
+  transition: all 0.15s;
+}
+.cos-close:hover { background: rgba(91,156,248,0.15); color: var(--claude-c); }
+
+/* Task queue pill row */
+.cos-queue-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--claude-header-bdr);
+  flex-shrink: 0;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
+}
+.cos-queue-bar::-webkit-scrollbar { display: none; }
+.cos-queue { display: flex; gap: 5px; min-width: max-content; }
+.cos-queue:empty::before {
+  content: 'No tasks yet';
+  font-size: 11px; color: var(--claude-dim); font-style: italic;
+  line-height: 30px;
+}
+.cos-task-pill {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 20px;
+  border: 1px solid var(--claude-border);
+  background: transparent; color: var(--claude-dim);
+  font-size: 11.5px; font-weight: 500;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.cos-task-pill.active {
+  background: color-mix(in srgb, var(--claude-c) 15%, transparent);
+  border-color: var(--claude-c); color: var(--claude-c);
+}
+.cos-task-pill:hover:not(.active) { opacity: 0.8; border-color: var(--claude-c); }
+
+.cos-pill-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--border-2); flex-shrink: 0; transition: background 0.2s;
+}
+.cos-pill-dot[data-status="running"]   { background: var(--claude-c); box-shadow: 0 0 5px var(--claude-c); }
+.cos-pill-dot[data-status="succeeded"] { background: var(--green); }
+.cos-pill-dot[data-status="failed"]    { background: var(--red); }
+.cos-pill-dot[data-status="cancelled"] { background: var(--border-2); }
+
+/* COS body — fills remaining height, task views swap in/out here */
+.cos-body {
+  flex: 1; overflow: hidden; background: var(--bg); display: flex; flex-direction: column;
+}
+.cos-task-view {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+}
+/* Task header bar inside each view */
+.cos-task-header {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 14px 8px;
+  background: var(--bg-2); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.cos-task-title-text {
+  font-size: 12.5px; font-weight: 600; color: var(--text);
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cos-task-status-chip {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; padding: 2px 7px; border-radius: 10px;
+  background: var(--bg-3); color: var(--text-faint);
+  transition: all 0.2s;
+}
+.cos-task-view[data-task-status="running"]   .cos-task-status-chip { background: var(--claude-bg); color: var(--claude-c); }
+.cos-task-view[data-task-status="succeeded"] .cos-task-status-chip { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+.cos-task-view[data-task-status="failed"]    .cos-task-status-chip { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+.cos-task-view[data-task-status="cancelled"] .cos-task-status-chip { background: var(--bg-3); color: var(--text-faint); }
+
+.cos-cancel-btn {
+  padding: 3px 10px; font-size: 11px; font-weight: 700;
+  border-radius: 6px; flex-shrink: 0;
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
+  transition: all 0.15s;
+}
+.cos-cancel-btn:hover:not(:disabled) { background: var(--red); color: var(--bg); }
+.cos-cancel-btn:disabled { opacity: 0.45; }
+/* Hide cancel button when task is done */
+.cos-task-view[data-task-status="succeeded"] .cos-cancel-btn,
+.cos-task-view[data-task-status="failed"]    .cos-cancel-btn,
+.cos-task-view[data-task-status="cancelled"] .cos-cancel-btn { display: none; }
+
+/* Scrollable events area */
+.cos-task-card-wrap {
+  flex: 1; overflow-y: auto; padding: 12px 14px 20px;
+}
+/* Strip the task card's own bg/border — COS provides the container */
+.cos-task-card-wrap .chat-task-card {
+  background: none; border: none; border-radius: 0; padding: 0;
+}
+/* But keep the PR card's own styling */
+.cos-task-card-wrap .chat-task-pr-card { margin-top: 10px; }
+/* Keep the cancel button inside the card hidden — COS has its own */
+.cos-task-card-wrap .chat-task-cancel { display: none; }
+
+/* Desktop: COS is a wider centered modal */
+@media (min-width: 901px) {
+  .cos-sheet {
+    width: min(680px, calc(100% - 80px));
+  }
+}
 
 /* ============================================================
    Boot screen — full-cover until JS hides it

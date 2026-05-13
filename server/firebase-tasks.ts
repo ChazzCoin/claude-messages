@@ -69,6 +69,31 @@ export async function mirrorTaskEvent(ev: TaskEventRow): Promise<void> {
   }
 }
 
+export interface TaskPr {
+  url:       string;
+  number:    number;
+  title:     string;
+  body:      string;
+  branch:    string;
+  repo_id:   number;
+  repo_name: string;
+  state:     'open' | 'merged' | 'closed';
+}
+
+/** Push PR metadata onto /tasks/<id>/pr. Called after gh pr create
+ *  and again after merge/close to update the state field. */
+export async function mirrorTaskPr(taskId: string, pr: TaskPr): Promise<void> {
+  if (!config.firebase.mirrorEnabled) return;
+  const db = getMirrorDb();
+  if (!db) return;
+  try {
+    await db.ref(`/tasks/${taskId}/pr`).set(pr);
+    console.log(`[firebase-tasks] PR #${pr.number} mirrored onto task ${taskId}`);
+  } catch (err) {
+    console.warn(`[firebase-tasks] mirrorTaskPr failed (${taskId}): ${(err as Error).message}`);
+  }
+}
+
 /** Wipe a task from RTDB. Used for cleanup of old tasks; not called
  *  on normal flow. */
 export async function removeMirroredTask(taskId: string): Promise<void> {

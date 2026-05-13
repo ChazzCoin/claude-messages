@@ -449,6 +449,22 @@ function migrate(db: DB) {
     db.exec('ALTER TABLE calendar_proposals ADD COLUMN target_calendar TEXT');
   }
 
+  // tasks: pr_* columns — track PR state so the companion can show open PRs
+  // without a RTDB tasks subscription. pr_data stores the full PR JSON.
+  const taskCols = db.prepare('PRAGMA table_info(tasks)').all() as Array<{ name: string }>;
+  if (!taskCols.some((c) => c.name === 'pr_state')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN pr_state TEXT");
+  }
+  if (!taskCols.some((c) => c.name === 'pr_number')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN pr_number INTEGER");
+  }
+  if (!taskCols.some((c) => c.name === 'pr_repo_id')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN pr_repo_id INTEGER");
+  }
+  if (!taskCols.some((c) => c.name === 'pr_data')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN pr_data TEXT");
+  }
+
   // Migrate legacy away_notes category set: meet/discuss/request/urgent/other → urgent/business/personal.
   // Detect via the CHECK clause in sqlite_master; idempotent (no-op on fresh
   // install or after migration). Runs BEFORE the rename-to-auto_notes step
@@ -2511,6 +2527,45 @@ export function listTaskEvents(taskId: string, opts: { sinceId?: number; limit?:
       ts: Number(row.ts),
     };
   });
+}
+
+/** Record or update PR state + full PR payload on a task.
+ *  Called after createPR / merge / close.
+ *  prPayload is the full TaskPr object — stored as JSON so the repo snapshot
+ *  can include open PRs without a separate RTDB query. */
+export function updateTaskPR(
+  taskId: string,
+  prState: 'open' | 'merged' | 'closed',
+  prNumber: number,
+  prRepoId?: number,
+  prPayload?: Record<string, unknown>,
+): void {
+  const db = getAppDb();
+  db.prepare(
+    'UPDATE tasks SET pr_state = ?, pr_number = ?, pr_repo_id = COALESCE(?, pr_repo_id), pr_data = COALESCE(?, pr_data) WHERE id = ?',
+  ).run(prState, prNumber, prRepoId ?? null, prPayload ? JSON.stringify(prPayload) : null, taskId);
+}
+
+/** Return all open PRs for a repo as {task_id, pr} pairs.
+ *  Included in the RTDB repo snapshot so the companion can render PR cards
+ *  without a separate /tasks subscription. */
+export function listOpenPRsForRepo(repoId: number): Array<{ task_id: string; pr: Record<string, unknown> }> {
+  const rows = getAppDb()
+    .prepare("SELECT id, pr_data FROM tasks WHERE pr_state = 'open' AND pr_repo_id = ? AND pr_data IS NOT NULL")
+    .all(repoId) as Array<{ id: string; pr_data: string }>;
+  return rows.map((r) => ({
+    task_id: r.id,
+    pr: JSON.parse(r.pr_data) as Record<string, unknown>,
+  }));
+}
+
+/** Count open PRs (pr_state = 'open') for a given repo. Used by the RTDB
+ *  repo snapshot so the briefing can show a live PR count without querying RTDB. */
+export function countOpenPRsForRepo(repoId: number): number {
+  const row = getAppDb()
+    .prepare("SELECT COUNT(*) as n FROM tasks WHERE pr_state = 'open' AND pr_repo_id = ?")
+    .get(repoId) as { n: number };
+  return row?.n ?? 0;
 }
 
 /* ------------------------------------------------------------------ */

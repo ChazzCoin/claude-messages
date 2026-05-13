@@ -10,6 +10,7 @@
 // push a fresh /state snapshot so the frontend re-renders against the
 // live server, not against its optimistic local state.
 
+import crypto from 'node:crypto';
 import type { DataSnapshot, Reference } from 'firebase-admin/database';
 import {
   updateSettings,
@@ -25,11 +26,31 @@ import {
   getAutoNote,
   listAutoNotes,
   setCalendarProposalTarget,
+  getRepo,
+  updateTaskPR,
 } from './db/app.js';
 import { exportCalendarProposal, dismissCalendarProposal } from './calendar-export.js';
-import { cancelTask } from './task-runner.js';
+import { cancelTask, startClaudeTask } from './task-runner.js';
 import { getContactNameForHandle, normalizeHandle } from './db/contacts.js';
 import { getMirrorDb, mirrorUpdateNote, mirrorDeleteNote } from './firebase.js';
+import { pushAllRepoSnapshots, pushRepoSnapshot } from './firebase-repos.js';
+import {
+  sanitizeBranchName,
+  worktreeBranchName,
+  pushBranch,
+  createPR,
+  mergePR,
+  closePR,
+  readTaskSpec,
+  buildRepoTaskPrompt,
+  buildSpecTaskPrompt,
+  buildCreateTaskPrompt,
+  buildCreatePhasePrompt,
+  getLastCommitMessage,
+  getWorktreePath,
+  removeWorktree,
+} from './repo-tasks.js';
+import { mirrorTaskPr } from './firebase-tasks.js';
 import { pushStateSnapshot, pushStateSnapshotNow } from './firebase-state.js';
 import { saveDeviceToken, removeDevice, sendPushToAll } from './firebase-push.js';
 import { sendChatTurn, clearChatHistory } from './ai/galt-chat.js';
@@ -284,6 +305,17 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       };
     }
 
+    case 'quick_claude': {
+      // Home-screen "Claude" quick action — bypasses Galt's LLM and
+      // delegates directly to Claude Code as a background task.
+      // Returns the task_id immediately; the companion subscribes to
+      // /tasks/<task_id> and renders the streaming output inline.
+      const text = typeof p.text === 'string' ? p.text.trim() : '';
+      if (!text) throw new Error('text required');
+      const task = startClaudeTask({ task: text });
+      return { ok: true, task_id: task.id };
+    }
+
     case 'galt_chat_clear': {
       // Wipe the entire chat history. Destructive.
       await clearChatHistory();
@@ -334,6 +366,284 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       return { id, target_calendar: updated.target_calendar };
     }
 
+    case 'refresh_repos': {
+      // Force-push all active repo snapshots to RTDB. The companion's
+      // /repos subscription picks them up automatically — no page reload.
+      await pushAllRepoSnapshots();
+      return { refreshed_at: Date.now() };
+    }
+
+    case 'start_repo_task': {
+      // Companion taps "▶ Run" on a task row in the repo detail sheet.
+      // Flow: read task spec → create git branch → start Claude task
+      //   (with the repo's own .claude/ context) → on completion:
+      //   push branch → gh pr create → mirror PR info to RTDB.
+      const repoId = typeof p.repo_id === 'number' ? p.repo_id : NaN;
+      if (!Number.isFinite(repoId)) throw new Error('repo_id required');
+      const taskId = typeof p.task_id === 'string' ? p.task_id.trim() : '';
+      if (!taskId) throw new Error('task_id required');
+
+      const repo = getRepo(repoId);
+      if (!repo) throw new Error(`repo ${repoId} not found`);
+      if (!repo.active) throw new Error(`repo ${repo.name} is inactive`);
+
+      // Read spec from disk — throws if not found.
+      const spec = readTaskSpec(repo.local_path, taskId);
+
+      // Branch name — Claude CLI creates the worktree + branch via --worktree.
+      // The CLI transforms the name: "galt/foo" → branch "worktree-galt+foo".
+      const worktreeName = sanitizeBranchName(taskId);
+      const branch       = worktreeBranchName(worktreeName);
+
+      // Build prompt and start the Claude task.
+      const prompt = buildRepoTaskPrompt(spec, repo.name);
+
+      const task = startClaudeTask({
+        task:          prompt,
+        working_dir:   repo.local_path,
+        worktree_name: worktreeName,
+        timeout_ms:    30 * 60_000,   // repo tasks can run longer
+        onComplete: async (completedTask) => {
+          // Only push + PR on success — cancelled/failed stay on the branch.
+          if (completedTask.status !== 'succeeded') {
+            console.log(`[repo-tasks] skipping push/PR — task ${completedTask.id} status=${completedTask.status}`);
+            return;
+          }
+          try {
+            await pushBranch(repo.local_path, branch);
+            const prBody = `Automated implementation via Galt companion.\n\nTask: \`${taskId}\`\nSpec: \`${spec.filePath}\``;
+            const pr = await createPR(repo.local_path, {
+              title: `${taskId}: ${spec.title}`,
+              body:  prBody,
+              branch,
+            });
+            const prMeta = { url: pr.url, number: pr.number, title: pr.title, body: prBody, branch, repo_id: repoId, repo_name: repo.name, state: 'open' as const };
+            await mirrorTaskPr(completedTask.id, prMeta);
+            updateTaskPR(completedTask.id, 'open', pr.number, repoId, prMeta);
+            // Clean up the worktree now that the branch is on origin.
+            const wtPath = await getWorktreePath(repo.local_path, branch);
+            if (wtPath) await removeWorktree(repo.local_path, wtPath);
+            // Re-mirror the repo so the briefing reflects the branch state.
+            void pushRepoSnapshot(repoId);
+          } catch (err) {
+            console.error(`[repo-tasks] post-task push/PR failed:`, (err as Error).message);
+            // Append error event so the companion task card shows it.
+            const { appendTaskEvent } = await import('./db/app.js');
+            const { mirrorTaskEvent } = await import('./firebase-tasks.js');
+            const row = appendTaskEvent(completedTask.id, 'stderr', {
+              line: `push/PR failed: ${(err as Error).message}`,
+            });
+            void mirrorTaskEvent(row);
+          }
+        },
+      });
+
+      return { ok: true, task_id: task.id, branch, spec_title: spec.title };
+    }
+
+    case 'approve_pr': {
+      // Companion taps "Merge" on a PR card.
+      const repoId = typeof p.repo_id === 'number' ? p.repo_id : NaN;
+      if (!Number.isFinite(repoId)) throw new Error('repo_id required');
+      const prNumber = typeof p.pr_number === 'number' ? p.pr_number : NaN;
+      if (!Number.isFinite(prNumber)) throw new Error('pr_number required');
+      const taskId = typeof p.task_id === 'string' ? p.task_id.trim() : '';
+
+      const repo = getRepo(repoId);
+      if (!repo) throw new Error(`repo ${repoId} not found`);
+
+      await mergePR(repo.local_path, prNumber);
+
+      // Update PR state in RTDB + app.db so the card and briefing reflect the merge.
+      if (taskId) {
+        const db = getMirrorDb();
+        if (db) await db.ref(`/tasks/${taskId}/pr/state`).set('merged');
+        updateTaskPR(taskId, 'merged', prNumber);
+      }
+      void pushRepoSnapshot(repoId);
+      return { ok: true, pr_number: prNumber, state: 'merged' };
+    }
+
+    case 'deny_pr': {
+      // Companion taps "Close" on a PR card.
+      const repoId = typeof p.repo_id === 'number' ? p.repo_id : NaN;
+      if (!Number.isFinite(repoId)) throw new Error('repo_id required');
+      const prNumber = typeof p.pr_number === 'number' ? p.pr_number : NaN;
+      if (!Number.isFinite(prNumber)) throw new Error('pr_number required');
+      const taskId = typeof p.task_id === 'string' ? p.task_id.trim() : '';
+
+      const repo = getRepo(repoId);
+      if (!repo) throw new Error(`repo ${repoId} not found`);
+
+      await closePR(repo.local_path, prNumber);
+
+      if (taskId) {
+        const db = getMirrorDb();
+        if (db) await db.ref(`/tasks/${taskId}/pr/state`).set('closed');
+        updateTaskPR(taskId, 'closed', prNumber);
+      }
+      void pushRepoSnapshot(repoId);
+      return { ok: true, pr_number: prNumber, state: 'closed' };
+    }
+
+    case 'spec_task': {
+      // Expand a stub task into a full spec using Claude.
+      // Same flow as start_repo_task but with buildSpecTaskPrompt:
+      // Claude reads the stub + codebase → rewrites the file as a full spec → commit.
+      // A branch + PR lets the human review the spec before merging.
+      const repoId = typeof p.repo_id === 'number' ? p.repo_id : NaN;
+      if (!Number.isFinite(repoId)) throw new Error('repo_id required');
+      const taskId = typeof p.task_id === 'string' ? p.task_id.trim() : '';
+      if (!taskId) throw new Error('task_id required');
+
+      const repo = getRepo(repoId);
+      if (!repo) throw new Error(`repo ${repoId} not found`);
+
+      const spec       = readTaskSpec(repo.local_path, taskId);
+      const worktreeName = sanitizeBranchName(`spec-${taskId}`);
+      const branch       = worktreeBranchName(worktreeName);
+
+      const prompt = buildSpecTaskPrompt(spec, repo.name);
+      const task   = startClaudeTask({
+        task:          prompt,
+        working_dir:   repo.local_path,
+        worktree_name: worktreeName,
+        timeout_ms:    20 * 60_000,
+        onComplete: async (completedTask) => {
+          if (completedTask.status !== 'succeeded') return;
+          try {
+            await pushBranch(repo.local_path, branch);
+            const specBody = `Expands stub \`${spec.filePath}\` into a full spec.\n\nGenerated by Galt.`;
+            const pr = await createPR(repo.local_path, {
+              title:  `spec(${taskId}): ${spec.title}`,
+              body:   specBody,
+              branch,
+            });
+            const prMeta2 = { url: pr.url, number: pr.number, title: pr.title, body: specBody, branch: pr.branch, repo_id: repoId, repo_name: repo.name, state: 'open' as const };
+            await mirrorTaskPr(completedTask.id, prMeta2);
+            updateTaskPR(completedTask.id, 'open', pr.number, repoId, prMeta2);
+            const wtPath = await getWorktreePath(repo.local_path, branch);
+            if (wtPath) await removeWorktree(repo.local_path, wtPath);
+            void pushRepoSnapshot(repoId);
+          } catch (err) {
+            console.error(`[spec_task] post-task push/PR failed:`, (err as Error).message);
+            const { appendTaskEvent } = await import('./db/app.js');
+            const { mirrorTaskEvent } = await import('./firebase-tasks.js');
+            const row = appendTaskEvent(completedTask.id, 'stderr', {
+              line: `push/PR failed: ${(err as Error).message}`,
+            });
+            void mirrorTaskEvent(row);
+          }
+        },
+      });
+
+      return { ok: true, task_id: task.id, branch, spec_title: spec.title };
+    }
+
+    case 'create_repo_task': {
+      // Claude reads the narrative + codebase, writes a real spec to tasks/backlog/,
+      // commits, then we push and open a PR for review.
+      const repoId = typeof p.repo_id === 'number' ? p.repo_id : NaN;
+      if (!Number.isFinite(repoId)) throw new Error('repo_id required');
+      const narrative = typeof p.narrative === 'string' ? p.narrative.trim() : '';
+      if (!narrative) throw new Error('narrative required');
+
+      const repo   = getRepo(repoId);
+      if (!repo) throw new Error(`repo ${repoId} not found`);
+      const shortId      = crypto.randomUUID().slice(0, 8);
+      const worktreeName = `galt/new-task-${shortId}`;
+      const branch       = worktreeBranchName(worktreeName);
+
+      const prompt = buildCreateTaskPrompt(narrative, repo.name);
+      const task   = startClaudeTask({
+        task:          prompt,
+        working_dir:   repo.local_path,
+        worktree_name: worktreeName,
+        timeout_ms:    15 * 60_000,
+        onComplete: async (completedTask) => {
+          if (completedTask.status !== 'succeeded') return;
+          try {
+            await pushBranch(repo.local_path, branch);
+            const commitTitle = await getLastCommitMessage(repo.local_path);
+            const prBody = `New task spec created from narrative.\n\n> ${narrative.slice(0, 400)}${narrative.length > 400 ? '…' : ''}`;
+            const pr = await createPR(repo.local_path, {
+              title: commitTitle,
+              body:  prBody,
+              branch,
+            });
+            const prMeta3 = { url: pr.url, number: pr.number, title: pr.title, body: prBody, branch, repo_id: repoId, repo_name: repo.name, state: 'open' as const };
+            await mirrorTaskPr(completedTask.id, prMeta3);
+            updateTaskPR(completedTask.id, 'open', pr.number, repoId, prMeta3);
+            const wtPath = await getWorktreePath(repo.local_path, branch);
+            if (wtPath) await removeWorktree(repo.local_path, wtPath);
+            void pushRepoSnapshot(repoId);
+          } catch (err) {
+            console.error('[create_repo_task] push/PR failed:', (err as Error).message);
+            const { appendTaskEvent } = await import('./db/app.js');
+            const { mirrorTaskEvent } = await import('./firebase-tasks.js');
+            const row = appendTaskEvent(completedTask.id, 'stderr', {
+              line: `push/PR failed: ${(err as Error).message}`,
+            });
+            void mirrorTaskEvent(row);
+          }
+        },
+      });
+
+      return { ok: true, task_id: task.id };
+    }
+
+    case 'create_repo_phase': {
+      // Claude reads the narrative, writes the phase entry + task stubs,
+      // commits, then we push and open a PR for review.
+      const repoId = typeof p.repo_id === 'number' ? p.repo_id : NaN;
+      if (!Number.isFinite(repoId)) throw new Error('repo_id required');
+      const narrative = typeof p.narrative === 'string' ? p.narrative.trim() : '';
+      if (!narrative) throw new Error('narrative required');
+
+      const repo   = getRepo(repoId);
+      if (!repo) throw new Error(`repo ${repoId} not found`);
+      const shortId      = crypto.randomUUID().slice(0, 8);
+      const worktreeName = `galt/new-phase-${shortId}`;
+      const branch       = worktreeBranchName(worktreeName);
+
+      const prompt = buildCreatePhasePrompt(narrative, repo.name);
+      const task   = startClaudeTask({
+        task:          prompt,
+        working_dir:   repo.local_path,
+        worktree_name: worktreeName,
+        timeout_ms:    20 * 60_000,
+        onComplete: async (completedTask) => {
+          if (completedTask.status !== 'succeeded') return;
+          try {
+            await pushBranch(repo.local_path, branch);
+            const commitTitle = await getLastCommitMessage(repo.local_path);
+            const prBody = `New phase plan created from narrative.\n\n> ${narrative.slice(0, 400)}${narrative.length > 400 ? '…' : ''}`;
+            const pr = await createPR(repo.local_path, {
+              title: commitTitle,
+              body:  prBody,
+              branch,
+            });
+            const prMeta4 = { url: pr.url, number: pr.number, title: pr.title, body: prBody, branch, repo_id: repoId, repo_name: repo.name, state: 'open' as const };
+            await mirrorTaskPr(completedTask.id, prMeta4);
+            updateTaskPR(completedTask.id, 'open', pr.number, repoId, prMeta4);
+            const wtPath = await getWorktreePath(repo.local_path, branch);
+            if (wtPath) await removeWorktree(repo.local_path, wtPath);
+            void pushRepoSnapshot(repoId);
+          } catch (err) {
+            console.error('[create_repo_phase] push/PR failed:', (err as Error).message);
+            const { appendTaskEvent } = await import('./db/app.js');
+            const { mirrorTaskEvent } = await import('./firebase-tasks.js');
+            const row = appendTaskEvent(completedTask.id, 'stderr', {
+              line: `push/PR failed: ${(err as Error).message}`,
+            });
+            void mirrorTaskEvent(row);
+          }
+        },
+      });
+
+      return { ok: true, task_id: task.id };
+    }
+
     case 'send_test_push': {
       // Smoke test from the Settings sheet — sends a one-shot push
       // to every registered device. Returns the per-device result
@@ -342,6 +652,31 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       const body = (typeof p.body === 'string' && p.body.trim()) || 'Push notifications are working.';
       const result = await sendPushToAll({ title, body, click_url: 'https://galt-messages.web.app' });
       return result;
+    }
+
+    case 'sync_open_prs': {
+      // Back-fill PR data from RTDB into app.db for PRs created before
+      // the pr_data column was added. Reads /tasks from RTDB, finds entries
+      // with pr.state === 'open', writes them to app.db, then refreshes
+      // all repo snapshots so open_prs shows up on the companion.
+      const db = getMirrorDb();
+      if (!db) return { ok: false, error: 'Firebase not connected' };
+      const snap = await db.ref('/tasks').get();
+      const tasksVal = snap.val() as Record<string, Record<string, unknown>> | null;
+      if (!tasksVal) return { ok: true, synced: 0 };
+      let synced = 0;
+      for (const [taskId, taskData] of Object.entries(tasksVal)) {
+        const pr = taskData.pr as Record<string, unknown> | undefined;
+        if (!pr || pr.state !== 'open') continue;
+        const repoId = typeof pr.repo_id === 'number' ? pr.repo_id : null;
+        const prNumber = typeof pr.number === 'number' ? pr.number : null;
+        if (!repoId || !prNumber) continue;
+        updateTaskPR(taskId, 'open', prNumber, repoId, pr);
+        synced++;
+      }
+      await pushAllRepoSnapshots();
+      console.log(`[sync_open_prs] synced ${synced} open PRs from RTDB`);
+      return { ok: true, synced };
     }
 
     case 'get_note_source': {

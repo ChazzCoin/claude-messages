@@ -28,7 +28,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import type { ToolDefinition } from './client.js';
-import { listEventsInWindow } from '../integrations/calendar-db.js';
+import { listEventsInWindow, listEventsOnDate } from '../integrations/calendar-db.js';
 import { listRecentCalls } from '../integrations/call-history.js';
 import { insertChatCalendarProposal, getRepo } from '../db/app.js';
 import { claudeCli } from '../integrations/claude-cli.js';
@@ -69,28 +69,59 @@ import { googleChat } from '../integrations/google-chat.js';
 
 const list_calendar_events: ToolDefinition = {
   name: 'list_calendar_events',
-  description:
-    "Read the user's macOS Calendar. Returns events in a time window — defaults to the next 7 days. Use this for any question about the user's schedule, upcoming meetings, what they have today/tomorrow/this week, or whether a specific date is free.",
+  description: `Read the user's macOS Calendar.
+
+PREFER the "date" parameter whenever the user asks about a specific day:
+  • "today"        → date: <today's YYYY-MM-DD from current_datetime>
+  • "tomorrow"     → date: <tomorrow's YYYY-MM-DD>
+  • "this Friday"  → date: <that Friday's YYYY-MM-DD>
+  • "what do I have on the 15th?" → date: "YYYY-MM-15"
+
+Using "date" returns ALL events on that full calendar day (midnight → midnight,
+local time), including events that already started earlier in the day. This is
+almost always what the user wants for day-scoped questions.
+
+Use hours_ahead / hours_back only for open-ended windows:
+  • "next week" → hours_ahead: 168
+  • "past 2 hours" → hours_back: 2, hours_ahead: 0
+  • "do I have anything this weekend?" → hours_ahead: 72
+
+If called with no parameters, returns today's full calendar day.`,
   parameters: {
     type: 'object',
     properties: {
+      date: {
+        type: 'string',
+        description: 'A specific calendar day in YYYY-MM-DD format (local time). Returns all events that start on that day, from midnight to midnight. Use this for "today", "tomorrow", or any named day.',
+      },
       hours_ahead: {
         type: 'number',
-        description: 'How many hours into the future to look. Defaults to 168 (7 days).',
+        description: 'How many hours into the future to look (from now). Used for open-ended windows, not for named days. Capped at 8760 (1 year).',
       },
       hours_back: {
         type: 'number',
-        description: 'How many hours backwards to look. Defaults to 0 (only future events).',
+        description: 'How many hours into the past to look (from now). Used for open-ended windows. Capped at 720 (30 days).',
       },
     },
     additionalProperties: false,
   },
   async execute(args) {
+    // Date-scoped query — covers the full calendar day in local time.
+    if (typeof args.date === 'string' && args.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const events = listEventsOnDate(args.date);
+      return { date: args.date, count: events.length, events };
+    }
+
+    // No date given and no window args — default to today's full day.
+    if (args.hours_ahead == null && args.hours_back == null) {
+      const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+      const events = listEventsOnDate(today);
+      return { date: today, count: events.length, events };
+    }
+
+    // Explicit hours window (for "next week", "past hour", etc.)
     const hoursAhead = typeof args.hours_ahead === 'number' ? args.hours_ahead : 24 * 7;
     const hoursBack  = typeof args.hours_back  === 'number' ? args.hours_back  : 0;
-    // Read from Calendar.app's local sqlite cache. Bypasses
-    // AppleEvents which silently stall in a LaunchAgent context on
-    // macOS 14+.
     const events = listEventsInWindow({ hoursAhead, hoursBack });
     return {
       window: { hours_back: hoursBack, hours_ahead: hoursAhead },
