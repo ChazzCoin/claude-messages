@@ -3,9 +3,6 @@
 // All renderers are idempotent and accept a fresh snapshot. main.js
 // wires them up to fire on every store update via subscribe().
 
-import { renderCOSSQueue } from './galt-chat.js';
-
-
 const $$ = (id) => document.querySelectorAll(`[data-id="${id}"]`);
 const $  = (id) => document.querySelector(`[data-id="${id}"]`);
 
@@ -27,6 +24,75 @@ function escape(v) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+/* ---------- COSS state (Claude Output Sessions Sheet) ---------- */
+
+let _cossActiveRepoId = null;
+let _cossSessions = [];
+
+export function getActiveCOSSRepoId() { return _cossActiveRepoId; }
+
+export function selectCOSSSession(repoId) {
+  _cossActiveRepoId = Number.isFinite(repoId) ? repoId : null;
+  renderCOSSQueue(_cossSessions);
+}
+
+export function renderCOSSQueue(sessions) {
+  _cossSessions = sessions || [];
+
+  const queueEl = $('[data-id="coss-queue"]');
+  const countEl = $('[data-id="coss-session-count"]');
+  if (countEl) countEl.textContent = _cossSessions.length ? String(_cossSessions.length) : '';
+
+  // Auto-select first session when nothing is selected
+  if (!_cossActiveRepoId && _cossSessions.length) {
+    _cossActiveRepoId = _cossSessions[0].id;
+  }
+
+  if (queueEl) {
+    queueEl.innerHTML = _cossSessions.map((s) => {
+      const active = _cossActiveRepoId === s.id;
+      return `
+        <button class="coss-session-pill${active ? ' active' : ''}" data-action="coss-session-select" data-repo-id="${s.id}">
+          <span class="coss-pill-dot${active ? ' active' : ''}"></span>
+          <span class="coss-pill-name">${escape(s.name)}</span>
+          ${s.task_count ? `<span class="coss-pill-count">${s.task_count}</span>` : ''}
+        </button>`;
+    }).join('');
+  }
+
+  _cossRenderBody();
+}
+
+function _cossRenderBody() {
+  const bodyEl = $('[data-id="coss-body"]');
+  if (!bodyEl) return;
+
+  if (!_cossSessions.length) {
+    bodyEl.innerHTML = '<div class="coss-empty">No sessions yet — assign a task to a repo to start one.</div>';
+    return;
+  }
+
+  const selected = _cossActiveRepoId
+    ? _cossSessions.find((s) => s.id === _cossActiveRepoId)
+    : _cossSessions[0];
+
+  if (!selected) {
+    bodyEl.innerHTML = '<div class="coss-empty">Select a session above.</div>';
+    return;
+  }
+
+  const ago = selected.last_used ? formatAgo(Date.now() - selected.last_used) : '—';
+  bodyEl.innerHTML = `
+    <div class="coss-session-card">
+      <div class="coss-session-name">${escape(selected.name)}</div>
+      <div class="coss-session-meta">
+        ${selected.task_count ? `<span>${selected.task_count} task${selected.task_count !== 1 ? 's' : ''}</span>` : ''}
+        <span>last active ${ago}</span>
+      </div>
+      <div class="coss-session-hint">Type a message below to talk to this session →</div>
+    </div>`;
 }
 
 /* ---------- top-level ---------- */

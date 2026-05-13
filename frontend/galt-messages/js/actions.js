@@ -12,9 +12,9 @@
 // the user sees the click registered.
 
 import { sendCommand, getStore } from './state.js';
-import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel, renderRepoPage, openRepoPage, closeRepoPage, renderTaskDetail } from './render.js';
+import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel, renderRepoPage, openRepoPage, closeRepoPage, renderTaskDetail, selectCOSSSession, getActiveCOSSRepoId } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
-import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId, openCOSSSheet, startDictation, selectCOSSSession, getActiveCOSSRepoId } from './galt-chat.js';
+import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId, openCOSSSheet, startDictation } from './galt-chat.js';
 
 /* ---------- the registry ---------- */
 
@@ -273,27 +273,6 @@ const HANDLERS = {
       target.disabled = false;
       const labelEl = target.querySelector('.ca-label');
       if (labelEl && originalLabel) labelEl.textContent = originalLabel;
-    }
-  },
-
-  /* cos-session-send — follow-up input in the COS sheet (TASK-077) */
-  'cos-session-send': async () => {
-    const input  = document.querySelector('[data-id="cos-session-input"]');
-    const text   = input?.value?.trim();
-    if (!text) return;
-
-    const repoId = getActiveCOSRepoId();
-    if (!repoId) { showToast('no repo session active', 'error'); return; }
-
-    input.value = '';
-
-    try {
-      const result = await sendCommand('repo_claude_task', { repo_id: repoId, text });
-      const uuid   = result?.task_id;
-      if (!uuid) throw new Error('no task_id returned');
-      openClaudeOutputSheet(uuid, text.slice(0, 48), repoId);
-    } catch (err) {
-      showToast(err.message, 'error');
     }
   },
 
