@@ -73,8 +73,8 @@ export function renderCOSSQueue(sessions, repos, globalSession) {
   if (repos)         _cossAllRepos = repos;
   if (globalSession !== undefined) _cossGlobalSession = globalSession;
 
-  const queueEl = $('[data-id="coss-queue"]');
-  const countEl = $('[data-id="coss-session-count"]');
+  const queueEl = $('coss-queue');
+  const countEl = $('coss-session-count');
   // Count = repo sessions + 1 for global. Hide if only global exists.
   const total = _cossSessions.length + 1;
   if (countEl) countEl.textContent = total > 1 ? String(total) : '';
@@ -120,7 +120,7 @@ export function renderCOSSQueue(sessions, repos, globalSession) {
 }
 
 function _cossRenderBody() {
-  const bodyEl = $('[data-id="coss-body"]');
+  const bodyEl = $('coss-body');
   if (!bodyEl) return;
 
   // 'new' mode — show the repo picker, regardless of whether sessions exist.
