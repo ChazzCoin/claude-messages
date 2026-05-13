@@ -38,6 +38,36 @@ export function renderAll(store) {
   renderBriefingQuickView(store);
   renderBriefing(store);
   renderPushPanel();
+  updateRepoMicSelect(store.state?.repo_sessions || []);
+}
+
+/** Populate the repo selector(s) on the home screen from /state.repo_sessions. */
+export function updateRepoMicSelect(sessions) {
+  const selects = document.querySelectorAll(
+    '[data-id="repo-mic-select"], [data-id="d-repo-mic-select"]'
+  );
+  const saved = localStorage.getItem('galt_repo_mic_repo_id');
+
+  for (const sel of selects) {
+    sel.innerHTML = '<option value="">— Ask Claude —</option>';
+    if (!sessions || sessions.length === 0) {
+      sel.disabled = true;
+      continue;
+    }
+    sel.disabled = false;
+    for (const s of sessions) {
+      const opt = document.createElement('option');
+      opt.value = String(s.id);
+      opt.textContent = s.name;
+      sel.appendChild(opt);
+    }
+    const restore = saved || (sessions[0]?.id ? String(sessions[0].id) : '');
+    if ([...sel.options].some((o) => o.value === restore)) {
+      sel.value = restore;
+    } else {
+      sel.value = sessions[0] ? String(sessions[0].id) : '';
+    }
+  }
 }
 
 /* ---------- push notifications panel (settings sheet) ----------
@@ -460,9 +490,9 @@ export function renderTaskDetail(task, repo, phaseMap = {}) {
 
   // Action button — Assign for specs, Spec for stubs
   if (isStub) {
-    actionsEl.innerHTML = `<button class="tds-action-btn tds-action-spec" data-action="spec-repo-task" data-repo-id="${repo.id}" data-task-id="${escape(task.task_id)}">◎ Write Spec</button>`;
+    actionsEl.innerHTML = `<button class="claude-action-btn" data-action="claude-action" data-claude-action="spec" data-variant="secondary" data-repo-id="${repo.id}" data-task-id="${escape(task.task_id)}"><span class="ca-sigil">◆</span><span class="ca-label">Write Spec</span></button>`;
   } else {
-    actionsEl.innerHTML = `<button class="tds-action-btn tds-action-assign" data-action="start-repo-task" data-repo-id="${repo.id}" data-task-id="${escape(task.task_id)}">▶ Assign to Claude</button>`;
+    actionsEl.innerHTML = `<button class="claude-action-btn" data-action="claude-action" data-claude-action="assign" data-variant="primary" data-repo-id="${repo.id}" data-task-id="${escape(task.task_id)}"><span class="ca-sigil">◆</span><span class="ca-label">Assign to Claude</span></button>`;
   }
 }
 
@@ -916,11 +946,9 @@ export function renderRepoSheet(repo) {
     let actionBtn = '';
     if (actionable) {
       if (isStub) {
-        // stub → "Spec" quick option: hand to Claude to write the spec
-        actionBtn = `<button class="rsh-quick-opt rsh-opt-spec rsh-opt-inline" data-action="spec-repo-task" data-repo-id="${repo.id}" data-task-id="${escape(t.task_id)}">◎ Spec</button>`;
+        actionBtn = `<button class="claude-action-btn rsh-opt-inline" data-action="claude-action" data-claude-action="spec" data-variant="secondary" data-repo-id="${repo.id}" data-task-id="${escape(t.task_id)}"><span class="ca-sigil">◆</span><span class="ca-label">Spec</span></button>`;
       } else {
-        // spec → "Assign" quick option: hand to Claude to implement + PR
-        actionBtn = `<button class="rsh-quick-opt rsh-opt-assign rsh-opt-inline" data-action="start-repo-task" data-repo-id="${repo.id}" data-task-id="${escape(t.task_id)}">▶ Assign</button>`;
+        actionBtn = `<button class="claude-action-btn rsh-opt-inline" data-action="claude-action" data-claude-action="assign" data-variant="primary" data-repo-id="${repo.id}" data-task-id="${escape(t.task_id)}"><span class="ca-sigil">◆</span><span class="ca-label">Assign</span></button>`;
       }
     }
 
@@ -1029,7 +1057,7 @@ export function renderRepoSheet(repo) {
       <div class="rsh-create-label" data-id="rsh-create-label">Describe what you want…</div>
       <textarea class="rsh-create-textarea" data-id="rsh-create-input" rows="5" placeholder="Tell Claude what you want. Be as specific as you like — what it does, why it matters, what done looks like, edge cases, constraints…" autocomplete="off"></textarea>
       <div class="rsh-create-actions">
-        <button class="rsh-quick-opt rsh-opt-assign" data-action="rsh-create-submit" data-repo-id="${repo.id}">→ Create</button>
+        <button class="claude-action-btn" data-action="claude-action" data-claude-action="create" data-variant="primary"><span class="ca-sigil">◆</span><span class="ca-label">→ Create</span></button>
         <button class="rsh-quick-opt rsh-opt-cancel" data-action="rsh-create-cancel">Cancel</button>
       </div>
     </div>
@@ -1097,8 +1125,8 @@ export function renderRepoPage(repo, openPRs = []) {
       : '';
     const actionBtn = actionable
       ? (isStub
-          ? `<div class="rpo-task-action"><button class="rpo-action-btn rpo-action-spec" data-action="spec-repo-task" data-repo-id="${repo.id}" data-task-id="${escape(t.task_id)}">◎ Spec</button></div>`
-          : `<div class="rpo-task-action"><button class="rpo-action-btn rpo-action-assign" data-action="start-repo-task" data-repo-id="${repo.id}" data-task-id="${escape(t.task_id)}">▶ Assign</button></div>`)
+          ? `<div class="rpo-task-action"><button class="claude-action-btn" data-action="claude-action" data-claude-action="spec" data-variant="secondary" data-repo-id="${repo.id}" data-task-id="${escape(t.task_id)}"><span class="ca-sigil">◆</span><span class="ca-label">Spec</span></button></div>`
+          : `<div class="rpo-task-action"><button class="claude-action-btn" data-action="claude-action" data-claude-action="assign" data-variant="primary" data-repo-id="${repo.id}" data-task-id="${escape(t.task_id)}"><span class="ca-sigil">◆</span><span class="ca-label">Assign</span></button></div>`)
       : '';
     return `
       <div class="rpo-task-item${t.stale ? ' stale' : ''}" data-action="view-task" data-repo-id="${repo.id}" data-task-id="${escape(t.task_id)}" role="button" tabindex="0">
@@ -1219,7 +1247,7 @@ export function renderRepoPage(repo, openPRs = []) {
         placeholder="Tell Claude what you want — what it does, why it matters, what done looks like…"
         autocomplete="off"></textarea>
       <div class="rpo-create-actions">
-        <button class="rpo-create-submit" data-action="rsh-create-submit" data-repo-id="${repo.id}">→ Create</button>
+        <button class="claude-action-btn" data-action="claude-action" data-claude-action="create" data-variant="primary"><span class="ca-sigil">◆</span><span class="ca-label">→ Create</span></button>
         <button class="rpo-create-cancel" data-action="rsh-create-cancel">Cancel</button>
       </div>
     </div>

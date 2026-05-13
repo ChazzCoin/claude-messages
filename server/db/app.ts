@@ -407,6 +407,16 @@ function migrate(db: DB) {
       key          TEXT PRIMARY KEY,
       value        TEXT NOT NULL
     );
+
+    -- Persistent Claude session per repo. Session ID is passed as
+    -- --session-id to the CLI so context accumulates across tasks.
+    CREATE TABLE IF NOT EXISTS repo_sessions (
+      repo_id     INTEGER PRIMARY KEY REFERENCES repos(id) ON DELETE CASCADE,
+      session_id  TEXT    NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+      last_used   INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+      task_count  INTEGER NOT NULL DEFAULT 0
+    );
   `);
 
   // Defensive ALTERs for upgrades from prior schema.
@@ -2358,7 +2368,7 @@ export function getAiUsageStats(): {
    Tasks — long-running ops (Claude CLI delegations etc.)
    ============================================================ */
 
-export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'context_limit';
 export type TaskType = 'claude_delegate';  // future kinds appended here
 
 export interface TaskRow {
@@ -2939,4 +2949,59 @@ export function listRepoAuditEntries(repoId: number, limit = 20): RepoAuditEntry
   return getAppDb()
     .prepare('SELECT * FROM repo_audit_entries WHERE repo_id = ? ORDER BY entry_date DESC, id DESC LIMIT ?')
     .all(repoId, limit) as RepoAuditEntryRow[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Persistent repo sessions                                            */
+/* ------------------------------------------------------------------ */
+
+export interface RepoSessionRow {
+  repo_id:    number;
+  session_id: string;
+  created_at: number;
+  last_used:  number;
+  task_count: number;
+}
+
+export function getOrCreateRepoSession(repoId: number): string {
+  const db = getAppDb();
+  const existing = db.prepare(
+    'SELECT session_id FROM repo_sessions WHERE repo_id = ?'
+  ).get(repoId) as { session_id: string } | undefined;
+  if (existing) return existing.session_id;
+  const id = randomUUID();
+  db.prepare(
+    'INSERT INTO repo_sessions (repo_id, session_id) VALUES (?, ?)'
+  ).run(repoId, id);
+  return id;
+}
+
+export function touchRepoSession(repoId: number): void {
+  getAppDb().prepare(
+    `UPDATE repo_sessions
+     SET last_used  = strftime('%s', 'now') * 1000,
+         task_count = task_count + 1
+     WHERE repo_id = ?`
+  ).run(repoId);
+}
+
+export function resetRepoSession(repoId: number): string {
+  const db = getAppDb();
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO repo_sessions (repo_id, session_id)
+     VALUES (?, ?)
+     ON CONFLICT(repo_id) DO UPDATE SET
+       session_id = excluded.session_id,
+       created_at = strftime('%s', 'now') * 1000,
+       last_used  = strftime('%s', 'now') * 1000,
+       task_count = 0`
+  ).run(repoId, id);
+  return id;
+}
+
+export function getRepoSessions(): RepoSessionRow[] {
+  return getAppDb()
+    .prepare('SELECT * FROM repo_sessions ORDER BY last_used DESC')
+    .all() as RepoSessionRow[];
 }

@@ -24,6 +24,7 @@ import {
   getTask,
   updateTask,
   appendTaskEvent,
+  resetRepoSession,
   type TaskRow,
 } from './db/app.js';
 import { mirrorTask, mirrorTaskEvent } from './firebase-tasks.js';
@@ -75,6 +76,11 @@ export interface ClaudeTaskInput {
    *  for Claude tasks (vs the 5min sync chat()) — streaming tasks
    *  can be longer. */
   timeout_ms?: number;
+  /** Reuse a persistent Claude session. Passed as --session-id to the
+   *  CLI so context accumulates across tasks for this repo. */
+  session_id?: string;
+  /** Owning repo — used to rotate the session on max-turn rollover. */
+  repo_id?: number;
   /** Called once after the task reaches a terminal state (succeeded,
    *  failed, or cancelled). Use for post-task work like git push + PR. */
   onComplete?: (task: TaskRow) => Promise<void>;
@@ -141,6 +147,7 @@ async function runClaudeTaskBody(task: TaskRow, input: ClaudeTaskInput): Promise
     effort: input.effort,
     maxTurns: input.max_turns ?? 30,
     worktreeName: input.worktree_name,
+    sessionId: input.session_id,
   });
   liveTasks.set(task.id, handle);
 
@@ -231,6 +238,32 @@ async function runClaudeTaskBody(task: TaskRow, input: ClaudeTaskInput): Promise
       num_turns: numTurns,
       result: resultText || null,
     });
+    return;
+  }
+
+  // Max-turn rollover: when the CLI exits with is_error because --max-turns
+  // was reached, rotate the repo session so the next task starts fresh.
+  // Show as 'context_limit' in the UI rather than 'failed'.
+  const maxTurns = input.max_turns ?? 30;
+  const hitTurnLimit = sawError && numTurns !== null && numTurns >= maxTurns - 1;
+  if (hitTurnLimit && input.repo_id) {
+    resetRepoSession(input.repo_id);
+    persistTaskUpdate(task.id, {
+      status: 'context_limit',
+      result: resultText || 'turn limit reached — session rotated for next task',
+      session_id: sessionId,
+      model,
+      total_cost_usd: totalCostUsd,
+      num_turns: numTurns,
+    });
+    const cb = completionCallbacks.get(task.id);
+    if (cb) {
+      completionCallbacks.delete(task.id);
+      const row = getTask(task.id);
+      if (row) void cb(row).catch((err) => {
+        console.error(`[task-runner] onComplete failed (task=${task.id}):`, (err as Error).message);
+      });
+    }
     return;
   }
 

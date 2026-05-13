@@ -131,5 +131,22 @@ Tasks (in suggested ship order):
 
 ---
 
+## Phase 8 — Persistent Claude Sessions & Action System
+
+> **Scope.** Every repo gets a long-lived Claude session so context
+> accumulates across tasks. A unified "Send to Claude" button component
+> replaces the hand-rolled per-action patterns. The COS sheet gains a
+> direct text input for follow-up prompts. The home screen Claude mic
+> gains a repo selector so voice commands route to the right session.
+
+Tasks (in suggested ship order):
+
+- TASK-075 — Persistent repo sessions (DB, session routing, max-turn rollover)
+- TASK-076 — Reusable Claude action button component
+- TASK-077 — Session input in COS task sheet
+- TASK-078 — Repo quick actions on home screen (mic + repo selector)
+
+---
+
 *(Add phases and tasks as the project evolves. Use `/task` to file
 tasks; use `/plan` to think through new phases.)*

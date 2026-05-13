@@ -14,7 +14,7 @@
 import { sendCommand, getStore } from './state.js';
 import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel, renderRepoPage, openRepoPage, closeRepoPage, renderTaskDetail } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
-import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo } from './galt-chat.js';
+import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId } from './galt-chat.js';
 
 /* ---------- the registry ---------- */
 
@@ -209,45 +209,92 @@ const HANDLERS = {
     }
   },
 
-  /* start-repo-task (Assign) — implement spec via Claude, open COS */
-  'start-repo-task': async (target) => {
-    const repoId = parseInt(target.dataset.repoId, 10);
-    const taskId = target.dataset.taskId;
-    if (!Number.isFinite(repoId) || !taskId) return;
+  /* claude-action — unified "send to Claude" button (TASK-076).
+     Reads data-claude-action for the verb: assign | spec | create */
+  'claude-action': async (target) => {
+    const verb   = target.dataset.claudeAction;
+    const repoId = parseInt(
+      target.closest('[data-repo-id]')?.dataset.repoId ?? target.dataset.repoId ?? '',
+      10
+    );
+    const taskId = target.closest('[data-task-id]')?.dataset.taskId ?? target.dataset.taskId;
+
+    const originalLabel = target.querySelector('.ca-label')?.textContent;
+    target.dataset.state = 'loading';
     target.disabled = true;
-    target.textContent = '…';
+
     try {
-      const result = await sendCommand('start_repo_task', { repo_id: repoId, task_id: taskId });
+      let result;
+      let title;
+
+      if (verb === 'assign') {
+        if (!Number.isFinite(repoId) || !taskId) throw new Error('repo + task required');
+        result = await sendCommand('start_repo_task', { repo_id: repoId, task_id: taskId });
+        title  = `Assign: ${result?.spec_title || taskId}`;
+        closeSheet('task-detail');
+      } else if (verb === 'spec') {
+        if (!Number.isFinite(repoId) || !taskId) throw new Error('repo + task required');
+        result = await sendCommand('spec_task', { repo_id: repoId, task_id: taskId });
+        title  = `Spec: ${result?.spec_title || taskId}`;
+        closeSheet('task-detail');
+      } else if (verb === 'create') {
+        const form       = document.querySelector('[data-id="rsh-create-form"]');
+        const createType = form?.dataset.createType;
+        const narrative  = form?.querySelector('[data-id="rsh-create-input"]')?.value?.trim();
+        const fRepoId    = parseInt(form?.dataset.repoId ?? '', 10);
+        if (!narrative) throw new Error('describe what you want first');
+        const cmd = createType === 'task' ? 'create_repo_task' : 'create_repo_phase';
+        result = await sendCommand(cmd, { repo_id: fRepoId, narrative });
+        title  = createType === 'task' ? '＋ Create task' : '⊕ Plan phase';
+        if (form) form.style.display = 'none';
+      } else {
+        throw new Error(`unknown claude-action: ${verb}`);
+      }
+
       const uuid = result?.task_id;
       if (!uuid) throw new Error('no task_id returned');
-      target.disabled = false; target.textContent = '▶ Assign';
-      closeSheet('task-detail');
-      openClaudeOutputSheet(uuid, `Assign: ${result?.spec_title || taskId}`, repoId);
+      const effectiveRepoId = verb === 'create'
+        ? parseInt(document.querySelector('[data-id="rsh-create-form"]')?.dataset.repoId ?? '', 10)
+        : repoId;
+      openClaudeOutputSheet(uuid, title, effectiveRepoId);
     } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      target.dataset.state = '';
       target.disabled = false;
-      target.textContent = '▶ Assign';
-      showToast(`assign failed: ${err.message}`, 'error');
+      const labelEl = target.querySelector('.ca-label');
+      if (labelEl && originalLabel) labelEl.textContent = originalLabel;
     }
   },
 
-  /* spec-repo-task (Spec) — expand stub to full spec via Claude, open COS */
-  'spec-repo-task': async (target) => {
-    const repoId = parseInt(target.dataset.repoId, 10);
-    const taskId = target.dataset.taskId;
-    if (!Number.isFinite(repoId) || !taskId) return;
-    target.disabled = true;
-    target.textContent = '…';
+  /* cos-session-send — follow-up input in the COS sheet (TASK-077) */
+  'cos-session-send': async () => {
+    const input  = document.querySelector('[data-id="cos-session-input"]');
+    const text   = input?.value?.trim();
+    if (!text) return;
+
+    const repoId = getActiveCOSRepoId();
+    if (!repoId) { showToast('no repo session active', 'error'); return; }
+
+    input.value = '';
+
     try {
-      const result = await sendCommand('spec_task', { repo_id: repoId, task_id: taskId });
-      const uuid = result?.task_id;
+      const result = await sendCommand('repo_claude_task', { repo_id: repoId, text });
+      const uuid   = result?.task_id;
       if (!uuid) throw new Error('no task_id returned');
-      target.disabled = false; target.textContent = '◎ Spec';
-      closeSheet('task-detail');
-      openClaudeOutputSheet(uuid, `Spec: ${result?.spec_title || taskId}`, repoId);
+      openClaudeOutputSheet(uuid, text.slice(0, 48), repoId);
     } catch (err) {
-      target.disabled = false;
-      target.textContent = '◎ Spec';
-      showToast(`spec failed: ${err.message}`, 'error');
+      showToast(err.message, 'error');
+    }
+  },
+
+  /* repo-mic-select-change — persist selected repo + sync both selectors (TASK-078) */
+  'repo-mic-select-change': (target) => {
+    localStorage.setItem('galt_repo_mic_repo_id', target.value);
+    for (const sel of document.querySelectorAll(
+      '[data-id="repo-mic-select"], [data-id="d-repo-mic-select"]'
+    )) {
+      if (sel !== target) sel.value = target.value;
     }
   },
 
@@ -277,32 +324,6 @@ const HANDLERS = {
     if (input) input.value = '';
     form.style.display = 'flex';
     input?.focus();
-  },
-
-  /* rsh-create-submit — send narrative to Claude, open COS */
-  'rsh-create-submit': async (target) => {
-    const form = document.querySelector('[data-id="rsh-create-form"]');
-    if (!form) return;
-    const type      = form.dataset.createType;
-    const repoId    = parseInt(form.dataset.repoId, 10);
-    const input     = form.querySelector('[data-id="rsh-create-input"]');
-    const narrative = input?.value?.trim();
-    if (!narrative) { showToast('describe what you want first', 'error'); return; }
-    const submitBtn = form.querySelector('[data-action="rsh-create-submit"]');
-    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = '…'; }
-    try {
-      const cmd   = type === 'task' ? 'create_repo_task' : 'create_repo_phase';
-      const label = type === 'task' ? '＋ Create task' : '⊕ Plan phase';
-      const result = await sendCommand(cmd, { repo_id: repoId, narrative });
-      const uuid   = result?.task_id;
-      if (!uuid) throw new Error('no task_id returned');
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '→ Create'; }
-      form.style.display = 'none';
-      openClaudeOutputSheet(uuid, label, repoId);
-    } catch (err) {
-      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = '→ Create'; }
-      showToast(err.message, 'error');
-    }
   },
 
   /* rsh-create-cancel — hide the narrative form */
@@ -577,6 +598,14 @@ export function wireEventDelegation() {
   // hiccup just means the next keystroke retries.
   wireDebouncedSave('voice-profile',  'set_voice_profile',  'voice profile saved');
   wireDebouncedSave('default-away',   'set_away_message',   'default away saved');
+
+  // COS session input: Enter key submits follow-up
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.matches('[data-id="cos-session-input"]')) {
+      e.preventDefault();
+      Promise.resolve(HANDLERS['cos-session-send']?.(e.target)).catch((err) => showToast(err.message, 'error'));
+    }
+  });
 
   // Escape closes any open sheet or page overlay (desktop ergonomics)
   document.addEventListener('keydown', (e) => {

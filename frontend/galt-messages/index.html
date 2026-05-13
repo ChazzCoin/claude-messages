@@ -78,14 +78,22 @@
         <!-- Desktop inline response panel — content injected by _setMemoryPanel() -->
         <div class="memory-response sidebar-memory-response" data-id="d-memory-response" hidden></div>
 
-        <!-- Claude quick action (desktop sidebar) -->
-        <button class="claude-mic-btn sidebar-claude-btn" data-id="d-claude-mic-btn" data-action="claude-mic" data-claude-state="idle" aria-label="Ask Claude">
-          <span class="claude-mic-icon">
-            <svg class="claude-icon-bolt" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            <svg class="mem-icon-wave claude-icon-wave" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
-          </span>
-          <span class="claude-mic-state-label">Claude</span>
-        </button>
+        <!-- Claude quick action (desktop sidebar) — repo selector + mic -->
+        <div class="repo-mic-row">
+          <select class="repo-mic-select"
+                  data-id="d-repo-mic-select"
+                  data-action="repo-mic-select-change"
+                  aria-label="Select repo">
+            <option value="">— Ask Claude —</option>
+          </select>
+          <button class="claude-mic-btn sidebar-claude-btn" data-id="d-claude-mic-btn" data-action="claude-mic" data-claude-state="idle" aria-label="Ask Claude">
+            <span class="claude-mic-icon">
+              <svg class="claude-icon-bolt" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <svg class="mem-icon-wave claude-icon-wave" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
+            </span>
+            <span class="claude-mic-state-label">◆</span>
+          </button>
+        </div>
         <!-- Desktop Claude response panel -->
         <div class="claude-response sidebar-claude-response" data-id="d-claude-response" hidden></div>
 
@@ -211,15 +219,22 @@
         <!-- Inline Galt response — content injected by _setMemoryPanel() -->
         <div class="memory-response" data-id="memory-response" hidden></div>
 
-        <!-- Claude quick action: tap → speak → Claude runs the task inline -->
-        <button class="claude-mic-btn" data-id="claude-mic-btn" data-action="claude-mic" data-claude-state="idle" aria-label="Ask Claude">
-          <span class="claude-mic-icon">
-            <svg class="claude-icon-bolt" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            <svg class="mem-icon-wave claude-icon-wave" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
-          </span>
-          <span class="claude-mic-label">Claude</span>
-          <span class="claude-mic-hint">Tap to ask</span>
-        </button>
+        <!-- Claude quick action: repo selector + mic button -->
+        <div class="repo-mic-row">
+          <select class="repo-mic-select"
+                  data-id="repo-mic-select"
+                  data-action="repo-mic-select-change"
+                  aria-label="Select repo">
+            <option value="">— Ask Claude —</option>
+          </select>
+          <button class="claude-mic-btn" data-id="claude-mic-btn" data-action="claude-mic" data-claude-state="idle" aria-label="Ask Claude">
+            <span class="claude-mic-icon">
+              <svg class="claude-icon-bolt" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <svg class="mem-icon-wave claude-icon-wave" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
+            </span>
+            <span class="claude-mic-label">◆</span>
+          </button>
+        </div>
         <!-- Claude response panel — content injected by _setClaudePanel() -->
         <div class="claude-response" data-id="claude-response" hidden></div>
       </div>
@@ -523,6 +538,22 @@
     </div>
     <div class="cos-body" data-id="cos-body">
       <!-- .cos-task-view elements injected by openClaudeOutputSheet() -->
+    </div>
+    <!-- COS session input — follow-up to the active repo session -->
+    <div class="cos-session-bar" data-id="cos-session-bar" data-available="false">
+      <input class="cos-session-input"
+             data-id="cos-session-input"
+             type="text"
+             placeholder="Follow up…"
+             autocomplete="off"
+             autocorrect="off" />
+      <button class="cos-session-send claude-action-btn"
+              data-action="cos-session-send"
+              data-variant="dim"
+              aria-label="Send">
+        <span class="ca-sigil">◆</span>
+        <span class="ca-label">→</span>
+      </button>
     </div>
   </div>
 

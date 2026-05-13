@@ -357,6 +357,86 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   background: var(--claude-c);
 }
 
+/* ── Claude action button (TASK-076) ────────────────────────────
+   Reusable "send to Claude" button used by Assign / Spec / Create.
+   Variants driven by data-variant attribute. */
+.claude-action-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--claude-border);
+  background: var(--claude-bg);
+  color: var(--claude-c);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.claude-action-btn:hover {
+  background: var(--claude-glow); border-color: var(--claude-c);
+}
+.claude-action-btn[disabled],
+.claude-action-btn[data-state="loading"] {
+  opacity: 0.5; pointer-events: none;
+}
+.claude-action-btn[data-variant="secondary"] {
+  --ca-c: var(--green-c, #4caf50);
+  border-color: color-mix(in srgb, var(--ca-c) 35%, transparent);
+  background: color-mix(in srgb, var(--ca-c) 10%, var(--surface));
+  color: var(--ca-c);
+}
+.claude-action-btn[data-variant="secondary"]:hover {
+  background: color-mix(in srgb, var(--ca-c) 18%, var(--surface));
+  border-color: var(--ca-c);
+}
+.claude-action-btn[data-variant="dim"] {
+  background: transparent; border-color: transparent; color: var(--text-secondary);
+}
+.claude-action-btn[data-variant="dim"]:hover {
+  background: var(--claude-bg); color: var(--claude-c);
+}
+.ca-sigil { font-size: 11px; line-height: 1; flex-shrink: 0; }
+.ca-label  { white-space: nowrap; }
+
+/* ── COS session input bar (TASK-077) ───────────────────────────
+   Sticky follow-up input at the bottom of the Claude Output Sheet. */
+.cos-session-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.cos-session-input {
+  flex: 1;
+  background: var(--input-bg, var(--surface-2, var(--surface)));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px; padding: 6px 10px; outline: none;
+}
+.cos-session-input:focus { border-color: var(--claude-c); }
+.cos-session-bar .cos-session-send { padding: 6px 10px; flex-shrink: 0; }
+.cos-session-bar[data-available="false"] { display: none; }
+
+/* ── Repo mic selector row (TASK-078) ───────────────────────────
+   Combined repo selector + mic button on the home screen. */
+.repo-mic-row {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+}
+.repo-mic-select {
+  flex: 1; min-width: 0;
+  background: var(--surface-2, var(--surface));
+  border: 1px solid var(--claude-border);
+  border-radius: var(--radius);
+  color: var(--text); font-size: 12px; padding: 4px 8px;
+  appearance: none; cursor: pointer;
+}
+.repo-mic-select:focus { border-color: var(--claude-c); outline: none; }
+.repo-mic-row .claude-mic-btn { flex-shrink: 0; width: auto; padding: 0 10px; }
+.repo-mic-row .claude-mic-hint { display: none; }
+.sidebar .repo-mic-row { flex-direction: column; align-items: stretch; }
+.sidebar .repo-mic-select { margin-bottom: 4px; }
+
 /* Claude card — matches brain-card visual language, blue palette.
    First-class quick-view container — depth shadow + accent border-left. */
 .claude-quick-card {

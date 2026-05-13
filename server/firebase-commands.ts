@@ -28,6 +28,9 @@ import {
   setCalendarProposalTarget,
   getRepo,
   updateTaskPR,
+  getOrCreateRepoSession,
+  touchRepoSession,
+  resetRepoSession,
 } from './db/app.js';
 import { exportCalendarProposal, dismissCalendarProposal } from './calendar-export.js';
 import { cancelTask, startClaudeTask } from './task-runner.js';
@@ -314,6 +317,42 @@ async function dispatch(cmd: RawCommand): Promise<unknown> {
       if (!text) throw new Error('text required');
       const task = startClaudeTask({ task: text });
       return { ok: true, task_id: task.id };
+    }
+
+    case 'repo_claude_task': {
+      // Route a conversational task to a repo's persistent Claude session.
+      // The session UUID is looked up (or created) from repo_sessions and
+      // passed as --session-id so context accumulates across tasks.
+      const repoId = typeof p.repo_id === 'number' ? p.repo_id : NaN;
+      if (!Number.isFinite(repoId)) throw new Error('repo_id required');
+      const text = typeof p.text === 'string' ? p.text.trim() : '';
+      if (!text) throw new Error('text required');
+
+      const repo = getRepo(repoId);
+      if (!repo) throw new Error(`repo ${repoId} not found`);
+      if (!repo.active) throw new Error(`repo ${repo.name} is inactive`);
+
+      const sessionId = getOrCreateRepoSession(repoId);
+      touchRepoSession(repoId);
+
+      const task = startClaudeTask({
+        task:        text,
+        working_dir: repo.local_path,
+        session_id:  sessionId,
+        max_turns:   50,
+        repo_id:     repoId,
+      });
+      return { ok: true, task_id: task.id };
+    }
+
+    case 'reset_repo_session': {
+      // Force a fresh Claude session for a repo. Called from settings or
+      // when the user explicitly wants to clear accumulated context.
+      const repoId = typeof p.repo_id === 'number' ? p.repo_id : NaN;
+      if (!Number.isFinite(repoId)) throw new Error('repo_id required');
+      const newId = resetRepoSession(repoId);
+      void pushStateSnapshot();
+      return { ok: true, new_session_id: newId };
     }
 
     case 'galt_chat_clear': {

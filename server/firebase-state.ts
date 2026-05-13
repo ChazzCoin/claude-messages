@@ -8,7 +8,7 @@
 // device. If that ever changes, swap the path to /state/<device_id> and
 // add device_id selection on the frontend.
 
-import { getSettings, listAwayContacts, countUnreviewedAutoNotes, getDeviceId, getAiUsageStats } from './db/app.js';
+import { getSettings, listAwayContacts, countUnreviewedAutoNotes, getDeviceId, getAiUsageStats, listRepos, getRepoSessions, type RepoSessionRow } from './db/app.js';
 import {
   countActiveAwaySessions,
   countActiveSummonSessions,
@@ -76,6 +76,16 @@ interface StateSnapshot {
    *  Failure to read is non-fatal — empty list just means the picker
    *  hides until the next push succeeds. */
   calendars: CalendarListEntry[];
+  /** Active repo sessions for the companion repo-mic selector.
+   *  Joined with repos so the companion has name + path without a
+   *  separate fetch. Sorted by last_used desc (most recent first). */
+  repo_sessions: Array<{
+    id: number;
+    name: string;
+    session_id: string;
+    last_used: number;
+    task_count: number;
+  }>;
 }
 
 function buildSnapshot(): StateSnapshot {
@@ -132,7 +142,31 @@ function buildSnapshot(): StateSnapshot {
       all_time: usage.all_time,
     },
     calendars: safeListCalendars(),
+    repo_sessions: buildRepoSessions(),
   };
+}
+
+function buildRepoSessions(): StateSnapshot['repo_sessions'] {
+  try {
+    const sessions = getRepoSessions();
+    const repoMap = new Map(listRepos().map((r) => [r.id, r]));
+    return sessions
+      .map((s: RepoSessionRow) => {
+        const repo = repoMap.get(s.repo_id);
+        if (!repo) return null;
+        return {
+          id: repo.id,
+          name: repo.name,
+          session_id: s.session_id,
+          last_used: s.last_used,
+          task_count: s.task_count,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+  } catch (err) {
+    console.warn('[firebase-state] repo_sessions build failed:', (err as Error).message);
+    return [];
+  }
 }
 
 function safeListCalendars(): CalendarListEntry[] {

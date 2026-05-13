@@ -1740,7 +1740,17 @@ function _cosActivate(taskId) {
   for (const v of document.querySelectorAll('.cos-task-view')) {
     v.style.display = v.dataset.taskId === taskId ? '' : 'none';
   }
+  const meta = _cosTasks.get(taskId);
+  const bar = document.querySelector('[data-id="cos-session-bar"]');
+  if (bar) bar.dataset.available = String(!!meta?.repoId);
   _cosRenderQueue();
+}
+
+/** Return the repoId for the currently active COS task, or null if
+ *  there is no active task or the task has no repo association. */
+export function getActiveCOSRepoId() {
+  const meta = _cosTasks.get(_cosActiveId);
+  return meta?.repoId ?? null;
 }
 
 function _cosRenderQueue() {
@@ -1827,11 +1837,21 @@ export async function startClaudeMic() {
     _setClaudeState('waiting');
     _setClaudePanel('waiting');
 
+    // Read selected repo from either selector (mobile or desktop)
+    const sel = document.querySelector('[data-id="repo-mic-select"]')
+             || document.querySelector('[data-id="d-repo-mic-select"]');
+    const repoId = sel?.value ? parseInt(sel.value, 10) : NaN;
+
     try {
-      const result = await sendCommand('quick_claude', { text: transcript });
+      let result;
+      if (Number.isFinite(repoId)) {
+        result = await sendCommand('repo_claude_task', { repo_id: repoId, text: transcript });
+      } else {
+        result = await sendCommand('quick_claude', { text: transcript });
+      }
       const taskId = result?.task_id;
       if (!taskId) throw new Error('no task_id returned');
-      _setClaudeState('idle');   // button resets; card carries the live state
+      _setClaudeState('idle');
       _setClaudePanel('task', taskId);
     } catch (err) {
       _setClaudeState('idle');
