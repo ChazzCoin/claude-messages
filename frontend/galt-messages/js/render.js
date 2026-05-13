@@ -30,16 +30,26 @@ function escape(v) {
 
 let _cossActiveRepoId = null;
 let _cossSessions = [];
+let _cossAllRepos = [];
 
-export function getActiveCOSSRepoId() { return _cossActiveRepoId; }
+export function getActiveCOSSRepoId() {
+  // If a session pill is selected, use that. Otherwise fall back to the
+  // repo picker shown in the empty/start-new state (so the user can fire
+  // the first message and have the backend create the session row).
+  if (_cossActiveRepoId) return _cossActiveRepoId;
+  const picker = document.querySelector('[data-id="coss-repo-picker"]');
+  const v = picker?.value ? parseInt(picker.value, 10) : NaN;
+  return Number.isFinite(v) ? v : null;
+}
 
 export function selectCOSSSession(repoId) {
   _cossActiveRepoId = Number.isFinite(repoId) ? repoId : null;
-  renderCOSSQueue(_cossSessions);
+  renderCOSSQueue(_cossSessions, _cossAllRepos);
 }
 
-export function renderCOSSQueue(sessions) {
+export function renderCOSSQueue(sessions, repos) {
   _cossSessions = sessions || [];
+  if (repos) _cossAllRepos = repos;
 
   const queueEl = $('[data-id="coss-queue"]');
   const countEl = $('[data-id="coss-session-count"]');
@@ -69,8 +79,21 @@ function _cossRenderBody() {
   const bodyEl = $('[data-id="coss-body"]');
   if (!bodyEl) return;
 
+  // No sessions yet — show a repo picker so the user can start one.
   if (!_cossSessions.length) {
-    bodyEl.innerHTML = '<div class="coss-empty">No sessions yet — assign a task to a repo to start one.</div>';
+    if (!_cossAllRepos.length) {
+      bodyEl.innerHTML = '<div class="coss-empty">No repos registered yet. Register a repo first, then come back to start a session.</div>';
+      return;
+    }
+    const opts = _cossAllRepos.map((r) =>
+      `<option value="${r.id}">${escape(r.name)}${r.company ? ' · ' + escape(r.company) : ''}</option>`
+    ).join('');
+    bodyEl.innerHTML = `
+      <div class="coss-start-card">
+        <div class="coss-start-title">Start a new session</div>
+        <div class="coss-start-hint">Pick the repo to attach the session to. The first message you send below will create it.</div>
+        <select class="coss-repo-picker" data-id="coss-repo-picker">${opts}</select>
+      </div>`;
     return;
   }
 
@@ -107,7 +130,7 @@ export function renderAll(store) {
   renderBriefing(store);
   renderPushPanel();
   updateRepoMicSelect(store.state?.repo_sessions || []);
-  renderCOSSQueue(store.state?.repo_sessions || []);
+  renderCOSSQueue(store.state?.repo_sessions || [], store.repos || []);
 }
 
 /** Populate the repo selector(s) on the home screen from /state.repo_sessions. */
