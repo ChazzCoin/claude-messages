@@ -115,5 +115,21 @@ several phases depend on. Use sparingly.
 
 ---
 
+## Phase 7 — Repo Groups & Daily Stand-Up
+
+> **Scope.** Organize repos by project (color-coded groups), add a
+> project management UI, fetch commits via GitHub API, and generate a
+> freeform daily stand-up from tasks + PRs + commits.
+
+Tasks (in suggested ship order):
+
+- TASK-070 — Rename `company` → `project` across the stack *(prerequisite)*
+- TASK-071 — Project group display on companion home screen
+- TASK-072 — Project management UI (create / edit / color / assign)
+- TASK-073 — GitHub API commit + PR fetcher per repo
+- TASK-074 — Daily stand-up generator (freeform prose, companion PWA)
+
+---
+
 *(Add phases and tasks as the project evolves. Use `/task` to file
 tasks; use `/plan` to think through new phases.)*

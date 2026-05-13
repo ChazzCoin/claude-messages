@@ -121,6 +121,25 @@ identity card and in draft prompts.
 
 ---
 
+## Phase 7 — Repo Groups & Daily Stand-Up
+
+**Status:** 📋 Queued
+
+**Scope.** Bring organization and daily narrative to the repo
+dashboard. Repos are grouped by `project` (renamed from `company`) —
+each project gets a hex color applied to its section divider and repo
+card accents on the companion home screen. A project management UI
+lets the user create, color, and assign repos to projects. A GitHub
+API fetcher pulls yesterday's commits per repo, and a stand-up
+generator combines tasks + PRs + commits into a freeform prose
+summary the user can copy in one tap. Format stays open-ended so
+calendar events and other context can be woven in as the feature
+evolves.
+
+**Tasks:** TASK-070, TASK-071, TASK-072, TASK-073, TASK-074
+
+---
+
 *(Add phases as the project evolves. Use `/plan` to think through new
 phases conversationally; use `/task` to file tasks under existing
 phases. Don't create empty phases speculatively — a phase exists
