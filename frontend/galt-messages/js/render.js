@@ -1055,7 +1055,12 @@ export function renderRepoSheet(repo) {
     </div>
     <div class="rsh-create-form" data-id="rsh-create-form" style="display:none">
       <div class="rsh-create-label" data-id="rsh-create-label">Describe what you want…</div>
-      <textarea class="rsh-create-textarea" data-id="rsh-create-input" rows="5" placeholder="Tell Claude what you want. Be as specific as you like — what it does, why it matters, what done looks like, edge cases, constraints…" autocomplete="off"></textarea>
+      <div class="dict-input-wrap">
+        <textarea class="rsh-create-textarea" data-id="rsh-create-input" rows="5" placeholder="Tell Claude what you want. Be as specific as you like — what it does, why it matters, what done looks like, edge cases, constraints…" autocomplete="off"></textarea>
+        <button class="dict-btn" data-action="dict-mic" data-dict-state="idle" aria-label="Dictate" title="Tap to dictate">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+        </button>
+      </div>
       <div class="rsh-create-actions">
         <button class="claude-action-btn" data-action="claude-action" data-claude-action="create" data-variant="primary"><span class="ca-sigil">◆</span><span class="ca-label">→ Create</span></button>
         <button class="rsh-quick-opt rsh-opt-cancel" data-action="rsh-create-cancel">Cancel</button>
@@ -1243,9 +1248,14 @@ export function renderRepoPage(repo, openPRs = []) {
     </div>
     <div class="rpo-create-form" data-id="rsh-create-form">
       <div class="rpo-create-label" data-id="rsh-create-label">Describe what you want…</div>
-      <textarea class="rpo-create-textarea" data-id="rsh-create-input" rows="4"
-        placeholder="Tell Claude what you want — what it does, why it matters, what done looks like…"
-        autocomplete="off"></textarea>
+      <div class="dict-input-wrap">
+        <textarea class="rpo-create-textarea" data-id="rsh-create-input" rows="4"
+          placeholder="Tell Claude what you want — what it does, why it matters, what done looks like…"
+          autocomplete="off"></textarea>
+        <button class="dict-btn" data-action="dict-mic" data-dict-state="idle" aria-label="Dictate" title="Tap to dictate">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+        </button>
+      </div>
       <div class="rpo-create-actions">
         <button class="claude-action-btn" data-action="claude-action" data-claude-action="create" data-variant="primary"><span class="ca-sigil">◆</span><span class="ca-label">→ Create</span></button>
         <button class="rpo-create-cancel" data-action="rsh-create-cancel">Cancel</button>

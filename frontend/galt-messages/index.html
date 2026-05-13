@@ -560,7 +560,12 @@
       <!-- .cos-task-view elements injected by openClaudeOutputSheet() -->
     </div>
     <div class="cos-session-bar" data-id="cos-session-bar" data-available="false">
-      <textarea class="cos-session-input" data-id="cos-session-input" rows="1" placeholder="Send a follow-up to this session…"></textarea>
+      <div class="dict-input-wrap" style="flex:1;min-width:0;">
+        <textarea class="cos-session-input" data-id="cos-session-input" rows="1" placeholder="Send a follow-up to this session…"></textarea>
+        <button class="dict-btn dict-btn--sm" data-action="dict-mic" data-dict-state="idle" aria-label="Dictate">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+        </button>
+      </div>
       <button class="cos-session-send" data-action="cos-session-send" aria-label="Send">↑</button>
     </div>
   </div>
@@ -591,7 +596,12 @@
       <div class="coss-empty">No sessions yet — assign a task to a repo to start one.</div>
     </div>
     <div class="coss-input-bar">
-      <textarea class="coss-input" data-id="coss-input" rows="1" placeholder="Message active session…"></textarea>
+      <div class="dict-input-wrap" style="flex:1;min-width:0;">
+        <textarea class="coss-input" data-id="coss-input" rows="1" placeholder="Message active session…"></textarea>
+        <button class="dict-btn dict-btn--sm" data-action="dict-mic" data-dict-state="idle" aria-label="Dictate">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+        </button>
+      </div>
       <button class="coss-send" data-action="coss-send" aria-label="Send">↑</button>
     </div>
   </div>

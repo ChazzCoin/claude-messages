@@ -14,7 +14,7 @@
 import { sendCommand, getStore } from './state.js';
 import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel, renderRepoPage, openRepoPage, closeRepoPage, renderTaskDetail } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
-import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId, openCOSSSheet } from './galt-chat.js';
+import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId, openCOSSSheet, startDictation } from './galt-chat.js';
 
 /* ---------- the registry ---------- */
 
@@ -43,6 +43,15 @@ const HANDLERS = {
   'memory-dismiss':       () => { dismissMemoryResponse(); },
   'claude-mic':           () => { startClaudeMic(); },
   'claude-dismiss':       () => { dismissClaudePanel(); },
+
+  /* dict-mic — dictate text into the nearest textarea.
+     Button carries data-dict-state="idle|listening" for CSS feedback. */
+  'dict-mic': (target) => {
+    const wrap     = target.closest('.dict-input-wrap');
+    const textarea = wrap?.querySelector('textarea');
+    if (!textarea) return;
+    startDictation(textarea, target);
+  },
 
   /* calendar proposal approve / dismiss — sent via the /commands bus
      (export_calendar_proposal / dismiss_calendar_proposal). Backend

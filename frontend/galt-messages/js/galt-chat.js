@@ -1860,6 +1860,66 @@ function _initResizableSheet(sheetEl, backdropEl) {
   }, { passive: true });
 }
 
+/* ============================================================
+   Dictation — fills any textarea with real-time interim speech.
+   Does NOT auto-submit. User reviews text then presses their
+   own send/create button.
+   ============================================================ */
+
+let _dictRec     = null;
+let _dictBtn     = null;
+let _dictActive  = false;
+
+/** Start (or stop, if already running) dictation into `textareaEl`. */
+export function startDictation(textareaEl, btnEl) {
+  if (_dictActive) {
+    _dictRec?.stop();
+    return;
+  }
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { showToast('Speech input not supported in this browser', 'error'); return; }
+
+  // Preserve whatever's already typed — new speech appends after a space.
+  const base   = textareaEl.value.trim();
+  const prefix = base ? base + ' ' : '';
+
+  _dictBtn    = btnEl ?? null;
+  _dictActive = true;
+  if (_dictBtn) _dictBtn.dataset.dictState = 'listening';
+
+  _dictRec = new SR();
+  _dictRec.lang            = 'en-US';
+  _dictRec.interimResults  = true;
+  _dictRec.maxAlternatives = 1;
+  _dictRec.continuous      = false;
+
+  _dictRec.onresult = (e) => {
+    let transcript = '';
+    for (let i = 0; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript;
+    }
+    textareaEl.value = prefix + transcript;
+    textareaEl.dispatchEvent(new Event('input'));
+  };
+
+  _dictRec.onerror = (e) => {
+    _dictStop();
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      showToast(`Voice: ${e.error}`, 'error');
+    }
+  };
+
+  _dictRec.onend = () => { _dictStop(); };
+  _dictRec.start();
+}
+
+function _dictStop() {
+  _dictActive = false;
+  if (_dictBtn) { _dictBtn.dataset.dictState = 'idle'; _dictBtn = null; }
+  _dictRec = null;
+}
+
 /** Wire drag behavior on both resizable sheets. Call once at boot. */
 export function initResizableSheets() {
   const cosSheet      = document.querySelector('[data-id="cos-sheet"]');
