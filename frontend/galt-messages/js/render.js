@@ -3,6 +3,8 @@
 // All renderers are idempotent and accept a fresh snapshot. main.js
 // wires them up to fire on every store update via subscribe().
 
+import { renderCOSSQueue } from './galt-chat.js';
+
 
 const $$ = (id) => document.querySelectorAll(`[data-id="${id}"]`);
 const $  = (id) => document.querySelector(`[data-id="${id}"]`);
@@ -39,6 +41,7 @@ export function renderAll(store) {
   renderBriefing(store);
   renderPushPanel();
   updateRepoMicSelect(store.state?.repo_sessions || []);
+  renderCOSSQueue(store.state?.repo_sessions || []);
 }
 
 /** Populate the repo selector(s) on the home screen from /state.repo_sessions. */

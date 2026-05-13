@@ -4245,6 +4245,25 @@ details.chat-task-event.tool-result .chat-task-event-tool {
   color: var(--text-faint); font-size: 13px; font-style: italic;
   text-align: center; padding: 24px 0;
 }
+.coss-session-card {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px;
+  background: var(--bg-2); border: 1px solid var(--cos-border);
+  border-left: 3px solid var(--cos-c); border-radius: var(--radius);
+}
+.coss-session-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.coss-session-meta { font-size: 11.5px; color: var(--cos-dim); }
+.coss-session-hint { font-size: 11px; color: var(--text-faint); margin-top: 4px; font-style: italic; }
+.coss-pill-count {
+  font-size: 9.5px; font-weight: 700; font-family: ui-monospace, monospace;
+  background: color-mix(in srgb, var(--cos-c) 18%, transparent);
+  color: var(--cos-c); padding: 1px 5px; border-radius: 8px; flex-shrink: 0;
+}
+.coss-pill-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--cos-border); flex-shrink: 0;
+}
+.coss-session-pill.active .coss-pill-dot { background: var(--cos-c); box-shadow: 0 0 4px var(--cos-c); }
 
 /* COSS prompt input bar */
 .coss-input-bar {

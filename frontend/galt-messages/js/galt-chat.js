@@ -1942,6 +1942,87 @@ export function openCOSSSheet() {
   if (sheet)    sheet.dataset.visible    = 'true';
 }
 
+/* -- COSS session list state -- */
+let _cossActiveRepoId = null;
+
+/** Returns the currently-selected repo ID in the COSS sheet (or null). */
+export function getActiveCOSSRepoId() { return _cossActiveRepoId; }
+
+/** Select a session pill by repo ID. */
+export function selectCOSSSession(repoId) {
+  _cossActiveRepoId = repoId;
+  _cossRenderSelected();
+}
+
+/** Re-render the COSS queue and body from a fresh sessions array.
+ *  Called from renderAll whenever /state updates. */
+export function renderCOSSQueue(sessions) {
+  const queueEl = document.querySelector('[data-id="coss-queue"]');
+  const countEl = document.querySelector('[data-id="coss-session-count"]');
+  const bodyEl  = document.querySelector('[data-id="coss-body"]');
+  if (!queueEl) return;
+
+  if (!sessions || sessions.length === 0) {
+    queueEl.innerHTML = '';
+    if (countEl) countEl.textContent = '';
+    if (bodyEl) bodyEl.innerHTML = '<div class="coss-empty">No sessions yet — assign a task to a repo to start one.</div>';
+    _cossActiveRepoId = null;
+    return;
+  }
+
+  // Auto-select most-recently-used session if selection is stale or empty
+  const ids = new Set(sessions.map((s) => s.id));
+  if (_cossActiveRepoId === null || !ids.has(_cossActiveRepoId)) {
+    _cossActiveRepoId = sessions.reduce((a, b) => (b.last_used > a.last_used ? b : a)).id;
+  }
+
+  if (countEl) countEl.textContent = String(sessions.length);
+
+  queueEl.innerHTML = sessions
+    .sort((a, b) => b.last_used - a.last_used)
+    .map((s) => {
+      const name = s.name.length > 26 ? s.name.slice(0, 24) + '…' : s.name;
+      return `<button class="coss-session-pill${s.id === _cossActiveRepoId ? ' active' : ''}"
+        data-action="coss-session-select" data-repo-id="${s.id}">
+        <span class="coss-pill-dot"></span>
+        <span>${escape(name)}</span>
+        ${s.task_count > 0 ? `<span class="coss-pill-count">${s.task_count}</span>` : ''}
+      </button>`;
+    }).join('');
+
+  _cossRenderSelected(sessions);
+}
+
+function _cossRenderSelected(sessions) {
+  const bodyEl = document.querySelector('[data-id="coss-body"]');
+  if (!bodyEl || _cossActiveRepoId === null) return;
+
+  // Update pill active states without re-rendering the whole queue
+  for (const pill of document.querySelectorAll('.coss-session-pill')) {
+    pill.classList.toggle('active', parseInt(pill.dataset.repoId, 10) === _cossActiveRepoId);
+  }
+
+  const s = sessions?.find?.((x) => x.id === _cossActiveRepoId);
+  if (!s) return;
+
+  const relTime = (() => {
+    const diffMs = Date.now() - s.last_used * 1000;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 2) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `${diffH}h ago`;
+    return `${Math.floor(diffH / 24)}d ago`;
+  })();
+
+  bodyEl.innerHTML = `
+    <div class="coss-session-card">
+      <div class="coss-session-name">${escape(s.name)}</div>
+      <div class="coss-session-meta">${s.task_count} task${s.task_count !== 1 ? 's' : ''} · ${relTime}</div>
+      <div class="coss-session-hint">Type a message below and press ↑ to send to this session.</div>
+    </div>`;
+}
+
 /** Tap-to-talk quick action for Claude Code delegation.
  *  Sends the spoken request directly to Claude (not via Galt),
  *  then streams the task result inline below the button. */

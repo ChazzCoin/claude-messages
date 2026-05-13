@@ -14,7 +14,7 @@
 import { sendCommand, getStore } from './state.js';
 import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel, renderRepoPage, openRepoPage, closeRepoPage, renderTaskDetail } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
-import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId, openCOSSSheet, startDictation } from './galt-chat.js';
+import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId, openCOSSSheet, startDictation, selectCOSSSession, getActiveCOSSRepoId } from './galt-chat.js';
 
 /* ---------- the registry ---------- */
 
@@ -373,14 +373,27 @@ const HANDLERS = {
   /* open-coss-session — open the COSS sheet */
   'open-coss-session': () => openCOSSSheet(),
 
-  /* coss-send — send a prompt to the active COS session */
+  /* coss-session-select — switch the active session pill */
+  'coss-session-select': (target) => {
+    const repoId = parseInt(target.dataset.repoId, 10);
+    if (Number.isFinite(repoId)) selectCOSSSession(repoId);
+  },
+
+  /* coss-send — route text to the selected repo's persistent session */
   'coss-send': async () => {
     const input = document.querySelector('[data-id="coss-input"]');
     if (!input) return;
     const text = input.value.trim();
     if (!text) return;
+    const repoId = getActiveCOSSRepoId();
+    if (!repoId) { showToast('Select a session first', 'error'); return; }
     input.value = '';
-    showToast('session input coming soon', 'ok');
+    try {
+      await sendCommand('repo_claude_task', { repo_id: repoId, text });
+      showToast('sent to session', 'ok');
+    } catch (err) {
+      showToast(`session: ${err.message}`, 'error');
+    }
   },
 
   /* approve-pr — squash merge the open PR */
