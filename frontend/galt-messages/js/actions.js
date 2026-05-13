@@ -332,7 +332,10 @@ const HANDLERS = {
   /* close-cos — dismiss the COA sheet (tasks keep running) */
   'close-cos': () => closeSheet('cos'),
 
-  /* cos-session-send — send a follow-up prompt to the active COA repo session */
+  /* cos-session-send — send a follow-up prompt to the active COA repo session.
+     The backend spawns a NEW task subprocess for each message. We open
+     that new task in COA so its event stream lands in a fresh pill — without
+     this, the message disappears into RTDB with no UI surface. */
   'cos-session-send': async () => {
     const input = document.querySelector('[data-id="cos-session-input"]');
     if (!input) return;
@@ -342,9 +345,15 @@ const HANDLERS = {
     if (!repoId) return;
     input.value = '';
     try {
-      await sendCommand('repo_claude_task', { repo_id: repoId, text });
-      showToast('sent to session', 'ok');
+      const result = await sendCommand('repo_claude_task', { repo_id: repoId, text });
+      const taskId = result?.task_id;
+      if (taskId) {
+        openClaudeOutputSheet(taskId, text.slice(0, 48), repoId);
+      } else {
+        showToast('sent — but no task_id returned', 'warning');
+      }
     } catch (err) {
+      input.value = text;  // restore so the user doesn't lose what they typed
       showToast(`session: ${err.message}`, 'error');
     }
   },
@@ -368,7 +377,13 @@ const HANDLERS = {
      decides which backend command fires:
        - 'global' → global_claude_task (no repo, persistent Galt session)
        - 'repo'   → repo_claude_task (existing repo session)
-       - 'new'    → repo_claude_task (creates a session for the picked repo) */
+       - 'new'    → repo_claude_task (creates a session for the picked repo)
+
+     After the command succeeds, the backend has spawned a Claude subprocess
+     that streams its output to /tasks/<task_id>/events. We open that task
+     in COA so the event stream actually renders — COSS itself only knows
+     how to draw session metadata (pills, last-used), not task output.
+     Without openClaudeOutputSheet here, every send vanishes into RTDB. */
   'coss-send': async () => {
     const input = document.querySelector('[data-id="coss-input"]');
     if (!input) return;
@@ -379,9 +394,15 @@ const HANDLERS = {
     if (mode === 'global') {
       input.value = '';
       try {
-        await sendCommand('global_claude_task', { text });
-        showToast('sent to Galt', 'ok');
+        const result = await sendCommand('global_claude_task', { text });
+        const taskId = result?.task_id;
+        if (taskId) {
+          openClaudeOutputSheet(taskId, text.slice(0, 48), null);
+        } else {
+          showToast('sent — but no task_id returned', 'warning');
+        }
       } catch (err) {
+        input.value = text;
         showToast(`session: ${err.message}`, 'error');
       }
       return;
@@ -391,9 +412,15 @@ const HANDLERS = {
     if (!repoId) { showToast('Pick a repo first', 'error'); return; }
     input.value = '';
     try {
-      await sendCommand('repo_claude_task', { repo_id: repoId, text });
-      showToast('sent to session', 'ok');
+      const result = await sendCommand('repo_claude_task', { repo_id: repoId, text });
+      const taskId = result?.task_id;
+      if (taskId) {
+        openClaudeOutputSheet(taskId, text.slice(0, 48), repoId);
+      } else {
+        showToast('sent — but no task_id returned', 'warning');
+      }
     } catch (err) {
+      input.value = text;
       showToast(`session: ${err.message}`, 'error');
     }
   },
