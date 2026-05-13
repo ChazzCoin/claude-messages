@@ -441,7 +441,7 @@ export function closeSheet(name) {
 }
 
 export function closeAllSheets() {
-  for (const name of ['settings', 'away', 'status', 'source', 'cos', 'task-detail']) closeSheet(name);
+  for (const name of ['settings', 'away', 'status', 'source', 'cos', 'coss', 'task-detail']) closeSheet(name);
   closeRepoPage();
 }
 

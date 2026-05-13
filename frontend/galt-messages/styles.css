@@ -81,6 +81,7 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .sidebar-scroll { flex: 1; overflow-y: auto; padding: 18px 16px 24px; }
 
 .brand {
+  display: flex; align-items: center; gap: 6px;
   font-size: 22px; font-weight: 700; letter-spacing: -0.5px;
   color: var(--accent); padding: 4px 6px; border-radius: var(--radius-sm);
 }
@@ -512,6 +513,46 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
   /* no border — outer .claude-quick-card handles it */
   box-shadow: none;
 }
+
+/* ── Gold palette override for Claude home-screen quick action ── */
+/* Applies to the button, response panel, and result card only.
+   Does NOT affect the COA sheet (which stays blue). */
+.claude-mic-btn,
+.claude-response,
+.claude-quick-card {
+  --claude-c:          var(--sun-c);
+  --claude-bg:         var(--sun-bg);
+  --claude-border:     var(--sun-border);
+  --claude-glow:       var(--sun-glow);
+  --claude-dim:        var(--sun-dim);
+  --claude-header-bg:  rgba(240, 192, 64, 0.10);
+  --claude-header-bdr: rgba(240, 192, 64, 0.18);
+}
+
+/* ── COS (Mercury / Sessions) quick-action button ─────────── */
+@keyframes cos-btn-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--cos-glow); }
+  50%       { box-shadow: 0 0 0 4px var(--cos-glow); }
+}
+.coss-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 13px 16px;
+  background: var(--cos-bg); border: 1px solid var(--cos-border);
+  border-radius: var(--radius); color: var(--cos-c);
+  transition: background 0.2s, border-color 0.2s;
+}
+.coss-btn:hover { background: var(--cos-glow); border-color: var(--cos-c); }
+.coss-btn-icon {
+  width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1;
+  background: var(--cos-bg); border: 1px solid var(--cos-border);
+}
+.coss-btn-label { font-weight: 600; }
+.coss-btn-hint  { font-size: 12px; color: var(--cos-dim); margin-left: auto; }
+.sidebar-coss-btn { padding: 9px 12px; }
+.sidebar-coss-btn .coss-btn-hint { display: none; }
+.sidebar-coss-btn .coss-btn-icon { width: 22px; height: 22px; }
 
 /* ── Global voice toggle button ────────────────────────────── */
 /* Shared state logic — works in mobile header, desktop sidebar,
@@ -2568,7 +2609,7 @@ details.chat-task-event.tool-result .chat-task-event-tool {
   --brain-border: rgba(139, 124, 248, 0.28);
   --brain-header-bg: rgba(139, 124, 248, 0.10);
 
-  /* Claude quick-action card — cool blue, distinct from brain purple */
+  /* COA sheet — cool blue (automated agent tasks) */
   --claude-c:          #5b9cf8;
   --claude-bg:         rgba(91, 156, 248, 0.06);
   --claude-border:     rgba(91, 156, 248, 0.30);
@@ -2585,6 +2626,22 @@ details.chat-task-event.tool-result .chat-task-event-tool {
   --mem-border: rgba(139, 124, 248, 0.28);
   --mem-glow:   rgba(139, 124, 248, 0.15);
   --mem-dim:    rgba(139, 124, 248, 0.55);
+
+  /* Sun / Claude quick-action — gold (☉) */
+  --sun-c:      #f0c040;
+  --sun-bg:     rgba(240, 192, 64, 0.06);
+  --sun-border: rgba(240, 192, 64, 0.28);
+  --sun-glow:   rgba(240, 192, 64, 0.15);
+  --sun-dim:    rgba(240, 192, 64, 0.55);
+
+  /* COS quick-action / COSS sheet — Mercury indigo (☿) */
+  --cos-c:          #818cf8;
+  --cos-bg:         rgba(129, 140, 248, 0.06);
+  --cos-border:     rgba(129, 140, 248, 0.28);
+  --cos-header-bg:  rgba(129, 140, 248, 0.10);
+  --cos-header-bdr: rgba(129, 140, 248, 0.18);
+  --cos-dim:        rgba(129, 140, 248, 0.55);
+  --cos-glow:       rgba(129, 140, 248, 0.15);
 }
 
 .chat-brain-shell {
@@ -4012,6 +4069,185 @@ details.chat-task-event.tool-result .chat-task-event-tool {
   .cos-sheet {
     width: min(680px, calc(100% - 80px));
   }
+}
+
+/* ============================================================
+   COS session bar — follow-up input at the bottom of COA sheet
+   Shown only when the active task has a repo session (data-available="true")
+   ============================================================ */
+.cos-session-bar {
+  display: none;
+  align-items: center; gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--claude-header-bdr);
+  background: var(--claude-header-bg);
+  flex-shrink: 0;
+}
+.cos-session-bar[data-available="true"] { display: flex; }
+.cos-session-input {
+  flex: 1; padding: 7px 11px;
+  background: var(--bg-3); border: 1px solid var(--claude-border);
+  border-radius: var(--radius-sm); resize: none;
+  font-size: 13px; color: var(--text);
+  outline: none; line-height: 1.4; min-height: 34px;
+  transition: border-color 0.15s;
+}
+.cos-session-input:focus { border-color: var(--claude-c); }
+.cos-session-send {
+  padding: 6px 12px; font-size: 12px; font-weight: 700;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--claude-c) 18%, transparent);
+  color: var(--claude-c);
+  border: 1px solid color-mix(in srgb, var(--claude-c) 40%, transparent);
+  flex-shrink: 0; transition: all 0.15s;
+}
+.cos-session-send:hover { background: var(--claude-c); color: var(--bg); }
+.cos-session-send:disabled { opacity: 0.4; }
+
+/* ============================================================
+   Resizable sheets — drag handle to snap between resting/expanded
+   Resting: 50dvh (default). Expanded: 100dvh.
+   Only applies on mobile (< 901px).
+   ============================================================ */
+.sheet--resizable {
+  height: 50dvh;
+  max-height: 100dvh;
+  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.sheet--resizable[data-expanded="true"] {
+  height: 100dvh;
+  border-radius: 0;
+}
+/* Suppress during active drag so height follows touch position */
+.sheet--resizable[data-dragging="true"] {
+  transition: none;
+}
+
+@media (min-width: 901px) {
+  /* Desktop: ignore resizable, fall through to centered modal rules */
+  .sheet--resizable {
+    height: auto;
+    max-height: 85vh;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.3s;
+  }
+  .sheet--resizable[data-expanded="true"] {
+    border-radius: var(--radius-lg);
+  }
+}
+
+/* ============================================================
+   COSS — Claude Output Sessions sheet (Mercury / indigo)
+   Persistent session control — different from COA (agent tasks)
+   ============================================================ */
+.coss-sheet {
+  background: var(--bg-2);
+  border-top: 2px solid var(--cos-c);
+  max-height: 88vh;
+}
+
+/* COSS header */
+.coss-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px 8px;
+  background: var(--cos-header-bg);
+  border-bottom: 1px solid var(--cos-header-bdr);
+  flex-shrink: 0;
+}
+.coss-sigil { font-size: 16px; color: var(--cos-c); line-height: 1; }
+.coss-title {
+  font-size: 11px; font-weight: 800;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--cos-c); flex: 1;
+}
+.coss-badge {
+  font-size: 10.5px; font-weight: 700;
+  background: color-mix(in srgb, var(--cos-c) 18%, transparent);
+  color: var(--cos-c); padding: 2px 7px;
+  border-radius: 10px; min-width: 20px; text-align: center;
+}
+.coss-badge:empty { display: none; }
+.coss-close {
+  width: 24px; height: 24px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1; color: var(--cos-dim);
+  transition: all 0.15s;
+}
+.coss-close:hover { background: rgba(129,140,248,0.15); color: var(--cos-c); }
+
+/* Session pill row */
+.coss-queue-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--cos-header-bdr);
+  flex-shrink: 0;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
+}
+.coss-queue-bar::-webkit-scrollbar { display: none; }
+.coss-queue { display: flex; gap: 5px; min-width: max-content; }
+.coss-queue:empty::before {
+  content: 'No sessions yet';
+  font-size: 11px; color: var(--cos-dim); font-style: italic;
+  line-height: 30px;
+}
+.coss-session-pill {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 20px;
+  border: 1px solid var(--cos-border);
+  background: transparent; color: var(--cos-dim);
+  font-size: 11.5px; font-weight: 500;
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.coss-session-pill.active {
+  background: color-mix(in srgb, var(--cos-c) 15%, transparent);
+  border-color: var(--cos-c); color: var(--cos-c);
+}
+.coss-session-pill:hover:not(.active) { opacity: 0.8; border-color: var(--cos-c); }
+
+/* COSS body */
+.coss-body {
+  flex: 1; overflow-y: auto; padding: 18px 16px 24px;
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--bg);
+}
+.coss-empty {
+  color: var(--text-faint); font-size: 13px; font-style: italic;
+  text-align: center; padding: 24px 0;
+}
+
+/* COSS prompt input bar */
+.coss-input-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--cos-header-bdr);
+  background: var(--cos-header-bg);
+  flex-shrink: 0;
+}
+.coss-input {
+  flex: 1; padding: 7px 11px;
+  background: var(--bg-3); border: 1px solid var(--cos-border);
+  border-radius: var(--radius-sm); resize: none;
+  font-size: 13px; color: var(--text);
+  outline: none; line-height: 1.4; min-height: 34px;
+  transition: border-color 0.15s;
+}
+.coss-input:focus { border-color: var(--cos-c); }
+.coss-send {
+  padding: 6px 12px; font-size: 12px; font-weight: 700;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--cos-c) 18%, transparent);
+  color: var(--cos-c);
+  border: 1px solid color-mix(in srgb, var(--cos-c) 40%, transparent);
+  flex-shrink: 0; transition: all 0.15s;
+}
+.coss-send:hover { background: var(--cos-c); color: var(--bg); }
+.coss-send:disabled { opacity: 0.4; }
+
+/* Desktop: wider centered modal */
+@media (min-width: 901px) {
+  .coss-sheet { width: min(680px, calc(100% - 80px)); }
 }
 
 /* ============================================================

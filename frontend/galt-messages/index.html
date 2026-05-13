@@ -21,7 +21,18 @@
   <div class="desktop-layout">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <button class="brand" data-action="refresh">Galt</button>
+        <button class="brand" data-action="refresh">
+          <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex-shrink:0;">
+            <circle cx="9" cy="9" r="4" stroke="currentColor" stroke-width="1"/>
+            <circle cx="9" cy="5" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+            <circle cx="9" cy="13" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+            <circle cx="5.54" cy="7" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+            <circle cx="12.46" cy="7" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+            <circle cx="5.54" cy="11" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+            <circle cx="12.46" cy="11" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+          </svg>
+          Galt
+        </button>
         <button class="health-btn" data-id="d-health-btn">
           <span class="health-dot"></span>
           <span data-id="d-health-text">—</span>
@@ -73,29 +84,27 @@
             <svg class="mem-icon-mic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
             <svg class="mem-icon-wave" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
           </span>
-          <span class="memory-mic-state-label">Memory</span>
+          <span class="memory-mic-state-label">☽ Memory</span>
         </button>
         <!-- Desktop inline response panel — content injected by _setMemoryPanel() -->
         <div class="memory-response sidebar-memory-response" data-id="d-memory-response" hidden></div>
 
-        <!-- Claude quick action (desktop sidebar) — repo selector + mic -->
-        <div class="repo-mic-row">
-          <select class="repo-mic-select"
-                  data-id="d-repo-mic-select"
-                  data-action="repo-mic-select-change"
-                  aria-label="Select repo">
-            <option value="">— Ask Claude —</option>
-          </select>
-          <button class="claude-mic-btn sidebar-claude-btn" data-id="d-claude-mic-btn" data-action="claude-mic" data-claude-state="idle" aria-label="Ask Claude">
-            <span class="claude-mic-icon">
-              <svg class="claude-icon-bolt" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              <svg class="mem-icon-wave claude-icon-wave" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
-            </span>
-            <span class="claude-mic-state-label">◆</span>
-          </button>
-        </div>
+        <!-- Claude quick action (desktop sidebar) -->
+        <button class="claude-mic-btn sidebar-claude-btn" data-id="d-claude-mic-btn" data-action="claude-mic" data-claude-state="idle" aria-label="Ask Claude">
+          <span class="claude-mic-icon">
+            <svg class="claude-icon-bolt" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <svg class="mem-icon-wave claude-icon-wave" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
+          </span>
+          <span class="claude-mic-state-label">☉ Claude</span>
+        </button>
         <!-- Desktop Claude response panel -->
         <div class="claude-response sidebar-claude-response" data-id="d-claude-response" hidden></div>
+
+        <!-- COS sessions quick action (desktop sidebar) -->
+        <button class="coss-btn sidebar-coss-btn" data-action="open-coss-session" aria-label="Open Sessions">
+          <span class="coss-btn-icon">☿</span>
+          <span class="coss-btn-label">☿ Sessions</span>
+        </button>
 
         <button class="settings-btn" data-action="open-notes" style="margin-bottom: 6px;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
@@ -146,7 +155,18 @@
   <!-- MOBILE / TABLET LAYOUT -->
   <div class="mobile-layout">
     <div class="header">
-      <button class="brand" data-action="refresh">Galt</button>
+      <button class="brand" data-action="refresh">
+        <svg width="16" height="16" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex-shrink:0;">
+          <circle cx="9" cy="9" r="4" stroke="currentColor" stroke-width="1"/>
+          <circle cx="9" cy="5" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+          <circle cx="9" cy="13" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+          <circle cx="5.54" cy="7" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+          <circle cx="12.46" cy="7" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+          <circle cx="5.54" cy="11" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+          <circle cx="12.46" cy="11" r="4" stroke="currentColor" stroke-width="1" opacity="0.7"/>
+        </svg>
+        Galt
+      </button>
       <button class="health-btn" data-id="m-health-btn" data-action="open-status">
         <span class="health-dot"></span>
         <span data-id="m-health-text">—</span>
@@ -212,31 +232,31 @@
             <svg class="mem-icon-wave" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
             <!-- waiting icon (spinner dots are in CSS) -->
           </span>
-          <span class="memory-mic-label">Memory</span>
+          <span class="memory-mic-label">☽ Memory</span>
           <span class="memory-mic-hint">Tap to speak</span>
         </button>
 
         <!-- Inline Galt response — content injected by _setMemoryPanel() -->
         <div class="memory-response" data-id="memory-response" hidden></div>
 
-        <!-- Claude quick action: repo selector + mic button -->
-        <div class="repo-mic-row">
-          <select class="repo-mic-select"
-                  data-id="repo-mic-select"
-                  data-action="repo-mic-select-change"
-                  aria-label="Select repo">
-            <option value="">— Ask Claude —</option>
-          </select>
-          <button class="claude-mic-btn" data-id="claude-mic-btn" data-action="claude-mic" data-claude-state="idle" aria-label="Ask Claude">
-            <span class="claude-mic-icon">
-              <svg class="claude-icon-bolt" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              <svg class="mem-icon-wave claude-icon-wave" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
-            </span>
-            <span class="claude-mic-label">◆</span>
-          </button>
-        </div>
+        <!-- Claude quick action: tap → speak → Claude runs the task inline -->
+        <button class="claude-mic-btn" data-id="claude-mic-btn" data-action="claude-mic" data-claude-state="idle" aria-label="Ask Claude">
+          <span class="claude-mic-icon">
+            <svg class="claude-icon-bolt" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <svg class="mem-icon-wave claude-icon-wave" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="12" x2="4" y2="12"/><line x1="8" y1="8" x2="8" y2="16"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="16" y1="8" x2="16" y2="16"/><line x1="20" y1="12" x2="20" y2="12"/></svg>
+          </span>
+          <span class="claude-mic-label">☉ Claude</span>
+          <span class="claude-mic-hint">Tap to ask</span>
+        </button>
         <!-- Claude response panel — content injected by _setClaudePanel() -->
         <div class="claude-response" data-id="claude-response" hidden></div>
+
+        <!-- COS sessions quick action: tap → open COSS sheet -->
+        <button class="coss-btn" data-action="open-coss-session" aria-label="Open Sessions">
+          <span class="coss-btn-icon">☿</span>
+          <span class="coss-btn-label">☿ Sessions</span>
+          <span class="coss-btn-hint">Tap to open</span>
+        </button>
       </div>
 
       <!-- Briefing quick view — header taps to #/briefing, body shows standup text -->
@@ -525,11 +545,11 @@
        Claude repo task start (assign/spec/create task/create phase).
        Multiple concurrent tasks shown as a switchable pill queue. -->
   <div class="sheet-backdrop" data-id="cos-backdrop" data-close="cos"></div>
-  <div class="sheet cos-sheet" data-id="cos-sheet">
-    <div class="sheet-handle"></div>
+  <div class="sheet cos-sheet sheet--resizable" data-id="cos-sheet" data-expanded="false">
+    <div class="sheet-handle" data-id="cos-drag-handle"></div>
     <div class="cos-header">
-      <span class="cos-sigil">◈</span>
-      <span class="cos-title">Claude Agent</span>
+      <span class="cos-sigil">△</span>
+      <span class="cos-title">COA</span>
       <span class="cos-badge" data-id="cos-task-count"></span>
       <button class="cos-close" data-close="cos" aria-label="Close">×</button>
     </div>
@@ -539,32 +559,42 @@
     <div class="cos-body" data-id="cos-body">
       <!-- .cos-task-view elements injected by openClaudeOutputSheet() -->
     </div>
-    <!-- COS session input — follow-up to the active repo session -->
     <div class="cos-session-bar" data-id="cos-session-bar" data-available="false">
-      <input class="cos-session-input"
-             data-id="cos-session-input"
-             type="text"
-             placeholder="Follow up…"
-             autocomplete="off"
-             autocorrect="off" />
-      <button class="cos-session-send claude-action-btn"
-              data-action="cos-session-send"
-              data-variant="dim"
-              aria-label="Send">
-        <span class="ca-sigil">◆</span>
-        <span class="ca-label">→</span>
-      </button>
+      <textarea class="cos-session-input" data-id="cos-session-input" rows="1" placeholder="Send a follow-up to this session…"></textarea>
+      <button class="cos-session-send" data-action="cos-session-send" aria-label="Send">↑</button>
     </div>
   </div>
 
-  <!-- CLAUDE AGENT REOPEN PILL — floats globally, visible whenever COS has tasks.
-       Tap to reopen the COS. Hidden (data-visible="false") when no tasks exist. -->
+  <!-- COA REOPEN PILL — floats globally, visible whenever COA has tasks. -->
   <button class="cos-reopen-pill" data-id="cos-reopen-pill" data-action="open-cos"
-          data-visible="false" aria-label="Claude Agent tasks">
-    <span class="cos-reopen-sigil">◈</span>
-    <span class="cos-reopen-label">Agent</span>
+          data-visible="false" aria-label="COA tasks">
+    <span class="cos-reopen-sigil">△</span>
+    <span class="cos-reopen-label">COA</span>
     <span class="cos-reopen-count" data-id="cos-reopen-count"></span>
   </button>
+
+  <!-- COSS SHEET — Claude Output Sessions (Mercury / indigo).
+       Persistent session control and prompt input. -->
+  <div class="sheet-backdrop" data-id="coss-backdrop" data-close="coss"></div>
+  <div class="sheet coss-sheet sheet--resizable" data-id="coss-sheet" data-expanded="false">
+    <div class="sheet-handle" data-id="coss-drag-handle"></div>
+    <div class="coss-header">
+      <span class="coss-sigil">⊕</span>
+      <span class="coss-title">COS</span>
+      <span class="coss-badge" data-id="coss-session-count"></span>
+      <button class="coss-close" data-close="coss" aria-label="Close">×</button>
+    </div>
+    <div class="coss-queue-bar">
+      <div class="coss-queue" data-id="coss-queue"></div>
+    </div>
+    <div class="coss-body" data-id="coss-body">
+      <div class="coss-empty">No sessions yet — assign a task to a repo to start one.</div>
+    </div>
+    <div class="coss-input-bar">
+      <textarea class="coss-input" data-id="coss-input" rows="1" placeholder="Message active session…"></textarea>
+      <button class="coss-send" data-action="coss-send" aria-label="Send">↑</button>
+    </div>
+  </div>
 
   <!-- BOOT SCREEN -->
   <div class="boot" data-id="boot"><div class="boot-mark">Galt</div></div>

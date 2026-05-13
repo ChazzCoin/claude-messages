@@ -3,7 +3,7 @@
 import { startSubscriptions, subscribe } from './state.js';
 import { renderAll, hideBoot } from './render.js';
 import { wireEventDelegation } from './actions.js';
-import { wireChatInput, startChatSubscription, focusChatInput, startMemoryMic } from './galt-chat.js';
+import { wireChatInput, startChatSubscription, focusChatInput, startMemoryMic, initResizableSheets } from './galt-chat.js';
 
 // Hash routing — minimal SPA.
 //   #/        → home (toggles + quick views + quick actions)
@@ -28,6 +28,7 @@ function applyRoute() {
 function boot() {
   wireEventDelegation();
   wireChatInput();
+  initResizableSheets();
   startSubscriptions();
   subscribe(renderAll);
 

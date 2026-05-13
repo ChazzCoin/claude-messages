@@ -763,7 +763,7 @@ function brainShell(module, bodyHtml) {
   return `
     <div class="chat-brain-shell">
       <div class="chat-brain-header">
-        <span class="brain-sigil">◈</span>
+        <span class="brain-sigil">☽</span>
         <span class="brain-label">GALT BRAIN</span>
         <span class="brain-module-sep">·</span>
         <span class="brain-module">${escape(module)}</span>
@@ -1318,7 +1318,7 @@ function _setMemoryPanel(state, text = '') {
     const html = `
       <div class="memory-brain-card">
         <div class="chat-brain-header">
-          <span class="brain-sigil">◈</span>
+          <span class="brain-sigil">☽</span>
           <span class="brain-label">GALT BRAIN</span>
           <span class="brain-module-sep">·</span>
           <span class="brain-module">MEMORY</span>
@@ -1576,7 +1576,7 @@ function _setClaudePanel(state, taskId = '') {
     const html = `
       <div class="claude-quick-card">
         <div class="claude-quick-header">
-          <span class="claude-sigil">◆</span>
+          <span class="claude-sigil">☉</span>
           <span class="claude-label">CLAUDE</span>
           <span class="brain-module-sep">·</span>
           <span class="brain-module">connecting</span>
@@ -1598,7 +1598,7 @@ function _setClaudePanel(state, taskId = '') {
     const cardHtml = `
       <div class="claude-quick-card">
         <div class="claude-quick-header">
-          <span class="claude-sigil">◆</span>
+          <span class="claude-sigil">☉</span>
           <span class="claude-label">CLAUDE</span>
           <span class="brain-module-sep">·</span>
           <span class="claude-status-badge" data-id="task-status-${id}">queued</span>
@@ -1740,17 +1740,15 @@ function _cosActivate(taskId) {
   for (const v of document.querySelectorAll('.cos-task-view')) {
     v.style.display = v.dataset.taskId === taskId ? '' : 'none';
   }
+  // Show session input bar only when the active task has a repo session
+  const bar  = document.querySelector('[data-id="cos-session-bar"]');
   const meta = _cosTasks.get(taskId);
-  const bar = document.querySelector('[data-id="cos-session-bar"]');
-  if (bar) bar.dataset.available = String(!!meta?.repoId);
+  if (bar) bar.dataset.available = String(!!(meta?.repoId));
   _cosRenderQueue();
 }
 
-/** Return the repoId for the currently active COS task, or null if
- *  there is no active task or the task has no repo association. */
 export function getActiveCOSRepoId() {
-  const meta = _cosTasks.get(_cosActiveId);
-  return meta?.repoId ?? null;
+  return _cosActiveId ? (_cosTasks.get(_cosActiveId)?.repoId ?? null) : null;
 }
 
 function _cosRenderQueue() {
@@ -1803,6 +1801,85 @@ function _cosOnTaskUpdate(taskId, status, pr) {
 /** Dismiss the Claude response panel. */
 export function dismissClaudePanel() {
   _setClaudePanel('hidden');
+}
+
+/* ============================================================
+   Resizable sheet drag mechanic
+   Handle drag: down-from-resting → dismiss; down-from-expanded
+   → snap to resting; up-from-resting → expand to full.
+   ============================================================ */
+
+function _initResizableSheet(sheetEl, backdropEl) {
+  const handle = sheetEl.querySelector('.sheet-handle');
+  if (!handle) return;
+
+  let startY = 0;
+  let startH = 0;
+  let dragging = false;
+
+  handle.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    dragging = true;
+    startY = e.touches[0].clientY;
+    startH = sheetEl.getBoundingClientRect().height;
+    sheetEl.dataset.dragging = 'true';
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const dy = e.touches[0].clientY - startY;
+    const newH = Math.max(80, startH - dy);
+    sheetEl.style.height = `${newH}px`;
+  }, { passive: true });
+
+  window.addEventListener('touchend', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    sheetEl.dataset.dragging = 'false';
+
+    const dy = (e.changedTouches[0]?.clientY ?? startY) - startY;
+    const isExpanded = sheetEl.dataset.expanded === 'true';
+    const threshold = 72;
+
+    sheetEl.style.height = '';  // let CSS take over
+
+    if (dy > threshold) {
+      if (isExpanded) {
+        // expanded → resting
+        sheetEl.dataset.expanded = 'false';
+      } else {
+        // resting → dismiss
+        if (backdropEl) backdropEl.dataset.visible = 'false';
+        sheetEl.dataset.visible = 'false';
+      }
+    } else if (dy < -threshold) {
+      // any state → expanded
+      sheetEl.dataset.expanded = 'true';
+    }
+    // else: small drag, snap back to current state (height already cleared)
+  }, { passive: true });
+}
+
+/** Wire drag behavior on both resizable sheets. Call once at boot. */
+export function initResizableSheets() {
+  const cosSheet      = document.querySelector('[data-id="cos-sheet"]');
+  const cosBackdrop   = document.querySelector('[data-id="cos-backdrop"]');
+  const cossSheet     = document.querySelector('[data-id="coss-sheet"]');
+  const cossBackdrop  = document.querySelector('[data-id="coss-backdrop"]');
+  if (cosSheet  && cosBackdrop)  _initResizableSheet(cosSheet, cosBackdrop);
+  if (cossSheet && cossBackdrop) _initResizableSheet(cossSheet, cossBackdrop);
+}
+
+/* ============================================================
+   COSS sheet — Claude Output Sessions (Mercury / indigo)
+   ============================================================ */
+
+/** Open the COSS sheet. */
+export function openCOSSSheet() {
+  const backdrop = document.querySelector('[data-id="coss-backdrop"]');
+  const sheet    = document.querySelector('[data-id="coss-sheet"]');
+  if (backdrop) backdrop.dataset.visible = 'true';
+  if (sheet)    sheet.dataset.visible    = 'true';
 }
 
 /** Tap-to-talk quick action for Claude Code delegation.

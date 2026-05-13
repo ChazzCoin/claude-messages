@@ -14,7 +14,7 @@
 import { sendCommand, getStore } from './state.js';
 import { showToast, openSheet, closeSheet, closeAllSheets, renderSourceSheet, renderPushPanel, renderRepoPage, openRepoPage, closeRepoPage, renderTaskDetail } from './render.js';
 import { enablePush, disablePush, sendTestPush, isPushEnabled } from './push.js';
-import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId } from './galt-chat.js';
+import { sendChatTurn, sendChatText, clearChat, recordApprovalDecision, toggleVoice, toggleMic, testVoice, startMemoryMic, dismissMemoryResponse, initVoice, startClaudeMic, dismissClaudePanel, openClaudeOutputSheet, selectCOSTask, getCOSOpenPRsForRepo, getActiveCOSRepoId, openCOSSSheet } from './galt-chat.js';
 
 /* ---------- the registry ---------- */
 
@@ -338,11 +338,41 @@ const HANDLERS = {
     if (taskId) selectCOSTask(taskId);
   },
 
-  /* open-cos — reopen the COS sheet (floating pill or any trigger) */
+  /* open-cos — reopen the COA sheet (floating pill or any trigger) */
   'open-cos': () => openSheet('cos'),
 
-  /* close-cos — dismiss the COS sheet (tasks keep running) */
+  /* close-cos — dismiss the COA sheet (tasks keep running) */
   'close-cos': () => closeSheet('cos'),
+
+  /* cos-session-send — send a follow-up prompt to the active COA repo session */
+  'cos-session-send': async () => {
+    const input = document.querySelector('[data-id="cos-session-input"]');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    const repoId = getActiveCOSRepoId();
+    if (!repoId) return;
+    input.value = '';
+    try {
+      await sendCommand('repo_claude_task', { repo_id: repoId, text });
+      showToast('sent to session', 'ok');
+    } catch (err) {
+      showToast(`session: ${err.message}`, 'error');
+    }
+  },
+
+  /* open-coss-session — open the COSS sheet */
+  'open-coss-session': () => openCOSSSheet(),
+
+  /* coss-send — send a prompt to the active COS session */
+  'coss-send': async () => {
+    const input = document.querySelector('[data-id="coss-input"]');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    showToast('session input coming soon', 'ok');
+  },
 
   /* approve-pr — squash merge the open PR */
   'approve-pr': async (target) => {
@@ -599,11 +629,16 @@ export function wireEventDelegation() {
   wireDebouncedSave('voice-profile',  'set_voice_profile',  'voice profile saved');
   wireDebouncedSave('default-away',   'set_away_message',   'default away saved');
 
-  // COS session input: Enter key submits follow-up
+  // Enter (no shift) submits COS session inputs
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.target.matches('[data-id="cos-session-input"]')) {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    const id = e.target.dataset?.id;
+    if (id === 'cos-session-input') {
       e.preventDefault();
-      Promise.resolve(HANDLERS['cos-session-send']?.(e.target)).catch((err) => showToast(err.message, 'error'));
+      Promise.resolve(HANDLERS['cos-session-send']?.()).catch((err) => showToast(err.message, 'error'));
+    } else if (id === 'coss-input') {
+      e.preventDefault();
+      Promise.resolve(HANDLERS['coss-send']?.()).catch((err) => showToast(err.message, 'error'));
     }
   });
 
