@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "$comment": [
+    "Galt hook config — see docs/decisions/bidirectional-claude-cli-architecture.md",
+    "and tasks/backlog/TASK-080-claude-settings-hooks.md.",
+    "These hooks fire for any Claude Code subprocess whose cwd is inside",
+    "the Galt repo. Per-turn tasks against external repos (cwd=target repo)",
+    "are not covered by this file alone — see TASK-080 open questions for",
+    "the cross-repo coverage decision."
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/bin/hooks/pre-bash-audit.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/bin/hooks/pre-write-scope.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/bin/hooks/pre-gh-auth.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/bin/hooks/post-bash-mirror.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

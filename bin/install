@@ -18,6 +18,15 @@ fi
 mkdir -p "$PROJECT_DIR/logs"
 mkdir -p "$HOME/Library/LaunchAgents"
 
+# Ensure all Claude Code hook scripts under bin/hooks/ are executable. These
+# are referenced by absolute path from .claude/settings.json; if they're not
+# +x'd, the CLI silently skips them. Idempotent — chmod is a no-op when the
+# bit is already set.
+if [ -d "$PROJECT_DIR/bin/hooks" ]; then
+  chmod +x "$PROJECT_DIR/bin/hooks/"*.sh 2>/dev/null || true
+  echo "✓ hooks +x:     $PROJECT_DIR/bin/hooks/*.sh"
+fi
+
 # Substitute the absolute project path into the template. Use a sed delimiter
 # unlikely to appear in paths.
 sed "s|__PROJECT_DIR__|$PROJECT_DIR|g" "$TEMPLATE" > "$TARGET"

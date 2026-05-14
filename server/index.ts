@@ -167,7 +167,8 @@ import { startCommandListener, stopCommandListener } from './firebase-commands.j
 import { sendPushToAll } from './firebase-push.js';
 import { sendChatTurn, listChatHistory, clearChatHistory } from './ai/galt-chat.js';
 import { cancelTask } from './task-runner.js';
-import { getTask, listTasks, listTaskEvents, type TaskStatus } from './db/app.js';
+import { getTask, listTasks, listTaskEvents, appendTaskEvent, findTaskBySessionId, type TaskStatus } from './db/app.js';
+import { mirrorTaskEvent } from './firebase-tasks.js';
 import {
   listAllContacts,
   listContactsWithHandles,
@@ -3242,6 +3243,54 @@ const schedulerInterval = setInterval(() => {
 schedulerInterval.unref();
 // Run once on boot in case anything is overdue at startup.
 void schedulerTick();
+
+/* ---------- internal endpoints (loopback-only) ----------
+ *
+ * Used by .claude/settings.json hook scripts on the same machine — see
+ * bin/hooks/* and docs/decisions/bidirectional-claude-cli-architecture.md.
+ * Unauthenticated by design (hook scripts can't auth), so we enforce a
+ * loopback-only check at the handler. */
+
+function isLoopbackRequest(req: Request): boolean {
+  const addr = req.socket.remoteAddress ?? '';
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+}
+
+/** Receive a Bash failure event from the post-bash-mirror hook. If the
+ *  session_id resolves to a known task, append a `bash_failure` event
+ *  (which mirrors to RTDB → companion renders a chip). If not, log and
+ *  drop — the failure occurred before the task's init event was recorded. */
+app.post('/api/internal/bash-failure', (req, res) => {
+  if (!isLoopbackRequest(req)) {
+    return res.status(403).json({ error: 'loopback only' });
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const sessionId  = typeof body.session_id === 'string' ? body.session_id : '';
+  const cwd        = typeof body.cwd        === 'string' ? body.cwd        : '';
+  const command    = typeof body.command    === 'string' ? body.command    : '';
+  const stderr     = typeof body.stderr     === 'string' ? body.stderr.slice(0, 1000) : '';
+  const interrupted = !!body.interrupted;
+
+  if (!sessionId) {
+    return res.status(400).json({ error: 'session_id required' });
+  }
+
+  const task = findTaskBySessionId(sessionId);
+  if (!task) {
+    console.warn(`[bash-failure] no task for session_id=${sessionId.slice(0, 8)}…; dropping`);
+    return res.json({ ok: true, associated: false });
+  }
+
+  try {
+    const ev = appendTaskEvent(task.id, 'bash_failure', { cwd, command, stderr, interrupted });
+    void mirrorTaskEvent(ev);
+    return res.json({ ok: true, associated: true, task_id: task.id });
+  } catch (err) {
+    console.error(`[bash-failure] persist failed task=${task.id}:`, (err as Error).message);
+    return res.status(500).json({ error: 'persist failed' });
+  }
+});
 
 /* ---------- static frontend ---------- */
 

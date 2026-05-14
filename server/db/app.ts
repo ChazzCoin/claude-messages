@@ -2463,6 +2463,20 @@ export function listTasks(opts: { status?: TaskStatus; limit?: number } = {}): T
   return rows.map(rowToTask);
 }
 
+/** Find the most recent task carrying this Claude session_id, if any.
+ *  Used by the post-bash-mirror hook to associate a Bash failure with
+ *  the task that produced it. Returns null if no task has recorded
+ *  this session_id yet (which can happen for failures during the very
+ *  first tool call before the init event has been persisted). */
+export function findTaskBySessionId(sessionId: string): TaskRow | null {
+  if (!sessionId) return null;
+  const db = getAppDb();
+  const row = db.prepare(
+    `SELECT ${TASK_COLS} FROM tasks WHERE session_id = ? ORDER BY created_at DESC LIMIT 1`
+  ).get(sessionId) as Record<string, unknown> | undefined;
+  return row ? rowToTask(row) : null;
+}
+
 /** Patch fields on a task. Pass the new status to trigger started_at /
  *  finished_at stamping; the function decides whether to stamp based
  *  on the transition. */

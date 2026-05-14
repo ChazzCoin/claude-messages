@@ -475,6 +475,32 @@ When making code changes for the user:
 - **No frontend framework.** `web/` is static HTML/JS/CSS that the
   Express server hands out. The artifact HTML drops directly in.
 
+- **Claude Code hooks fire on every Galt-cwd subprocess.**
+  `.claude/settings.json` wires four hooks under `bin/hooks/`:
+
+  - `pre-bash-audit.sh` — audit-logs every Bash invocation to
+    `logs/audit.log` (one line per call: timestamp, session_id, cwd,
+    truncated command). Always allows; audit-only.
+  - `pre-write-scope.sh` — blocks `Write` / `Edit` / `MultiEdit` to
+    paths outside the subprocess `cwd`, the Galt repo root, or
+    `~/.claude/worktrees/`. Exit 2 + stderr message; the model sees
+    the reason.
+  - `pre-gh-auth.sh` — runs `gh auth status` before any
+    `mcp__github__*` call; rejects with a clear message if not
+    authenticated. Catches the silent-401 retry loop.
+  - `post-bash-mirror.sh` — on non-empty Bash stderr or interrupt,
+    POSTs a `bash_failure` payload to `/api/internal/bash-failure`
+    (loopback-only); backend looks up the task by session_id and
+    appends a `bash_failure` event so the companion can chip it.
+
+  Coverage caveat: these hooks fire only when the subprocess `cwd` is
+  inside the Galt repo. Per-turn tasks against external repos (cwd =
+  target repo) are NOT covered by this file alone — see
+  [`docs/decisions/bidirectional-claude-cli-architecture.md`](docs/decisions/bidirectional-claude-cli-architecture.md)
+  and TASK-080's open questions for the cross-repo coverage decision.
+  Hooks are referenced via `$CLAUDE_PROJECT_DIR/...`, so they're
+  portable across worktrees.
+
 ## Pause points / open questions
 
 - **`attributedBody` decoder fidelity.** The naive extractor in
