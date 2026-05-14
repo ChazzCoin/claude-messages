@@ -368,6 +368,20 @@ function renderTaskEventLine(ev) {
   if (kind === 'stderr') {
     return '';  // stderr is noisy; skip for now
   }
+  if (kind === 'bash_failure') {
+    // Hook-mirrored Bash exit (non-empty stderr or interrupt). Reuses the
+    // tool_result error styling — minimal but visibly red so the user
+    // can spot it without expanding the surrounding details. Hover the
+    // chip for stderr context. See TASK-080 acceptance criterion 6.
+    const cmd = (data.command || '').slice(0, 80);
+    const title = (data.stderr || '').slice(0, 400) || (data.interrupted ? 'interrupted' : 'failed');
+    return `
+      <div class="chat-task-event chat-task-event-err bash-failure" title="${escape(title)}">
+        <span class="chat-task-event-icon">⚠</span>
+        <span class="chat-task-event-tool">Bash failed</span>
+        ${cmd ? `<span class="chat-task-event-arg">${escape(cmd)}</span>` : ''}
+      </div>`;
+  }
   return '';
 }
 
