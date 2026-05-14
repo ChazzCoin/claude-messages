@@ -140,6 +140,63 @@ evolves.
 
 ---
 
+## Phase 8 — Persistent Claude Sessions & Action System
+
+**Status:** 🚧 Active
+
+**Scope.** Lift Claude task invocations from one-shot, cold-start
+subprocesses to a session model that accumulates context per repo, and
+introduce a reusable "Claude action" surface in the companion so any
+button can trigger a Claude task with a consistent loading / streaming
+/ result UX. **In scope:** `repo_sessions` table with stable session
+UUIDs passed to the CLI as `--session-id`, max-turn rotation that
+exits cleanly (`status='context_limit'`) instead of erroring, a
+companion `<claude-action>` component family, the COS (Claude Output
+Sheet) for the live task stream, the COSS (Claude Output Sessions
+Sheet) for session pill management, and a session input bar inside
+COS for follow-up turns. **Out of scope:** bidirectional CLI tunnel,
+permission modes other than `--dangerously-skip-permissions` flat
+(both belong to Phase 8.5). Success: opening a repo session, sending
+a follow-up, and seeing it route through the same persistent Claude
+process with no cold start beyond the first turn (modulo per-turn
+subprocess spawn — true zero-cold-start lands in 8.5).
+
+**Tasks:** TASK-075, TASK-076, TASK-077, TASK-078, TASK-079
+
+---
+
+## Phase 8.5 — Galt CLI Tunnel & Permission Hardening
+
+**Status:** 📋 Queued
+
+**Scope.** Take the persistent-session model from Phase 8 and replace
+its per-turn subprocess spawn with a true bidirectional tunnel via
+`--input-format stream-json`, while simultaneously moving off flat
+`--dangerously-skip-permissions` and onto a per-task-type permission
+mode with UI approval prompts round-tripped through RTDB. Land
+`.claude/settings.json` hooks first as an independent defense-in-depth
+layer (Bash audit, Write/Edit path scope, gh-auth gate) so the
+work-in-progress window of the bidirectional swap is defensible.
+Introduce a protocol adapter as the single isolation layer between
+Galt's internal event schema and the reverse-engineered CLI NDJSON
+shape, and a session supervisor that owns long-lived subprocess
+lifecycle (crash recovery, turn-limit rotation, FIFO write
+serialization). Two execution models, on purpose: per-turn stays for
+`start_repo_task` / `spec_task` / `create_repo_*` (no upside from
+bidirectional); COSS sends migrate. **Out of scope:** replacing the
+per-turn path for short tasks, migrating `galt_chat` from OpenAI,
+multi-host routing, mid-session model swap. Success: COSS first-token
+latency drops to ~200ms after the first turn; no
+`--dangerously-skip-permissions` anywhere in `server/`; permission
+approval banners round-trip through the companion in under 500ms; the
+per-turn path still works identically for short tasks.
+
+**Tasks:** TASK-080, TASK-081
+
+**Reference:** `docs/decisions/bidirectional-claude-cli-architecture.md`
+
+---
+
 *(Add phases as the project evolves. Use `/plan` to think through new
 phases conversationally; use `/task` to file tasks under existing
 phases. Don't create empty phases speculatively — a phase exists
