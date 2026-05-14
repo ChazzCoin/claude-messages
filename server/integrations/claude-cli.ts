@@ -74,6 +74,52 @@ function resolveClaudeBinary(): string {
   return _cachedBinary;
 }
 
+/** Galt's own `.claude/settings.json` — passed as `--settings <path>` on
+ *  every spawn so our hook policy applies uniformly regardless of the
+ *  subprocess `cwd`. Without this, per-turn tasks against external repos
+ *  would read the *target* repo's settings (which has no Galt hooks)
+ *  and our defense-in-depth layer would be invisible to them.
+ *
+ *  See TASK-080 cross-repo coverage and
+ *  docs/decisions/bidirectional-claude-cli-architecture.md.
+ *
+ *  Cached per-process. Returns null if the file is missing so callers
+ *  can skip the flag rather than handing the CLI a bad path. */
+let _cachedSettingsPath: string | null | undefined;
+function resolveGaltSettingsPath(): string | null {
+  if (_cachedSettingsPath !== undefined) return _cachedSettingsPath;
+  // process.cwd() = Galt repo root under both LaunchAgent (plist sets
+  // the WorkingDirectory) and `npm run dev` (tsx invokes from package.json
+  // dir). If someone ever runs Galt from elsewhere, set CLAUDE_CLI_PATH
+  // to be explicit — same env-var pattern as the binary override.
+  const override = process.env.GALT_CLAUDE_SETTINGS_PATH;
+  if (override) {
+    _cachedSettingsPath = fs.existsSync(override) ? override : null;
+    return _cachedSettingsPath;
+  }
+  const candidate = path.join(process.cwd(), '.claude', 'settings.json');
+  _cachedSettingsPath = fs.existsSync(candidate) ? candidate : null;
+  return _cachedSettingsPath;
+}
+
+/** Build the subprocess env for a `claude` spawn, layering Galt-specific
+ *  variables on top of the inherited parent env. Pass the resolved
+ *  settings path so we can derive $GALT_HOOKS_DIR (which the hook
+ *  commands in that settings.json reference). When settingsPath is null,
+ *  GALT_HOOKS_DIR is omitted — hook commands won't resolve, but we also
+ *  won't have passed `--settings` so no hooks are loaded anyway. */
+function galtSpawnEnv(settingsPath: string | null): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  if (settingsPath) {
+    // settings.json lives at <galt-root>/.claude/settings.json
+    // → galt-root = path.dirname(path.dirname(settingsPath))
+    // → hooks dir = <galt-root>/bin/hooks
+    const galtRoot = path.dirname(path.dirname(settingsPath));
+    env.GALT_HOOKS_DIR = path.join(galtRoot, 'bin', 'hooks');
+  }
+  return env;
+}
+
 /** Encode an absolute filesystem path the way ~/.claude/projects/ does
  *  it: replace every `/` with `-`. Used to map a cwd → its session dir. */
 function encodeProjectPath(absPath: string): string {
@@ -332,6 +378,9 @@ export class ClaudeCli {
    *  (running as the user, no parent Claude), auth resolves normally. */
   async chat(opts: ChatTurnOpts): Promise<ChatTurnResult> {
     const args = ['-p', opts.prompt, '--output-format', 'stream-json', '--verbose'];
+    // Galt hook policy — see resolveGaltSettingsPath comment.
+    const settingsPath = resolveGaltSettingsPath();
+    if (settingsPath) args.push('--settings', settingsPath);
     if (opts.sessionId)            args.push('--session-id', opts.sessionId);
     if (opts.appendSystemPrompt)   args.push('--append-system-prompt', opts.appendSystemPrompt);
     if (opts.maxTurns != null)     args.push('--max-turns', String(opts.maxTurns));
@@ -347,10 +396,12 @@ export class ClaudeCli {
 
     const cwd = opts.workingDir ?? process.cwd();
     const timeoutMs = opts.timeoutMs ?? 5 * 60_000;
+    const spawnEnv = galtSpawnEnv(settingsPath);
 
     return new Promise((resolve, reject) => {
       const child = spawn(this.binaryPath, args, {
         cwd,
+        env: spawnEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       const stdoutLines: string[] = [];
@@ -434,6 +485,11 @@ export class StreamingClaudeCli {
       // to approve tool permission prompts interactively.
       '--dangerously-skip-permissions',
     ];
+    // Galt hook policy — applies regardless of subprocess cwd, which is
+    // critical for per-turn tasks where cwd = target repo (NOT Galt repo).
+    // See resolveGaltSettingsPath and TASK-080 cross-repo coverage notes.
+    const settingsPath = resolveGaltSettingsPath();
+    if (settingsPath) args.push('--settings', settingsPath);
     if (opts.sessionId)            args.push('--session-id', opts.sessionId);
     if (opts.appendSystemPrompt)   args.push('--append-system-prompt', opts.appendSystemPrompt);
     if (opts.maxTurns != null)     args.push('--max-turns', String(opts.maxTurns));
@@ -449,7 +505,8 @@ export class StreamingClaudeCli {
     if (opts.worktreeName) args.push('--worktree', opts.worktreeName);
 
     const cwd = opts.workingDir ?? process.cwd();
-    const child = spawn(this.binary(), args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const spawnEnv = galtSpawnEnv(settingsPath);
+    const child = spawn(this.binary(), args, { cwd, env: spawnEnv, stdio: ['ignore', 'pipe', 'pipe'] });
 
     // Backpressure-friendly queue. Producer (stdout reader, exit
     // handler) push events; consumer (async iterator) pulls. Same

@@ -3,10 +3,15 @@
   "$comment": [
     "Galt hook config — see docs/decisions/bidirectional-claude-cli-architecture.md",
     "and tasks/backlog/TASK-080-claude-settings-hooks.md.",
-    "These hooks fire for any Claude Code subprocess whose cwd is inside",
-    "the Galt repo. Per-turn tasks against external repos (cwd=target repo)",
-    "are not covered by this file alone — see TASK-080 open questions for",
-    "the cross-repo coverage decision."
+    "",
+    "Hook commands resolve via $GALT_HOOKS_DIR rather than the standard",
+    "$CLAUDE_PROJECT_DIR because we pass this settings file with --settings",
+    "on every spawn — including per-turn tasks where the subprocess cwd is",
+    "the target repo, NOT the Galt repo. In that case $CLAUDE_PROJECT_DIR",
+    "points at the target repo (which has no Galt hooks).",
+    "",
+    "$GALT_HOOKS_DIR is set explicitly by claude-cli.ts on every spawn so",
+    "the path always resolves correctly regardless of cwd."
   ],
   "hooks": {
     "PreToolUse": [
@@ -15,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/bin/hooks/pre-bash-audit.sh"
+            "command": "$GALT_HOOKS_DIR/pre-bash-audit.sh"
           }
         ]
       },
@@ -24,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/bin/hooks/pre-write-scope.sh"
+            "command": "$GALT_HOOKS_DIR/pre-write-scope.sh"
           }
         ]
       },
@@ -33,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/bin/hooks/pre-gh-auth.sh"
+            "command": "$GALT_HOOKS_DIR/pre-gh-auth.sh"
           }
         ]
       }
@@ -44,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/bin/hooks/post-bash-mirror.sh"
+            "command": "$GALT_HOOKS_DIR/post-bash-mirror.sh"
           }
         ]
       }

@@ -240,15 +240,16 @@ No E2E framework exists yet. Manual verification only.
 
 ## Open questions / risks
 
-- **Hook script discovery.** Claude CLI reads `.claude/settings.json`
-  from the working directory of the subprocess. Per-turn tasks set
-  `cwd` to the target repo, so the *target repo's* `.claude/settings.json`
-  applies, not Galt's. Decision: hooks must live in **every** repo
-  Galt operates on, OR we set a `CLAUDE_SETTINGS_PATH` env var on
-  spawn. Recommend the env-var approach so Galt's hook policy
-  applies uniformly regardless of target repo. Confirm CLI supports
-  this env var; if not, fall back to copying `settings.json` into
-  each repo at registration time.
+- ~~**Hook script discovery for per-turn tasks against external repos.**~~
+  **RESOLVED.** Original concern: per-turn tasks set `cwd` to the
+  target repo, so the target repo's `.claude/settings.json` applies
+  (not Galt's), leaving the hooks invisible for those subprocesses.
+  Fix landed on this branch: Claude CLI supports `--settings <file>`,
+  so `claude-cli.ts::resolveGaltSettingsPath` resolves Galt's local
+  `settings.json` and passes it on every spawn. Hook `command` fields
+  reference `$GALT_HOOKS_DIR/...` (not `$CLAUDE_PROJECT_DIR/...`) so
+  they resolve regardless of cwd; `claude-cli.ts::galtSpawnEnv` exports
+  the var on every spawn.
 - **Hook script return semantics.** A non-zero exit blocks the tool.
   Verify the model recovers gracefully — emits a stderr event the
   user can see, doesn't infinite-loop retrying. Test in (3) above.

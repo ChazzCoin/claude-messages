@@ -493,13 +493,21 @@ When making code changes for the user:
     (loopback-only); backend looks up the task by session_id and
     appends a `bash_failure` event so the companion can chip it.
 
-  Coverage caveat: these hooks fire only when the subprocess `cwd` is
-  inside the Galt repo. Per-turn tasks against external repos (cwd =
-  target repo) are NOT covered by this file alone — see
-  [`docs/decisions/bidirectional-claude-cli-architecture.md`](docs/decisions/bidirectional-claude-cli-architecture.md)
-  and TASK-080's open questions for the cross-repo coverage decision.
-  Hooks are referenced via `$CLAUDE_PROJECT_DIR/...`, so they're
-  portable across worktrees.
+  Coverage: hooks fire for **every** Galt-spawned Claude subprocess
+  regardless of `cwd`. `claude-cli.ts` passes `--settings <galt-path>`
+  on every spawn (both per-turn and the future bidirectional path),
+  and exports `GALT_HOOKS_DIR` in the subprocess env. Hook commands
+  in `settings.json` reference `$GALT_HOOKS_DIR/...` rather than
+  `$CLAUDE_PROJECT_DIR/...`, so they resolve correctly whether the
+  task is operating on the Galt repo (COSS-global) or an external
+  target repo (per-turn `start_repo_task`, etc).
+
+  Direct interactive `claude` invocations from within the Galt repo
+  also pick up these hooks via the project-local settings — though
+  `$GALT_HOOKS_DIR` is unset in that context, so commands won't
+  resolve. Set it manually (`export GALT_HOOKS_DIR=$PWD/bin/hooks`)
+  or skip via `--bare` if you don't want the hooks while doing
+  interactive work in this repo.
 
 ## Pause points / open questions
 
