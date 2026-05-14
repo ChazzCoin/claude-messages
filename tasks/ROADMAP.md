@@ -110,6 +110,7 @@ Tasks (in suggested ship order):
 Tasks that don't fit a single phase — typically infrastructure that
 several phases depend on. Use sparingly.
 
+- TASK-082 — Task creation pipeline smoke test
 - TASK-100 — Optional `launchd` plist for auto-start on login
 - TASK-101 — Vitest harness with synthetic `chat.db` fixture
 
