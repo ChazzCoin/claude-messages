@@ -3,6 +3,10 @@
 // All renderers are idempotent and accept a fresh snapshot. main.js
 // wires them up to fire on every store update via subscribe().
 
+import { marked } from 'https://cdn.jsdelivr.net/npm/marked@15/lib/marked.esm.js';
+marked.use({ breaks: true, gfm: true });
+
+
 const $$ = (id) => document.querySelectorAll(`[data-id="${id}"]`);
 const $  = (id) => document.querySelector(`[data-id="${id}"]`);
 
@@ -643,7 +647,7 @@ export function renderTaskDetail(task, repo, phaseMap = {}) {
   titleEl.textContent = task.title || task.task_id;
 
   if (task.body?.trim()) {
-    bodyEl.innerHTML = `<span class="tds-body-text">${escape(task.body)}</span>`;
+    bodyEl.innerHTML = `<div class="tds-md">${marked.parse(task.body)}</div>`;
   } else {
     bodyEl.innerHTML = `<span class="tds-body-empty">${isStub ? 'No spec yet — this task is a stub. Use Spec to have Claude write it.' : 'No body content found for this task.'}</span>`;
   }

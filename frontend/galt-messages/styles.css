@@ -1545,16 +1545,88 @@ input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px
 .tds-body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0 16px 16px;
   font-size: 13px; line-height: 1.65; color: var(--text-dim);
-  white-space: pre-wrap;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 .tds-body-empty {
-  color: var(--text-faint); font-style: italic; font-family: inherit;
+  color: var(--text-faint); font-style: italic;
   font-size: 13px; padding: 8px 0;
-  white-space: normal;
 }
+
+/* Markdown rendered inside the task detail body */
+.tds-md { padding: 4px 0; }
+.tds-md h1, .tds-md h2, .tds-md h3, .tds-md h4 {
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.1em 0 0.4em;
+}
+.tds-md h1 { font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.tds-md h2 { font-size: 14px; color: var(--accent); letter-spacing: 0.01em; }
+.tds-md h3 { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
+.tds-md h4 { font-size: 12px; }
+.tds-md p  { margin: 0.6em 0; }
+.tds-md ul, .tds-md ol { padding-left: 18px; margin: 0.5em 0; }
+.tds-md li { margin: 0.25em 0; }
+.tds-md li > ul, .tds-md li > ol { margin: 0.15em 0; }
+.tds-md strong { color: var(--text); font-weight: 600; }
+.tds-md em     { color: var(--text-dim); font-style: italic; }
+.tds-md code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--accent);
+  word-break: break-all;
+}
+.tds-md pre {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin: 0.7em 0;
+  overflow-x: auto;
+  font-size: 11.5px;
+  line-height: 1.55;
+  word-break: normal;
+}
+.tds-md pre code {
+  background: none; border: none; padding: 0;
+  color: var(--text-dim); word-break: normal;
+}
+.tds-md blockquote {
+  border-left: 3px solid var(--accent-dim);
+  padding: 2px 0 2px 12px;
+  margin: 0.6em 0;
+  color: var(--text-faint);
+}
+.tds-md hr {
+  border: none; border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+.tds-md a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.tds-md a:hover { text-decoration: underline; }
+.tds-md table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12px; margin: 0.7em 0;
+}
+.tds-md th, .tds-md td {
+  text-align: left;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+}
+.tds-md th {
+  background: var(--bg-3);
+  color: var(--text);
+  font-weight: 600;
+}
+.tds-md tr:nth-child(even) { background: rgba(255,255,255,0.02); }
 .tds-actions {
   display: flex;
   gap: 8px;

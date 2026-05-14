@@ -175,7 +175,7 @@ export async function createPR(
 /** Squash-merge a PR and delete the remote branch. */
 export async function mergePR(repoPath: string, prNumber: number): Promise<void> {
   await execFileP(
-    GH_BIN, ['pr', 'merge', String(prNumber), '--squash', '--delete-branch', '--yes'],
+    GH_BIN, ['pr', 'merge', String(prNumber), '--squash', '--delete-branch'],
     { cwd: repoPath, timeout: 30_000 },
   );
   console.log(`[repo-tasks] PR #${prNumber} merged`);

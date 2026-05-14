@@ -427,10 +427,10 @@ const HANDLERS = {
 
   /* approve-pr — squash merge the open PR */
   'approve-pr': async (target) => {
-    const taskId  = target.dataset.taskId;
+    const taskId  = target.dataset.taskId || '';
     const repoId  = parseInt(target.dataset.repoId, 10);
     const prNumber = parseInt(target.dataset.prNumber, 10);
-    if (!taskId || !Number.isFinite(prNumber)) return;
+    if (!Number.isFinite(repoId) || !Number.isFinite(prNumber)) return;
     target.disabled = true;
     target.textContent = 'Merging…';
     try {
@@ -445,10 +445,10 @@ const HANDLERS = {
 
   /* deny-pr — close (reject) the open PR */
   'deny-pr': async (target) => {
-    const taskId  = target.dataset.taskId;
+    const taskId  = target.dataset.taskId || '';
     const repoId  = parseInt(target.dataset.repoId, 10);
     const prNumber = parseInt(target.dataset.prNumber, 10);
-    if (!taskId || !Number.isFinite(prNumber)) return;
+    if (!Number.isFinite(repoId) || !Number.isFinite(prNumber)) return;
     target.disabled = true;
     target.textContent = 'Closing…';
     try {
